@@ -72,7 +72,7 @@ from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
 from .util import (ChoicesLayout, icon_path, MessageBox, MessageBoxMixin, protected,
     read_QIcon)
-from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
+from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlag, WizardFormSection
 
 if TYPE_CHECKING:
     from ...devices.hw_wallet.plugin import HW_PluginBase
@@ -123,19 +123,19 @@ class AccountPage(enum.IntEnum):
     FIND_HARDWARE_WALLET = 500
     SETUP_HARDWARE_WALLET = 505
 
-class KeyFlags(enum.IntEnum):
+class KeyFlag(enum.IntEnum):
     NONE = 0
     CAN_BE_MULTISIG_READ_ONLY = 1 << 0
     CAN_BE_MULTISIG_WRITABLE = (1 << 1) | CAN_BE_MULTISIG_READ_ONLY
 
 TextKeystoreTypeFlags = {
-    KeystoreTextType.ADDRESSES: KeyFlags.NONE,
-    KeystoreTextType.PRIVATE_KEYS: KeyFlags.NONE,
-    KeystoreTextType.EXTENDED_PUBLIC_KEY: KeyFlags.CAN_BE_MULTISIG_READ_ONLY,
-    KeystoreTextType.EXTENDED_PRIVATE_KEY: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
-    KeystoreTextType.BIP39_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
-    KeystoreTextType.ELECTRUM_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
-    KeystoreTextType.ELECTRUM_OLD_SEED_WORDS: KeyFlags.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.ADDRESSES: KeyFlag.NONE,
+    KeystoreTextType.PRIVATE_KEYS: KeyFlag.NONE,
+    KeystoreTextType.EXTENDED_PUBLIC_KEY: KeyFlag.CAN_BE_MULTISIG_READ_ONLY,
+    KeystoreTextType.EXTENDED_PRIVATE_KEY: KeyFlag.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.BIP39_SEED_WORDS: KeyFlag.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.ELECTRUM_SEED_WORDS: KeyFlag.CAN_BE_MULTISIG_WRITABLE,
+    KeystoreTextType.ELECTRUM_OLD_SEED_WORDS: KeyFlag.CAN_BE_MULTISIG_WRITABLE,
 }
 
 def request_password(parent: Optional[QWidget], storage: WalletStorage) -> Optional[str]:
@@ -169,7 +169,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
     _keystore_type = AccountCreationType.UNKNOWN
 
     def __init__(self, main_window_proxy: ElectrumWindow,
-            flags: WizardFlags=DEFAULT_WIZARD_FLAGS, parent: Optional[QWidget]=None) -> None:
+            flags: WizardFlag=DEFAULT_WIZARD_FLAGS, parent: Optional[QWidget]=None) -> None:
         if parent is None:
             parent = main_window_proxy.reference()
         super().__init__(parent)
@@ -247,7 +247,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
 
         # For now, all other result types are expected to be collected by the invoking logic of
         # this account wizard instance.
-        if self.flags & WizardFlags.ACCOUNT_RESULT:
+        if self.flags & WizardFlag.ACCOUNT_RESULT:
             self._wallet.create_account_from_keystore(keystore_result)
 
     def set_text_entry_account_result(self, keystore_result: KeyStoreResult,
@@ -255,7 +255,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
             password: Optional[str]) -> None:
         self._keystore_result = keystore_result
 
-        if self.flags & WizardFlags.ACCOUNT_RESULT:
+        if self.flags & WizardFlag.ACCOUNT_RESULT:
             assert password is not None
             self._wallet.create_account_from_text_entries(text_type, cast(Set[str], text_matches),
                 password)
@@ -295,7 +295,7 @@ class AddAccountWizardPage(QWizardPage):
         for entry in self._get_entries():
             if not entry.get("enabled", True):
                 continue
-            if wizard.flags & entry.get("mode_mask", WizardFlags.NONE) == WizardFlags.NONE:
+            if wizard.flags & entry.get("mode_mask", WizardFlag.NONE) == WizardFlag.NONE:
                 continue
             list_item = QListWidgetItem()
             list_item.setSizeHint(QSize(40, 40))
@@ -459,7 +459,7 @@ class AddAccountWizardPage(QWizardPage):
                     "standard account is one where you are in control of all payments."),
                 'button_text': _("Create"),
                 'enabled': True,
-                'mode_mask': WizardFlags.ALL_MODES,
+                'mode_mask': WizardFlag.ALL_MODES,
                 'handler': self._create_new_account,
             },
             {
@@ -472,7 +472,7 @@ class AddAccountWizardPage(QWizardPage):
                     "approve each payment. This requires that the participants, or cosigners, "
                     "coordinate the signing of each payment."),
                 'enabled': True,
-                'mode_mask': WizardFlags.STANDARD_MODE,
+                'mode_mask': WizardFlag.STANDARD_MODE,
             },
             {
                 'page': AccountPage.IMPORT_ACCOUNT_TEXT,
@@ -483,7 +483,7 @@ class AddAccountWizardPage(QWizardPage):
                     "ElectrumSV to examine it and offer you some choices on how it can be "
                     "imported, this is the option you probably want."),
                 'enabled': True,
-                'mode_mask': WizardFlags.ALL_MODES,
+                'mode_mask': WizardFlag.ALL_MODES,
             },
             {
                 'page': AccountPage.FIND_HARDWARE_WALLET,
@@ -503,7 +503,7 @@ class AddAccountWizardPage(QWizardPage):
                     "</ul>"
                     "</p>",
                 'enabled': True,
-                'mode_mask': WizardFlags.ALL_MODES,
+                'mode_mask': WizardFlag.ALL_MODES,
             },
         ]
 
@@ -588,11 +588,11 @@ class ImportWalletTextPage(QWizardPage):
             (KeystoreTextType.ELECTRUM_SEED_WORDS, self._esvseed_button),
             (KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, self._esvoldseed_button),
         ]
-        if wizard.flags & WizardFlags.MULTISIG_MODE == WizardFlags.MULTISIG_MODE:
+        if wizard.flags & WizardFlag.MULTISIG_MODE == WizardFlag.MULTISIG_MODE:
             entries = []
             for text_type, button in button_entries:
                 key_flags = TextKeystoreTypeFlags[text_type]
-                if key_flags == KeyFlags.NONE:
+                if key_flags == KeyFlag.NONE:
                     continue
                 entries.append((text_type, button))
             return entries

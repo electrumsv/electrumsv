@@ -5,17 +5,20 @@ from datetime import datetime, timezone
 import uuid
 from http import HTTPStatus
 import json
-from typing import TypedDict
+from typing import TypedDict, TYPE_CHECKING
 
 from ..app_state import app_state
 from ..constants import DPPMessageType
 from ..dpp_messages import get_dpp_network_string, HybridModePaymentACKDict, \
-    HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, PaymentACKDict
-from ..exceptions import Bip270Exception
+    HYBRID_PAYMENT_MODE_BRFCID, PaymentMessage, PaymentACKMessage, PaymentACKDict
+from ..exceptions import DPPException
 from ..logs import logs
 from ..standards.json_envelope import pack_json_envelope
 from ..types import IndefiniteCredentialId
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
+
+if TYPE_CHECKING:
+    from ..transaction import Transaction
 
 logger = logs.get_logger("direct-payments")
 
@@ -30,9 +33,9 @@ class ClientError(TypedDict):
 
 
 async def send_outgoing_direct_payment_async(payment_url: str,
-        transaction_hex: str, their_text: str | None = None) -> PaymentACK:
+        transactions: list[Transaction], their_text: str | None = None) -> PaymentACKMessage:
     """
-    Raises `Bip270Exception` if the remote server returned an error. `exception.args[0]` contains
+    Raises `DPPException` if the remote server returned an error. `exception.args[0]` contains
         text describing the error.
     """
     assert app_state.daemon.network is not None
@@ -43,7 +46,7 @@ async def send_outgoing_direct_payment_async(payment_url: str,
 
     logger.debug("Outgoing payment url: %s", payment_url)
 
-    payment = Payment(transaction_hex=transaction_hex, memo=their_text)
+    payment = PaymentMessage(transactions, their_text)
 
     headers: dict[str, str] = {
         "Content-Type": "application/json",
@@ -63,11 +66,11 @@ async def send_outgoing_direct_payment_async(payment_url: str,
                 # Hide those and just display the name of the error code.
                 assert response.reason is not None
                 message = response.reason
-            raise Bip270Exception(message)
+            raise DPPException(message)
 
         ack_json = await response.text()
 
-    payment_ack = PaymentACK.from_json(ack_json)
+    payment_ack = PaymentACKMessage.from_json(ack_json)
     logger.debug("PaymentACK message received: %s", payment_ack.to_json())
     return payment_ack
 
@@ -137,8 +140,8 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     return message_row_response
 
 
-def dpp_make_ack(txid: str, message_row_received: DPPMessageRow) -> DPPMessageRow:
-    mode = HybridModePaymentACKDict(transactionIds=[txid])
+def dpp_make_ack(tx_ids: list[str], message_row_received: DPPMessageRow) -> DPPMessageRow:
+    mode = HybridModePaymentACKDict(transactionIds=tx_ids)
     payment_ack_data = PaymentACKDict(modeId=HYBRID_PAYMENT_MODE_BRFCID, mode=mode,
         peerChannel=None, redirectUrl=None)
 

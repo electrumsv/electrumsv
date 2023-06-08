@@ -7,7 +7,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QToolBar, QVBoxLayout, QWidget
 
-from ...constants import NetworkServerFlag, PaymentFlag
+from ...constants import NetworkServerFlag, PaymentRequestFlag
 from ...i18n import _
 from ...logs import logs
 
@@ -125,7 +125,7 @@ class ReceiveView(QWidget):
         # The blockchain service is required to get output spend notifications.
         required_flags = NetworkServerFlag.USE_BLOCKCHAIN
         if self._main_window_proxy._wallet.have_wallet_servers(required_flags):
-            self.show_dialog(None, PaymentFlag.TYPE_INVOICE)
+            self.show_dialog(None, PaymentRequestFlag.TYPE_INVOICE)
             return
 
         dialog_text = _("Receiving invoice payments requires signing up "
@@ -145,7 +145,7 @@ class ReceiveView(QWidget):
         #   selected and connected to.
         # - They chose "Manage servers" which selected and connected to servers and then on exit
         #   from that wizard this dialog auto-accepted.
-        dialog.accepted.connect(partial(self.show_dialog, None, PaymentFlag.TYPE_INVOICE))
+        dialog.accepted.connect(partial(self.show_dialog, None, PaymentRequestFlag.TYPE_INVOICE))
         dialog.show()
 
 
@@ -155,7 +155,7 @@ class ReceiveView(QWidget):
                 "payment. Please complete that one first."))
             return
 
-        self.show_dialog(None, PaymentFlag.TYPE_IMPORTED)
+        self.show_dialog(None, PaymentRequestFlag.TYPE_IMPORTED)
 
     def _event_action_triggered_blockchain(self) -> None:
         if None in self._dialogs:
@@ -194,7 +194,7 @@ class ReceiveView(QWidget):
         dialog.show()
 
     def _show_blockchain_payment_dialog(self) -> None:
-        self.show_dialog(None, PaymentFlag.TYPE_MONITORED)
+        self.show_dialog(None, PaymentRequestFlag.TYPE_MONITORED)
 
     def update_widgets(self) -> None:
         """
@@ -219,7 +219,7 @@ class ReceiveView(QWidget):
             edits.extend(dialog.get_bsv_edits())
         return edits
 
-    def show_dialog(self, request_id: int|None, request_type: PaymentFlag) -> None:
+    def show_dialog(self, request_id: int|None, request_type: PaymentRequestFlag) -> None:
         """
         Show the dialog for the given `request_id`.
 
@@ -227,10 +227,11 @@ class ReceiveView(QWidget):
         open in the background and avoid having multiple copies open.
         """
         # If the request is an existing one the type should be effectively unspecified.
-        assert request_id is None or request_type & PaymentFlag.MASK_TYPE == PaymentFlag.NONE
+        assert request_id is None or \
+            request_type & PaymentRequestFlag.MASK_TYPE == PaymentRequestFlag.NONE
         # If the request is not an existing one the flag should be a forward looking type.
         assert request_id is not None or \
-            request_type & PaymentFlag.MASK_TYPE != PaymentFlag.TYPE_LEGACY
+            request_type & PaymentRequestFlag.MASK_TYPE != PaymentRequestFlag.TYPE_LEGACY
 
         dialog = self._dialogs.get(request_id)
         if dialog is None:

@@ -33,7 +33,7 @@ import signal
 import sys
 import threading
 import time
-from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
+from typing import Any, Callable, cast, Coroutine, Iterable, TypeVar
 
 import PyQt6.QtCore as QtCore
 from PyQt6.QtCore import pyqtSignal, QEvent, QObject, QTimer
@@ -45,13 +45,11 @@ from ...i18n import _
 from ...logs import logs
 from ...types import ExceptionInfoType
 from ...util import UpdateCheckResultType
-from ...wallet import AbstractAccount, Wallet
+from ...wallet import Wallet
 
 from . import dialogs
-from .cosigner_pool import CosignerPool
 from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
-from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
@@ -64,7 +62,7 @@ logger = logs.get_logger('app')
 
 
 class OpenFileEventFilter(QObject):
-    def __init__(self, windows: List[ElectrumWindow]) -> None:
+    def __init__(self, windows: list[ElectrumWindow]) -> None:
         super().__init__()
         self.windows = windows
 
@@ -99,7 +97,7 @@ class SVApplication(QApplication):
     fiat_balance_changed = pyqtSignal()
     update_check_signal = pyqtSignal(bool, object)
 
-    def __init__(self, argv: List[str]) -> None:
+    def __init__(self, argv: list[str]) -> None:
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
             QtCore.QCoreApplication.setAttribute(
                 QtCore.Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -109,11 +107,11 @@ class SVApplication(QApplication):
 
         self.startup_time = time.time()
 
-        self.windows: List[ElectrumWindow] = []
+        self.windows: list[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
-        self.log_window: Optional[SVLogWindow] = None
+        self.log_window: SVLogWindow|None = None
         self.timer = QTimer(self)
-        self.exception_hook: Optional[ExceptionHandlerABC] = None
+        self.exception_hook: ExceptionHandlerABC|None = None
         # A floating point number, e.g. 129.1
         self.dpi = self.primaryScreen().physicalDotsPerInch()
 
@@ -211,7 +209,7 @@ class SVApplication(QApplication):
                 for w in self.windows:
                     w.hide()
 
-    def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
+    def new_window(self, path: str|None, uri: str|None=None) -> None:
         # Use a signal as can be called from daemon thread
         self.create_new_window_signal.emit(path, uri, False)
 
@@ -224,13 +222,6 @@ class SVApplication(QApplication):
         if self.log_window:
             self.log_window.accept()
 
-    def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes, text: str) \
-            -> None:
-        self.label_sync.set_transaction_label(account, tx_hash, text)
-
-    def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int, text: str) -> None:
-        self.label_sync.set_keyinstance_label(account, key_id, text)
-
     def _create_window_for_wallet(self, wallet: Wallet) -> ElectrumWindow:
         w = ElectrumWindow(wallet)
         self.windows.append(w)
@@ -241,24 +232,24 @@ class SVApplication(QApplication):
     def get_wallets(self) -> Iterable[Wallet]:
         return [ window._wallet for window in self.windows ]
 
-    def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
+    def get_wallet_window(self, path: str) -> ElectrumWindow|None:
         for w in self.windows:
             if w._wallet.get_storage_path() == path:
                 return w
         return None
 
-    def get_wallet_window_by_id(self, wallet_id: int) -> Optional[ElectrumWindow]:
+    def get_wallet_window_by_id(self, wallet_id: int) -> ElectrumWindow|None:
         for w in self.windows:
             if w._wallet.get_id() == wallet_id:
                 return w
         return None
 
-    def _start_new_window_signal(self, wallet_path: Optional[str], uri: Optional[str]=None,
+    def _start_new_window_signal(self, wallet_path: str|None, uri: str|None=None,
             is_startup: bool=False) -> None:
         self.start_new_window(wallet_path, uri, is_startup)
 
-    def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,
-            is_startup: bool=False) -> Optional[ElectrumWindow]:
+    def start_new_window(self, wallet_path: str|None, uri: str|None=None,
+            is_startup: bool=False) -> ElectrumWindow|None:
         '''Raises the window for the wallet if it is open.  Otherwise
         opens the wallet and creates a new window for it.'''
         for w in self.windows:
@@ -266,7 +257,7 @@ class SVApplication(QApplication):
                 w.bring_to_top()
                 break
         else:
-            wizard_window: Optional[WalletWizard] = None
+            wizard_window: WalletWizard|None = None
             if wallet_path is not None:
                 open_result  = WalletWizard.attempt_open(wallet_path)
                 if open_result.was_aborted:
@@ -337,8 +328,6 @@ class SVApplication(QApplication):
         dialogs.show_named('welcome-ESV-1.4.0b1')
 
     def event_loop_started(self) -> None:
-        self.cosigner_pool = CosignerPool()
-        self.label_sync = LabelSync()
         if app_state.config.get("show_crash_reporter", default=True):
             self.exception_hook = cast(ExceptionHandlerABC, Exception_Hook(self))
         self.timer.start()
@@ -372,7 +361,7 @@ class SVApplication(QApplication):
         self.tray.hide()
 
     def run_coro(self, coro: Coroutine[Any, Any, T1],
-            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+            on_done: Callable[[concurrent.futures.Future[T1]], None]|None=None) \
                 -> concurrent.futures.Future[T1]:
         '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
         exception, and is guaranteed to be called in the context of the GUI thread.
@@ -388,7 +377,7 @@ class SVApplication(QApplication):
     #     would need to use `typing.ParamSpec` and be able to `Concatenate` the `on_done`
     #     keyword argument into the mix. However, that is not supported as per PEP 612.
     def run_in_thread(self, func: Callable[..., T1], /, *args: Any,
-            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+            on_done: Callable[[concurrent.futures.Future[T1]], None]|None=None) \
                 -> concurrent.futures.Future[T1]:
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI

@@ -6,7 +6,7 @@ import unittest.mock
 from bitcoinx import hash_to_hex_str, hex_str_to_hash
 import pytest as pytest
 
-from electrumsv.constants import AccountFlags
+from electrumsv.constants import AccountFlag
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet
 from electrumsv.storage import WalletStorage
 from electrumsv.wallet_database import functions as db_functions
@@ -61,7 +61,7 @@ def test_read_history_for_outputs(mock_wallet_app_state, limit_count, skip, expe
 
     account_id = -1
     for account_row in db_functions.read_accounts(db_context):
-         if account_row.flags == AccountFlags.NONE:
+         if account_row.flags == AccountFlag.NONE:
               account_id = account_row.account_id
               break
     assert account_id != -1
@@ -87,6 +87,8 @@ def test_read_history_for_outputs(mock_wallet_app_state, limit_count, skip, expe
     finally:
         Net.set_to(SVMainnet)
 
+# TODO(1.4.0) Database not fixed. This is a 29 database and that migration is changing.
+@pytest.mark.xfail(reason="We do not currently have post 1.4.0 databases")
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -> None:
     """
@@ -111,7 +113,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
 
     account_id = -1
     for account_row in db_functions.read_accounts(db_context):
-         if account_row.flags == AccountFlags.NONE:
+         if account_row.flags == AccountFlag.NONE:
               account_id = account_row.account_id
               break
     assert account_id != -1

@@ -65,7 +65,7 @@ from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, MissingHeader, O
 from .app_state import app_state
 from .bitcoin import COIN, COINBASE_MATURITY, script_template_to_string
 from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
-    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+    ScriptType, TransactionOutputFlag, TxFlag
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds, NoViableServersError, \
     ServiceUnavailableError
 from .logs import logs
@@ -1243,7 +1243,7 @@ async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdTy
         #     wallet's main chain. We can only know if a transaction is in a mempool if
         #     we have broadcast it (and set `STATE_CLEARED`). Our best equivalent to this is
         #     `MASK_STATE_BROADCAST` which is just both those flags.
-        if utxo_data.tx_flags & TxFlags.MASK_STATE_BROADCAST == 0:
+        if utxo_data.tx_flags & TxFlag.MASK_STATE_BROADCAST == 0:
             continue
 
         total_balance += utxo_data.value
@@ -1289,8 +1289,11 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
     # payment request when the expected value to be received is met, ignores the payment for
     # this payment request. See @BlindPaymentRequests.
     date_expires = int(time.time()) + 24 * 60 * 60
-    future = app_state.async_.spawn(account.create_monitored_blockchain_payment_async(None, None,
-        merchant_reference=None, date_expires=date_expires))
+    contact_id = None
+    amount_satoshis = None
+    internal_description = None
+    future = app_state.async_.spawn(account.create_monitored_blockchain_payment_async(contact_id,
+        amount_satoshis, internal_description, merchant_reference=None, date_expires=date_expires))
     try:
         request_row, request_output_rows, job_data = await asyncio.wrap_future(future)
     except (NoViableServersError, ServiceUnavailableError):
@@ -1493,7 +1496,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
         #     wallet's main chain. We can only know if a transaction is in a mempool if
         #     we have broadcast it (and set `STATE_CLEARED`). Our best equivalent to this is
         #     `MASK_STATE_BROADCAST` which is just both those flags.
-        if utxo_data.tx_flags & TxFlags.MASK_STATE_BROADCAST == 0:
+        if utxo_data.tx_flags & TxFlag.MASK_STATE_BROADCAST == 0:
             continue
 
         # Condition 5: Is the given transaction trusted? (wallet.cpp:CWalletTx::IsTrusted)
@@ -1667,8 +1670,7 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
 
     if comment_text is not None:
         transaction_context.account_descriptions[account.get_id()] = comment_text
-    future = account.sign_transaction(transaction, wallet_password, context=transaction_context,
-        import_flags=TransactionImportFlag.UNSET)
+    future = account.sign_transaction(transaction, wallet_password, context=transaction_context)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None
@@ -1984,13 +1986,13 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
 
     transaction_context = TransactionContext()
     future = account.sign_transaction(base_transaction, wallet_password,
-        context=transaction_context, import_flags=TransactionImportFlag.UNSET)
+        context=transaction_context)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None
     # Link state is only returned for complete transactions. Incomplete or not fully signed
     # transactions are the only case at time of writing (20230125) that return `None`.
-    _link_result = await asyncio.wrap_future(future)
+    await asyncio.wrap_future(future)
 
     def is_utxo_after_genesis(wallet: Wallet, block_hash: bytes|None) -> bool:
         """

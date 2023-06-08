@@ -4,7 +4,7 @@ import json
 import os
 import time
 from types import NoneType
-from typing import cast
+from typing import Any, cast
 from typing_extensions import NotRequired, TypedDict
 
 from aiohttp import web
@@ -19,6 +19,7 @@ from .restapi import check_network_for_request, get_account_from_request, get_ne
 from .restapi_websocket import LocalWebSocket
 from .storage import WalletStorage
 from .wallet import Wallet
+# from .wallet_support import backup
 
 
 logger = logs.get_logger("restapi-endpoints")
@@ -136,15 +137,18 @@ class LocalEndpoints:
             web.get("/", self.status),
             web.get("/v1/{network}/ping", self.ping_async),
 
-            web.post("/v1/{network}/wallet", self.create_wallet_async),
-            web.post("/v1/{network}/wallet/load", self.load_wallet_async),
-            web.post("/v1/{network}/wallet/{wallet}/account", self.create_account_async),
+            web.post("/v1/{network}/wallet", self._create_wallet_async),
+            web.post("/v1/{network}/wallet/restore", self._restore_wallet_async),
+            web.post("/v1/{network}/wallet/load", self._load_wallet_async),
+            web.post("/v1/{network}/wallet/{wallet}/account", self._create_account_async),
+            web.get("/v1/{network}/wallet/{wallet}/backup", self._backup_wallet_async),
 
-            web.post("/v1/{network}/wallet/{wallet}/account/{account}/pay", self.pay_invoice_async),
+            web.post("/v1/{network}/wallet/{wallet}/account/{account}/pay",
+                self._pay_invoice_async),
             web.post("/v1/{network}/wallet/{wallet}/account/{account}/invoices",
                 self.create_hosted_invoice_async),
             web.delete("/v1/{network}/wallet/{wallet}/account/{account}/invoices/"
-                "{incoming_payment_id}", self.delete_hosted_invoice_async),
+                "{incoming_payment_id}", self._delete_hosted_invoice_async),
 
             web.view("/v1/{network}/wallet/{wallet}/websocket", LocalWebSocket),
         ]
@@ -158,7 +162,7 @@ class LocalEndpoints:
         check_network_for_request(request)
         return web.json_response(True)
 
-    async def load_wallet_async(self, request: web.Request) -> web.Response:
+    async def _load_wallet_async(self, request: web.Request) -> web.Response:
         """ Load an existing wallet or get the loaded status of it if it is already loaded. """
         check_network_for_request(request)
         try:
@@ -206,7 +210,7 @@ class LocalEndpoints:
         }
         return web.json_response(wallet_status)
 
-    async def create_wallet_async(self, request: web.Request) -> web.Response:
+    async def _create_wallet_async(self, request: web.Request) -> web.Response:
         """ Creates a new wallet using a specified file name and password. """
         check_network_for_request(request)
         try:
@@ -264,7 +268,7 @@ class LocalEndpoints:
                 wallet_keystore.get_seed(wallet_password)).hex()
         return web.json_response(wallet_status)
 
-    async def create_account_async(self, request: web.Request) -> web.Response:
+    async def _create_account_async(self, request: web.Request) -> web.Response:
         """ Create a new standard account in the wallet. """
         check_network_for_request(request)
         wallet = get_wallet_from_request(request)
@@ -288,11 +292,9 @@ class LocalEndpoints:
 
     async def create_hosted_invoice_async(self, request: web.Request) -> web.Response:
         """ Create a new invoice with the expectation it is hosted for it to succeed. """
-        # Process the route.
         check_network_for_request(request)
         _wallet, account = get_account_from_request(request)
 
-        # Process the body.
         body_data = await request.json()
         if not isinstance(body_data, dict) or "satoshis" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
@@ -320,7 +322,7 @@ class LocalEndpoints:
             date_expires = int(datetime.fromisoformat(expiry_iso8601_text).timestamp())
 
         try:
-            result = await account.create_hosted_invoice_async(payment_amount,
+            result = await account.create_hosted_invoice_async(None, payment_amount,
                 date_expires, description, merchant_reference)
         except ServerConnectionError:
             raise web.HTTPBadRequest(reason="Unable to connect to server")
@@ -337,9 +339,8 @@ class LocalEndpoints:
         }
         return web.json_response(create_data)
 
-    async def delete_hosted_invoice_async(self, request: web.Request) -> web.Response:
+    async def _delete_hosted_invoice_async(self, request: web.Request) -> web.Response:
         """ Close the hosted invoice out and stop hosting it. """
-        # Process the route.
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
 
@@ -359,9 +360,8 @@ class LocalEndpoints:
         # TODO Extract input parameters
         return web.json_response(True)
 
-    async def pay_invoice_async(self, request: web.Request) -> web.Response:
+    async def _pay_invoice_async(self, request: web.Request) -> web.Response:
         """ Pay someone else's invoice using the given account. """
-        # Process the route.
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
 
@@ -370,5 +370,55 @@ class LocalEndpoints:
             raise web.HTTPBadRequest(reason="Invalid request body")
         body_dict = cast(PayRequestDict, body_data)
         await account.pay_hosted_invoice_async(body_dict["payToURL"])
+
+        return web.json_response(True)
+
+    async def _backup_wallet_async(self, request: web.Request) -> web.Response:
+        check_network_for_request(request)
+        # wallet = get_wallet_from_request(request)
+        # TODO(1.4.0) Backup. We need to trigger and pull the snapshot from the database as it
+        #     is generated in `record_backup_snapshot` there to ensure it is correct.
+        backup_snapshot: dict[str, Any] = {} # backup.create_backup_snapshot(wallet.data)
+        return web.json_response(backup_snapshot)
+
+    async def _restore_wallet_async(self, request: web.Request) -> web.Response:
+        try:
+            wallet_folder_path = app_state.config.get_wallet_directory_path()
+        except FileNotFoundError:
+            raise web.HTTPInternalServerError(reason="No preferred wallet path")
+
+        # These have to go in the query string. The backup snapshot JSON will be in the body
+        # payload.
+        file_name = request.match_info.get("file_name")
+        if file_name is None:
+            raise web.HTTPBadRequest(reason="URL 'file_name' value not present")
+
+        wallet_password = request.match_info.get("password")
+        if wallet_password is None:
+            raise web.HTTPBadRequest(reason="URL 'password' value not present")
+
+        raw_wallet_path = os.path.normpath(os.path.join(wallet_folder_path, file_name))
+        wallet_path = WalletStorage.canonical_path(raw_wallet_path)
+        if os.path.exists(wallet_path):
+            raise web.HTTPBadRequest(reason=f"Wallet file already exists '{file_name}'")
+
+        snapshot_entries = await request.json()
+        if not isinstance(snapshot_entries, list):
+            raise web.HTTPBadRequest(reason="Invalid request body")
+
+        password_token = app_state.credentials.set_wallet_password(wallet_path, wallet_password,
+            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
+        assert password_token is not None
+        storage = WalletStorage.create(wallet_path, password_token)
+        wallet = Wallet(storage, wallet_password)
+
+        # TODO: Want to get in a position where we can restore the backup entries and not clash
+        #       with anything from the old create and migrate.
+        # ... make an empty database.
+        # ... zzz.
+
+        # ... create a temporary wallet database.
+        # ... restore the snapshot entries.
+        # ... verify that it has the minimum.
 
         return web.json_response(True)

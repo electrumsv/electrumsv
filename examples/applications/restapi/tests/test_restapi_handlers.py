@@ -11,7 +11,7 @@ from bitcoinx import BitcoinTestnet, hex_str_to_hash
 from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
+from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlag
 # TODO(1.4.0) RESTAPI. Decide how to cleanup removal of `Fault`
 # from electrumsv.restapi import Fault
 from electrumsv.wallet import AbstractAccount, Wallet

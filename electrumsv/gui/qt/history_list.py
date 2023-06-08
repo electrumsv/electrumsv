@@ -23,11 +23,11 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
+import concurrent.futures
 import enum
-from functools import partial
-from typing import Callable, cast, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import cast, Sequence, TYPE_CHECKING
 import weakref
-import webbrowser
 
 from bitcoinx import hash_to_hex_str, Header
 
@@ -37,10 +37,9 @@ from PyQt6.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QW
 
 from ...app_state import app_state
 from ...bitcoin import COINBASE_MATURITY
-from ...constants import BlockHeight, PaymentFlag, TxFlags
+from ...constants import BlockHeight, TxFlag
 from ...i18n import _
 from ...logs import logs
-from ...dpp_messages import has_expired
 from ...platform import platform
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import TransactionContext
@@ -48,7 +47,6 @@ from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp
     profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.exceptions import TransactionRemovalError
-from ... import web
 
 from .constants import ICON_NAME_INVOICE_PAYMENT
 from .table_widgets import TableTopButtonLayout
@@ -124,14 +122,14 @@ class Columns(enum.IntEnum):
 class HistoryList(MyTreeWidget):
     filter_columns = [ Columns.DATE, Columns.DESCRIPTION, Columns.AMOUNT ]
     ACCOUNT_ROLE = Qt.ItemDataRole.UserRole
-    TX_ROLE = Qt.ItemDataRole.UserRole + 2
+    PAYMENT_ROLE = Qt.ItemDataRole.UserRole + 2
 
-    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], Columns.DESCRIPTION)
 
         self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
-        self._account_id: Optional[int] = None
-        self._account: Optional[AbstractAccount] = None
+        self._account_id: int|None = None
+        self._account: AbstractAccount|None = None
         self._wallet = main_window._wallet
 
         self._main_window.account_change_signal.connect(self._on_account_change)
@@ -158,13 +156,13 @@ class HistoryList(MyTreeWidget):
 
     def on_edited(self, item: QTreeWidgetItem, column: int, prior_text: str) -> None:
         '''Called only when the text actually changes'''
-        text: Optional[str] = item.text(column).strip()
+        text: str|None = item.text(column).strip()
         if text == "":
             text = None
         account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-        tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+        tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
         account = cast(AbstractAccount, self._wallet.get_account(account_id))
-        account.set_transaction_label(tx_hash, text)
+        account.set_payment_label(tx_hash, text)
 
     def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
@@ -173,7 +171,7 @@ class HistoryList(MyTreeWidget):
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
 
-    def get_domain(self) -> Optional[Sequence[int]]:
+    def get_filter_keyinstance_ids(self) -> Sequence[int]|None:
         '''Overridden in key_dialog.py'''
         return None
 
@@ -183,7 +181,7 @@ class HistoryList(MyTreeWidget):
     @profiler
     def _on_update_history_list(self) -> None:
         item = self.currentItem()
-        current_tx_hash = item.data(Columns.STATUS, self.TX_ROLE) if item else None
+        current_pid = item.data(Columns.STATUS, self.PAYMENT_ROLE) if item else None
         self.clear()
         if self._account is None:
             logger.debug("History list not updated due to no currently selected account")
@@ -197,52 +195,63 @@ class HistoryList(MyTreeWidget):
         current_time = get_posix_timestamp()
 
         items = []
-        for entry in self._account.get_history(self.get_domain()):
+        line: list[str]
+        for entry in self._account.get_history(self.get_filter_keyinstance_ids()):
             row = entry.row
-            tx_id = hash_to_hex_str(row.tx_hash)
+            # tx_id = hash_to_hex_str(row.tx_hash)
+            tx_id = "?txid"
 
-            conf = 0
-            timestamp: Optional[int] = None
+            # conf = 0
 
-            if row.block_height > BlockHeight.MEMPOOL:
-                header: Optional[Header] = None
-                if row.block_hash is None:
-                    # This should be a legacy transaction which has no proof, because BTC and BCH
-                    # Electrum variants did not store them, neither did early ElectrumSV. We
-                    # should obtain these proofs if they are linked to a unspent coin (UTXO).
-                    header = self._wallet.lookup_header_for_height(row.block_height)
-                else:
-                    lookup_result = self._wallet.lookup_header_for_hash(row.block_hash)
-                    if lookup_result is not None:
-                        header, _chain = lookup_result
-                if header is not None:
-                    assert header.height == row.block_height
-                    # It is very possible for the wallet to advance it's height and accept a
-                    # transaction while we are updating.
-                    if row.block_height <= local_height:
-                        timestamp = cast(int, header.timestamp)
-                        conf = (local_height - row.block_height) + 1
+            # if row.block_height > BlockHeight.MEMPOOL:
+            #     header: Header|None = None
+            #     if row.block_hash is None:
+            #         # This should be a legacy transaction which has no proof, because BTC and BCH
+            #         # Electrum variants did not store them, neither did early ElectrumSV. We
+            #         # should obtain these proofs if they are linked to a unspent coin (UTXO).
+            #         header = self._wallet.lookup_header_for_height(row.block_height)
+            #     else:
+            #         lookup_result = self._wallet.lookup_header_for_hash(row.block_hash)
+            #         if lookup_result is not None:
+            #             header, _chain = lookup_result
+            #     if header is not None:
+            #         assert header.height == row.block_height
+            #         # It is very possible for the wallet to advance it's height and accept a
+            #         # transaction while we are updating.
+            #         if row.block_height <= local_height:
+            #             timestamp = cast(int, header.timestamp)
+            #             conf = (local_height - row.block_height) + 1
 
-            status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
-                row.block_height, row.block_position, conf)
-            status_str = get_tx_desc(status, timestamp)
+            # TODO(1.4.0) Payments. Visual indication of payment status.
+            status_str = "?status"
+            # status = get_tx_status(self._account, row.tx_flags & TxFlag.MASK_STATE,
+            #     row.block_height, row.block_position, conf)
+            # status_str = get_tx_desc(status, timestamp)
+            status_str = format_posix_timestamp(row.date_relevant, _("unknown"))
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
-            line: List[str] = ["", tx_id, status_str,
-                row.description if row.description is not None else "", v_str, balance_str]
+            line = ["", tx_id, status_str, row.description if row.description is not None else "",
+                v_str, balance_str]
             if fx and fx.show_history():
-                date = posix_timestamp_to_datetime(current_time if timestamp is None else timestamp)
+                date = posix_timestamp_to_datetime(current_time if row.date_relevant is None
+                    else row.date_relevant)
                 for amount in [row.value_delta, entry.balance]:
                     text = fx.historical_value_str(amount, date)
                     line.append(text)
 
             item = SortableTreeWidgetItem(line)
-            icon = get_tx_icon(status)
-            if icon is not None:
-                item.setIcon(Columns.STATUS, icon)
-            item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
-            if row.tx_flags & TxFlags.PAYS_INVOICE:
-                item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
+            # TODO(1.4.0) Payments. Visual indication of payment status. We do not have a direct
+            #     mapping to a single transaction that we should rely on. We need to aggregate the
+            #     state of the payment.
+            # icon = get_tx_icon(status)
+            # if icon is not None:
+            #     item.setIcon(Columns.STATUS, icon)
+            # item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
+            # TODO(1.4.0) Payments. Visual indication which payments are for invoices. We now have
+            # payment request types of import, monitor blockchain and DPP invoice. But there's a
+            # commonality of being expected payments and useful to indicate somehow also.
+            # if row.tx_flags & TxFlag.PAYS_INVOICE:
+            #     item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
             for i in range(len(line)):
                 if i > Columns.DESCRIPTION:
                     item.setTextAlignment(i, Qt.AlignmentFlag.AlignRight |
@@ -258,12 +267,10 @@ class HistoryList(MyTreeWidget):
             item.setData(Columns.STATUS, SortableTreeWidgetItem.DataRole, entry.sort_key)
             item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, entry.sort_key)
             item.setData(Columns.STATUS, self.ACCOUNT_ROLE, self._account_id)
-            item.setData(Columns.STATUS, self.TX_ROLE, row.tx_hash)
+            item.setData(Columns.STATUS, self.PAYMENT_ROLE, row.payment_id)
 
-            # self.insertTopLevelItem(0, item)
-            if current_tx_hash == row.tx_hash:
+            if current_pid == row.payment_id:
                 self.setCurrentItem(item)
-
             items.append(item)
 
         self.addTopLevelItems(items)
@@ -273,7 +280,7 @@ class HistoryList(MyTreeWidget):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
             account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-            tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+            tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
 
             account = self._wallet.get_account(account_id)
             tx = self._wallet.get_transaction(tx_hash)
@@ -283,8 +290,8 @@ class HistoryList(MyTreeWidget):
                 MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
                     " Please try again when it has been obtained from the network."))
 
-    def update_descriptions(self, entries: List[Tuple[Optional[str], int, bytes]]) -> None:
-        tx_hash_descriptions: Dict[bytes, Optional[str]] = {}
+    def update_descriptions(self, entries: list[tuple[str|None, int, bytes]]) -> None:
+        tx_hash_descriptions: dict[bytes, str|None] = {}
         for description, account_id, tx_hash in entries:
             if account_id == self._account_id:
                 tx_hash_descriptions[tx_hash] = description
@@ -296,7 +303,7 @@ class HistoryList(MyTreeWidget):
         child_count = root.childCount()
         for i in range(child_count):
             item = root.child(i)
-            tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
+            tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
             if tx_hash in tx_hash_descriptions:
                 description = tx_hash_descriptions[tx_hash]
                 item.setText(Columns.DESCRIPTION, description or "")
@@ -309,7 +316,7 @@ class HistoryList(MyTreeWidget):
 
         local_height = self._wallet.get_local_height()
         confirmations = 0 if header.height <= 0 else max(local_height - header.height + 1, 0)
-        status = get_tx_status(self._account, TxFlags.STATE_SETTLED, header.height,
+        status = get_tx_status(self._account, TxFlag.STATE_SETTLED, header.height,
             tsc_proof.transaction_index,
             confirmations)
         tx_id = hash_to_hex_str(tx_hash)
@@ -350,84 +357,93 @@ class HistoryList(MyTreeWidget):
         if not item:
             return
 
-        column = self.currentColumn()
-        account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-        tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-        if account_id is None or tx_hash is None:
+        # column = self.currentColumn()
+        account_id = cast(int|None, item.data(Columns.STATUS, self.ACCOUNT_ROLE))
+        payment_id = cast(int|None, item.data(Columns.STATUS, self.PAYMENT_ROLE))
+        if account_id is None or payment_id is None:
             return
 
-        if column == Columns.STATUS:
-            column_title = "ID"
-            column_data = hash_to_hex_str(tx_hash)
-        else:
-            column_title = self.headerItem().text(column)
-            column_data = item.text(column).strip()
+        # if column == Columns.STATUS:
+        #     column_title = "ID"
+        #     # column_data = payment_id
+        # else:
+        #     column_title = self.headerItem().text(column)
+        #     # column_data = item.text(column).strip()
 
         account = self._wallet.get_account(account_id)
         assert account is not None
         assert self._account is not None
 
-        tx_id = hash_to_hex_str(tx_hash)
-        tx_URL = web.BE_URL(self.config, 'tx', tx_id)
-        tx_with_context = account.get_transaction(tx_hash)
-        assert tx_with_context is not None
-        tx, tx_context = tx_with_context
+        # TODO(1.4.0) Payments. View on explorer used to be per-tx is not per-payment. What to do?
+        # tx_id = hash_to_hex_str(payment_id)
+        # tx_URL = web.BE_URL(self.config, 'tx', tx_id)
+        # tx_with_context = account.get_transaction(payment_id)
+        # assert tx_with_context is not None
+        # tx, tx_context = tx_with_context
 
         menu = QMenu()
-        menu.addAction(_("Copy {}").format(column_title),
-            lambda: self._main_window.app.clipboard().setText(column_data))
-        if column in self.editable_columns:
-            # We grab a fresh reference to the current item, as it has been deleted in a
-            # reported issue.
-            menu.addAction(_("Edit {}").format(column_title),
-                lambda: self.editItem(self.currentItem(), column) if self.currentItem() else None)
-        menu.addAction(_("Details"),
-            cast(Callable[[], None], lambda: self._main_window.show_transaction(account, tx,
-                tx_context)))
+        # # TODO(1.4.0) Payments. Copy to clipboard used to be per-tx is not per-payment. What to do
+        # # menu.addAction(_("Copy {}").format(column_title),
+        # #     lambda: self._main_window.app.clipboard().setText(column_data))
+        # if column in self.editable_columns:
+        #     # We grab a fresh reference to the current item, as it has been deleted in a
+        #     # reported issue.
+        #     menu.addAction(_("Edit {}").format(column_title),
+        #         lambda: self.editItem(self.currentItem(), column) if self.currentItem() else None)
+        # menu.addAction(_("Details"),
+        #     cast(Callable[[], None], lambda: self._main_window.show_transaction(account, tx,
+        #         tx_context)))
 
-        flags = self._wallet.data.get_transaction_flags(tx_hash)
-        if flags is not None and flags & TxFlags.PAYS_INVOICE:
-            invoice_row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
-            invoice_id = invoice_row.invoice_id if invoice_row is not None else None
-            action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
-                    partial(self._show_invoice_window, invoice_id))
-            action.setEnabled(invoice_id is not None)
+        # TODO(nocheckin) Payments. Context menu in history list needs updates.
+        # - All payments are invoices?
+        # flags = self._wallet.data.read_transaction_flags(payment_id)
+        # if flags is not None and flags & TxFlag.PAYS_INVOICE:
+        #     invoice_row = self._account._wallet.data.read_invoice(tx_hash=payment_id)
+        #     invoice_id = invoice_row.invoice_id if invoice_row is not None else None
+        #     action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
+        #             partial(self._show_invoice_window, invoice_id))
+        #     action.setEnabled(invoice_id is not None)
 
-        if tx_URL:
-            menu.addAction(_("View on block explorer"),
-                cast(Callable[[], None], lambda: webbrowser.open(tx_URL)))
+        # if tx_URL:
+        #     menu.addAction(_("View on block explorer"),
+        #         cast(Callable[[], None], lambda: webbrowser.open(tx_URL)))
 
-        menu.addSeparator()
+        # menu.addSeparator()
 
-        if flags is not None and flags & TxFlags.STATE_CLEARED:
-            child_tx = account.cpfp(tx, 0)
-            if child_tx:
-                menu.addAction(_("Child pays for parent"),
-                    partial(self._main_window.cpfp, account, tx, child_tx))
+        # TODO(nocheckin) Payments. CPFP used to be per-tx is not per-payment. What to do?
+        # if flags is not None and flags & TxFlags.STATE_CLEARED:
+        #     child_tx = account.cpfp(tx, 0)
+        #     if child_tx:
+        #         menu.addAction(_("Child pays for parent"),
+        #             partial(self._main_window.cpfp, account, tx, child_tx))
 
-        if flags is not None and flags & TxFlags.MASK_STATE_LOCAL != 0:
-            if flags & TxFlags.PAYS_INVOICE:
-                broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
-                row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
-                if row is None:
-                    # The associated invoice has been deleted.
-                    broadcast_action.setEnabled(False)
-                elif row.flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_UNPAID:
-                    # The associated invoice has already been paid.
-                    broadcast_action.setEnabled(False)
-                elif has_expired(row.date_expires):
-                    # The associated invoice has expired.
-                    broadcast_action.setEnabled(False)
-                else:
-                    broadcast_action.triggered.connect(
-                        partial(self._main_window.pay_invoice, row.invoice_id))
-            else:
-                broadcast_action = menu.addAction(_("Broadcast"),
-                    lambda: self._broadcast_transaction(tx_hash))
-                if app_state.daemon.network is None:
-                    broadcast_action.setEnabled(False)
+        # TODO(nocheckin) Payments. Context menu in history list needs updates.
+        # - All payments are invoices?
+        # - Broadcasting should be per payment rather than per-tx.
+        # - Removing a payment needs to be revised and completed.
+        # if flags is not None and flags & TxFlag.MASK_STATE_LOCAL != 0:
+        #     if flags & TxFlag.PAYS_INVOICE:
+        #         broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
+        #         row = self._account._wallet.data.read_invoice(tx_hash=payment_id)
+        #         if row is None:
+        #             # The associated invoice has been deleted.
+        #             broadcast_action.setEnabled(False)
+        #         elif row.flags & PaymentRequestFlag.MASK_STATE == PaymentRequestFlag.STATE_UNPAID:
+        #             # The associated invoice has already been paid.
+        #             broadcast_action.setEnabled(False)
+        #         elif has_expired(row.date_expires):
+        #             # The associated invoice has expired.
+        #             broadcast_action.setEnabled(False)
+        #         else:
+        #             broadcast_action.triggered.connect(
+        #                 partial(self._main_window.pay_invoice, row.invoice_id))
+        #     else:
+        #         broadcast_action = menu.addAction(_("Broadcast"),
+        #             lambda: self._broadcast_transaction(payment_id))
+        #         if app_state.daemon.network is None:
+        #             broadcast_action.setEnabled(False)
 
-            menu.addAction(_("Remove from account"), partial(self._delete_transaction, tx_hash))
+        #     menu.addAction(_("Remove from account"), partial(self._delete_payment, payment_id))
 
         menu.exec(self.viewport().mapToGlobal(position))
 
@@ -453,32 +469,36 @@ class HistoryList(MyTreeWidget):
         assert self._account is not None
         self._main_window.show_invoice(self._account, row)
 
-    def _delete_transaction(self, tx_hash: bytes) -> None:
-        if self._main_window.question(_("Are you sure you want to remove this transaction?") +
+    def _delete_payment(self, payment_id: int) -> None:
+        if self._main_window.question(_("Are you sure you want to remove this payment?") +
                 "<br/><br/>" +
-                _("This removes the transaction from all associated accounts and frees up any "
-                "coins that are allocated for it."), title=_("Remove transaction"),
+                _("This removes the payment from all associated accounts and releases any "
+                "funds it was spending."), title=_("Remove payment"),
                 icon=QMessageBox.Icon.Warning):
-            try:
-                self._wallet.remove_transaction(tx_hash)
-            except TransactionRemovalError as e:
-                self._main_window.show_error(e.args[0])
+            def on_done_callback(future: concurrent.futures.Future[None]) -> None:
+                if future.cancelled(): return
+                try:
+                    future.result()
+                except TransactionRemovalError as e:
+                    self._main_window.show_error(e.args[0])
+            future = app_state.async_.spawn(self._wallet.data.delete_payment_async(payment_id))
+            future.add_done_callback(on_done_callback)
 
 
-def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
-        position: Optional[int], conf: int) -> TxStatus:
+def get_tx_status(account: AbstractAccount, state_flag: TxFlag, height: int,
+        position: int|None, conf: int) -> TxStatus:
     # TODO `STATE_DISPATCHED`/`STATE_RECEIVED` should be handled differently at some point.
-    if state_flag == TxFlags.STATE_SIGNED:
+    if state_flag == TxFlag.STATE_SIGNED:
         return TxStatus.SIGNED
-    elif state_flag == TxFlags.STATE_RECEIVED:
+    elif state_flag == TxFlag.STATE_RECEIVED:
         return TxStatus.RECEIVED
-    elif state_flag == TxFlags.STATE_DISPATCHED:
+    elif state_flag == TxFlag.STATE_DISPATCHED:
         return TxStatus.DISPATCHED
 
     if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
-    elif state_flag == TxFlags.STATE_CLEARED:
+    elif state_flag == TxFlag.STATE_CLEARED:
         if height > BlockHeight.MEMPOOL:
             return TxStatus.UNVERIFIED
         return TxStatus.UNCONFIRMED
@@ -486,7 +506,7 @@ def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
     return TxStatus.FINAL
 
 
-def get_tx_desc(status: TxStatus, timestamp: Optional[int]) -> str:
+def get_tx_desc(status: TxStatus, timestamp: int|None) -> str:
     if status in { TxStatus.UNCONFIRMED, TxStatus.MISSING, TxStatus.SIGNED, TxStatus.DISPATCHED,
             TxStatus.RECEIVED }:
         return TX_STATUS[status]
@@ -504,7 +524,7 @@ def get_tx_tooltip(status: TxStatus, conf: int) -> str:
     return text
 
 
-def get_tx_icon(status: TxStatus) -> Optional[QIcon]:
+def get_tx_icon(status: TxStatus) -> QIcon|None:
     icon_filename = TX_ICONS.get(status)
     if icon_filename is None:
         return None
@@ -512,20 +532,21 @@ def get_tx_icon(status: TxStatus) -> Optional[QIcon]:
 
 
 class HistoryView(QWidget):
-    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         super().__init__(parent)
 
         self._main_window = weakref.proxy(main_window)
 
-        self._account_id: Optional[int] = None
-        self._account: Optional[AbstractAccount] = None
+        self._account_id: int|None = None
+        self._account: AbstractAccount|None = None
 
         self.list = HistoryList(parent, main_window)
         self._top_button_layout = TableTopButtonLayout()
         self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
         self._top_button_layout.filter_signal.connect(self.filter_tx_list)
-        self._top_button_layout.add_button("icons8-export-32-windows.png",
-            self._main_window.export_history_dialog, _("Export history as.."))
+        # TODO(1.4.0) Payments. Export history.
+        # self._top_button_layout.add_button("icons8-export-32-windows.png",
+        #     self._main_window.export_history_dialog, _("Export history as.."))
 
         vbox = QVBoxLayout()
         vbox.setSpacing(0)
@@ -541,7 +562,7 @@ class HistoryView(QWidget):
         self._account_id = new_account_id
         self._account = new_account
 
-    def update_descriptions(self, entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+    def update_descriptions(self, entries: list[tuple[str|None, int, bytes]]) -> None:
         self.list.update_descriptions(entries)
 
     def update_tx_headers(self) -> None:

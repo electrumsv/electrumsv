@@ -20,7 +20,7 @@ import pytest
 import requests
 from async_timeout import timeout
 
-from electrumsv.constants import TxFlags
+from electrumsv.constants import TxFlag
 from electrumsv.networks import SVRegTestnet, Net
 
 from ..websocket_client import TxStateWSClient
@@ -209,7 +209,7 @@ class TestRestAPI:
             await wait_for_mempool(txids)
             for txid in txids:
                 result2 = self._fetch_transaction(txid)
-                assert result2.json()['tx_flags'] & TxFlags.STATE_CLEARED == TxFlags.STATE_CLEARED
+                assert result2.json()['tx_flags'] & TxFlag.STATE_CLEARED == TxFlag.STATE_CLEARED
 
         @pytest.mark.asyncio
         @with_timeout(10)
@@ -222,7 +222,7 @@ class TestRestAPI:
             await wait_for_confirmation(txids)
             for txid in txids:
                 result2 = self._fetch_transaction(txid)
-                assert result2.json()['tx_flags'] & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED
+                assert result2.json()['tx_flags'] & TxFlag.STATE_SETTLED == TxFlag.STATE_SETTLED
 
         @pytest.mark.asyncio
         async def test_get_parent_wallet(self):

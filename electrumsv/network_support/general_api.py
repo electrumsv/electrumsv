@@ -55,12 +55,12 @@ from bitcoinx import hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
     PushDataHashRegistrationFlag, PushDataMatchFlag, ScriptType, ServerConnectionFlag, \
-    ServerPeerChannelFlag, TransactionImportFlag
+    ServerPeerChannelFlag, ImportTransactionFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, MissingTransactionMetadata, Outpoint, outpoint_struct, \
     output_spend_struct, OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
-    tip_filter_unregistration_struct, TipFilterListEntry, TransactionKeyUsageMetadata
+    tip_filter_unregistration_struct, TipFilterListEntry, ImportTransactionKeyUsage
 from ..util import get_posix_timestamp
 from ..wallet_database.types import PeerChannelAccessTokenRow, PeerChannelMessageRow, \
     PushDataHashRegistrationRow, PushDataMatchMetadataRow, PushDataMatchRow, ServerPeerChannelRow
@@ -82,7 +82,7 @@ from .types import AccountMessageKind, AccountRegisteredDict, ChannelNotificatio
 logger = logs.get_logger("general-api")
 
 
-class MatchFlags(enum.IntFlag):
+class MatchFlag(enum.IntFlag):
     # The match is in a transaction output.
     IN_OUTPUT = 1 << 0
     # The match is in a transaction input.
@@ -1672,10 +1672,10 @@ async def consume_tip_filter_matches_async(state: ServerConnectionState) -> None
             for metadata_row in match_metadata_rows:
                 obtain_transaction_keys.append(MissingTransactionMetadata(
                     metadata_row.transaction_hash,
-                    { TransactionKeyUsageMetadata(metadata_row.pushdata_hash,
+                    { ImportTransactionKeyUsage(metadata_row.pushdata_hash,
                         metadata_row.keyinstance_id, metadata_row.script_type) },
                     metadata_row.block_hash is not None))
             logger.debug("Obtaining %d transactions for account %d, %s",
                 len(obtain_transaction_keys), account_id, obtain_transaction_keys)
             await state.wallet_proxy.obtain_transactions_async(account_id, obtain_transaction_keys,
-                TransactionImportFlag.TIP_FILTER_MATCH)
+                ImportTransactionFlag.TIP_FILTER_MATCH)

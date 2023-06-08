@@ -37,7 +37,8 @@
 from __future__ import annotations
 from io import BytesIO
 import json
-from typing import Any, cast, List, Optional, Tuple
+import time
+from typing import Any, cast
 
 import bitcoinx
 from bitcoinx import Chain, double_sha256, ElectrumMnemonic, MissingHeader, P2PK_Output, \
@@ -51,8 +52,8 @@ except ModuleNotFoundError:
     import sqlite3
 
 from ...app_state import app_state
-from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, KeystoreType, \
-    MasterKeyFlags, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, SEED_PREFIX_WALLET, \
+from ...constants import AccountFlag, ADDRESS_DERIVATION_TYPES, DerivationType, KeystoreType, \
+    MasterKeyFlag, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, SEED_PREFIX_WALLET, TxFlag, \
     unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
 from ...i18n import _
@@ -60,9 +61,8 @@ from ...logs import logs
 from ...keystore import bip32_master_key_data_from_seed, instantiate_keystore, KeyStore, \
     Multisig_KeyStore, Xpub
 from ...networks import Net
-from ...standards.tsc_merkle_proof import ProofTargetFlags, TSCMerkleNode, TSCMerkleNodeKind, \
+from ...standards.tsc_merkle_proof import ProofTargetFlag, TSCMerkleNode, TSCMerkleNodeKind, \
     TSCMerkleProof, verify_proof
-from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 from ...wallet_support.keys import get_output_script_template_for_public_keys, \
     get_pushdata_hash_for_derivation, get_pushdata_hash_for_keystore_key_data, \
@@ -72,19 +72,45 @@ from ..storage_migration import KeyInstanceFlag_27, KeyInstanceRow_27, MasterKey
     MasterKeyDataTypes_27, MasterKeyRow_27, TxFlags_22
 
 MIGRATION = 29
-
 logger = logs.get_logger(f"migration-{MIGRATION:04d}")
 
 
 def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         callbacks: ProgressCallbacks) -> None:
-    date_updated = get_posix_timestamp()
+    date_updated = int(time.time())
     callbacks.progress(0, _("Update started"))
+
+    _introduce_wallet_masterkey(conn, password_token, date_updated)
+    _introduce_mapi_broadcasts(conn)
+    _migrate_server_tables(conn)
+    _introduce_dpp_invoices(conn)
+    _introduce_peer_channels(conn)
+    _introduce_tip_filter(conn)
+    _introduce_contacts(conn)
+    _introduce_backups(conn)
+
+    _migrate_payment_requests(conn)
+    _introduce_payments(conn, date_updated)
+
+    _migrate_merkle_proofs(conn)
+
+    ## Migration finalisation.
+    callbacks.progress(100, _("Update done"))
+    conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
+        [str(MIGRATION),date_updated,"migration"])
+
+
+def _introduce_wallet_masterkey(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
+        date_updated: int) -> None:
+    """
+    We are generating a master seed words and from this a master private key for each wallet now.
+    Any new accounts will be derived from this, as will things like identity keys.
+    """
 
     # We have persisted the next identifier for the `Accounts` table in the database.
     cursor = conn.execute("SELECT key, value FROM WalletData "
         "WHERE key='next_account_id' OR key='next_masterkey_id'")
-    wallet_data: dict[str, Any] = { k: int(v) for (k, v) in cast(List[Tuple[str, str]],
+    wallet_data: dict[str, Any] = { k: int(v) for (k, v) in cast(list[tuple[str, str]],
         cursor.fetchall()) }
     account_id = wallet_data["next_account_id"]
     wallet_data["next_account_id"] += 1
@@ -113,7 +139,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
     conn.execute(sql, (masterkey_id, None, DerivationType.BIP32, derivation_data_bytes,
-        MasterKeyFlags.WALLET_SEED | MasterKeyFlags.ELECTRUM_SEED, date_updated, date_updated))
+        MasterKeyFlag.WALLET_SEED | MasterKeyFlag.ELECTRUM_SEED, date_updated, date_updated))
 
     account_masterkey_id = wallet_data["next_masterkey_id"]
     wallet_data["next_masterkey_id"] += 1
@@ -137,7 +163,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
     conn.execute(sql, (account_masterkey_id, masterkey_id, DerivationType.BIP32,
-        derivation_data_bytes, MasterKeyFlags.NONE, date_updated, date_updated))
+        derivation_data_bytes, MasterKeyFlag.NONE, date_updated, date_updated))
 
     conn.execute("ALTER TABLE Accounts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
     conn.execute("ALTER TABLE Accounts ADD COLUMN blockchain_server_id INTEGER DEFAULT NULL")
@@ -145,64 +171,14 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     conn.execute("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (account_id, account_masterkey_id, ScriptType.P2PKH, "Petty cash",
-        AccountFlags.IS_PETTY_CASH, date_updated, date_updated))
+        AccountFlag.IS_PETTY_CASH, date_updated, date_updated))
 
-    # NOTE(AustEcon) - Track tx_hashes for which we are awaiting a merkle proof callback from mAPI.
-    # This is to safeguard against a missed notification from mAPI as well as to drive the lifetime
-    # management of a given channel.
-    #
-    # There should be waiting time threshold at which we give up and request the merkle
-    # proof directly from an indexer if it still has not arrived e.g. 24 hours since broadcast_date.
-    conn.execute("""
-        CREATE TABLE MAPIBroadcasts (
-            broadcast_id                INTEGER       PRIMARY KEY,
-            tx_hash                     BLOB          NOT NULL,
-            broadcast_server_id         INTEGER       NOT NULL,
-            mapi_broadcast_flags        INTEGER       NOT NULL,
-            peer_channel_id             INTEGER       DEFAULT NULL,
-            response_data               BLOB          DEFAULT NULL,
-            date_created                INTEGER       NOT NULL,
-            date_updated                INTEGER       NOT NULL,
-            FOREIGN KEY (tx_hash)               REFERENCES Transactions (tx_hash),
-            FOREIGN KEY (broadcast_server_id)   REFERENCES Servers (server_id),
-            FOREIGN KEY (peer_channel_id)       REFERENCES ServerPeerChannels (peer_channel_id)
-        )
-    """)
+    # We need to persist the updated next primary key value for the `Accounts` table.
+    # We need to persist the updated next identifier for the `Accounts` table.
+    conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
+        [ (v, k) for (k, v) in wallet_data.items() ])
 
-    # Using a composite key to refer to servers and different tables is awkward, especially
-    # as we add dependent tables on servers. For this reason both the base server table and
-    # server account table are now merged and there is a primary key `server_id` column.
-    # TODO(1.4.0) Tip filters, issue#904. `tip_filter_peer_channel_id` may be unnecessary.
-    conn.execute("""
-        CREATE TABLE Servers2 (
-            server_id                   INTEGER     PRIMARY KEY,
-            server_type                 INTEGER     NOT NULL,
-            url                         TEXT        NOT NULL,
-            account_id                  INTEGER     DEFAULT NULL,
-            server_flags                INTEGER     NOT NULL DEFAULT 0,
-            api_key_template            TEXT        DEFAULT NULL,
-            encrypted_api_key           TEXT        DEFAULT NULL,
-            fee_quote_json              TEXT        DEFAULT NULL,
-            tip_filter_peer_channel_id  INTEGER     DEFAULT NULL,
-            date_last_connected         INTEGER     DEFAULT 0,
-            date_last_tried             INTEGER     DEFAULT 0,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
-            FOREIGN KEY (tip_filter_peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
-        )
-    """)
-    # We ignore the `ServerAccounts` table because if people have account-specific server entries
-    # they can recreate them. This is a new table and there will not be any real world usage.
-    conn.execute("DROP TABLE ServerAccounts")
-    conn.execute("DROP INDEX idx_Servers_unique")
-    conn.execute("DROP TABLE Servers")
-    conn.execute("ALTER TABLE Servers2 RENAME TO Servers")
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_Servers_unique
-            ON Servers(server_type, url, account_id)
-    """)
-
+def _introduce_dpp_invoices(conn: sqlite3.Connection) -> None:
     # flags column can take all possible values of constants.MASK_DPP_STATE_MACHINE or PAID
     # In theory any DPPMessages with the PAID flag set could be deleted from the database at
     # that point
@@ -223,6 +199,161 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         )
     """)
 
+def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE ServerPeerChannels (
+            peer_channel_id             INTEGER     PRIMARY KEY,
+            server_id                   INTEGER     NOT NULL,
+            remote_channel_id           TEXT        DEFAULT NULL,
+            remote_url                  TEXT        DEFAULT NULL,
+            peer_channel_flags          INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ExternalPeerChannels (
+            peer_channel_id             INTEGER     PRIMARY KEY,
+            invoice_id                  INTEGER     NOT NULL,
+            remote_channel_id           TEXT        DEFAULT NULL,
+            remote_url                  TEXT        DEFAULT NULL,
+            peer_channel_flags          INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (invoice_id) REFERENCES Invoices (invoice_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ServerPeerChannelAccessTokens (
+            peer_channel_id             INTEGER     NOT NULL,
+            token_flags                 INTEGER     NOT NULL,
+            permission_flags            INTEGER     NOT NULL,
+            access_token                TEXT        NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ExternalPeerChannelAccessTokens (
+            peer_channel_id             INTEGER     NOT NULL,
+            token_flags                 INTEGER     NOT NULL,
+            permission_flags            INTEGER     NOT NULL,
+            access_token                TEXT        NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ServerPeerChannelMessages (
+            message_id                  INTEGER     PRIMARY KEY,
+            peer_channel_id             INTEGER     NOT NULL,
+            message_data                BLOB        NOT NULL,
+            message_flags               INTEGER     NOT NULL,
+            sequence                    INTEGER     NOT NULL,
+            date_received               INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ExternalPeerChannelMessages (
+            message_id                  INTEGER     PRIMARY KEY,
+            peer_channel_id             INTEGER     NOT NULL,
+            message_data                BLOB        NOT NULL,
+            message_flags               INTEGER     NOT NULL,
+            sequence                    INTEGER     NOT NULL,
+            date_received               INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
+        )
+    """)
+
+def _introduce_tip_filter(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE ServerPushDataRegistrations (
+            server_id                   INTEGER     NOT NULL,
+            keyinstance_id              INTEGER     NOT NULL,
+            script_type                 INTEGER     NOT NULL,
+            pushdata_hash               BLOB        NOT NULL,
+            pushdata_flags              INTEGER     NOT NULL,
+            duration_seconds            INTEGER     NOT NULL,
+            date_registered             INTEGER     DEFAULT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id),
+            FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataRegistrations_unique
+            ON ServerPushDataRegistrations(server_id, pushdata_hash)
+    """)
+
+    # TODO(sqlite) The `block_hash` column was `BLOCK` as of 2022-12-07 where it should have been
+    #     `BLOB`. This means that the affinity of the column would have been `NUMERIC`. As `BLOB`
+    #     values do not get converted, not even with strict typing, this should not present a
+    #     problem if we turn on strict typing. However if we do plan on turning on features like
+    #     that, this sort of problem indicates we should check column types and correct them.
+    conn.execute("""
+        CREATE TABLE ServerPushDataMatches (
+            server_id                   INTEGER     NOT NULL,
+            pushdata_hash               BLOB        NOT NULL,
+            transaction_hash            BLOB        NOT NULL,
+            transaction_index           INTEGER     NOT NULL,
+            block_hash                  BLOB        NULL,
+            match_flags                 INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataMatches_unique
+            ON ServerPushDataMatches(pushdata_hash, transaction_hash, transaction_index)
+    """)
+
+def _introduce_contacts(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE Contacts (
+        contact_id                              INTEGER     PRIMARY KEY,
+        contact_name                            TEXT        NOT NULL,
+        direct_declared_name                    TEXT        DEFAULT NULL,
+        local_peer_channel_id                   INTEGER     DEFAULT NULL,
+        remote_peer_channel_url                 TEXT        DEFAULT NULL,
+        remote_peer_channel_token               TEXT        DEFAULT NULL,
+        direct_identity_key_bytes               BLOB        DEFAULT NULL,
+        date_created                            INTEGER     NOT NULL,
+        date_updated                            INTEGER     NOT NULL,
+        FOREIGN KEY (local_peer_channel_id)     REFERENCES ServerPeerChannels (peer_channel_id)
+    )""")
+    conn.execute("CREATE UNIQUE INDEX idx_contacts ON Contacts (direct_identity_key_bytes) "
+        "WHERE direct_identity_key_bytes IS NOT NULL")
+
+def _introduce_backups(conn: sqlite3.Connection) -> None:
+    # We do not pre-populate anything. It is up to the user to set up the process which should
+    # do an initial snapshot and continual deltas.
+    conn.execute("""CREATE TABLE BackupOutgoing (
+        local_sequence                          INTEGER     PRIMARY KEY,
+        local_flags                             INTEGER     NOT NULL,
+        message_data                            BLOB        NOT NULL,
+        date_created                            INTEGER     NOT NULL
+    )""")
+
+def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
+    """
+    Originally payment requests were for legacy payments to an address. Now we use them to
+    represent a general expected incoming payment. This means they now cover:
+
+    - An expected legacy payment.
+    - An expected DPP invoice payment.
+    - A local payment that will be satisfied through manual transaction import.
+
+    As part of this migration we drop the old script hash oriented support.
+    """
     # We add three more columns to `PaymentRequests`, `script_type` and `pushdata_hash` and
     # `server_id`. The first two are static values that relate to the copied text that is given out
     # by the wallet owner and we can map them to their primary usage tip filtering registrations.
@@ -246,16 +377,17 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     """)
 
     masterkey_rows: list[MasterKeyRow_27] = [ MasterKeyRow_27(t[0], t[1], DerivationType(t[2]),
-        t[3], MasterKeyFlags(t[4])) for t in conn.execute("""
-            SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data, flags
+        t[3], MasterKeyFlag(t[4]), t[5], t[6]) for t in conn.execute("""
+            SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data, flags,
+                date_created, date_updated
             FROM MasterKeys
             ORDER BY masterkey_id ASC
         """).fetchall() ]
 
-    keystores_by_masterkey_id = dict[int, KeyStore]()
+    keystores_by_masterkey_id: dict[int, KeyStore] = {}
     for masterkey_row in masterkey_rows:
         derivation_data = cast(MasterKeyDataTypes_27, json.loads(masterkey_row[3]))
-        parent_keystore: Optional[KeyStore] = None
+        parent_keystore: KeyStore|None = None
         if masterkey_row.parent_masterkey_id is not None:
             parent_keystore = keystores_by_masterkey_id[masterkey_row.parent_masterkey_id]
         keystores_by_masterkey_id[masterkey_row[0]] = instantiate_keystore(
@@ -381,161 +513,176 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # Not the greatest idea, goodbye legacy script hash matching!
     conn.execute("DROP TABLE KeyInstanceScripts")
 
-    conn.execute("""
-        CREATE TABLE ServerPeerChannels (
-            peer_channel_id             INTEGER     PRIMARY KEY,
-            server_id                   INTEGER     NOT NULL,
-            remote_channel_id           TEXT        DEFAULT NULL,
-            remote_url                  TEXT        DEFAULT NULL,
-            peer_channel_flags          INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
-        )
-    """)
+def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
+    """
+    A payment is an abstract concept and may be satisfied by more than one transaction.
 
-    conn.execute("""
-        CREATE TABLE ExternalPeerChannels (
-            peer_channel_id             INTEGER     PRIMARY KEY,
-            invoice_id                  INTEGER     NOT NULL,
-            remote_channel_id           TEXT        DEFAULT NULL,
-            remote_url                  TEXT        DEFAULT NULL,
-            peer_channel_flags          INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (invoice_id) REFERENCES Invoices (invoice_id)
-        )
-    """)
+    Migration agenda:
+    1. Map all the existing transactions to Payments. Multi-transaction payment requests should
+       map to a single Payment.
+    2. Map all payment requests to a Payment.
+    """
 
-    conn.execute("""
-        CREATE TABLE ServerPeerChannelAccessTokens (
-            peer_channel_id             INTEGER     NOT NULL,
-            token_flags                 INTEGER     NOT NULL,
-            permission_flags            INTEGER     NOT NULL,
-            access_token                TEXT        NOT NULL,
-            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
-        )
-    """)
+    # TODO(nocheckin) Payments. Ensure all this logic is completed.
 
-    conn.execute("""
-        CREATE TABLE ExternalPeerChannelAccessTokens (
-            peer_channel_id             INTEGER     NOT NULL,
-            token_flags                 INTEGER     NOT NULL,
-            permission_flags            INTEGER     NOT NULL,
-            access_token                TEXT        NOT NULL,
-            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
-        )
-    """)
+    pr_txhashes_read_rows = cast(list[tuple[int, int, bytes]], conn.execute("""
+        SELECT DISTINCT PR.paymentrequest_id, PR.date_created, TXO.tx_hash
+        FROM PaymentRequests PR
+        INNER JOIN PaymentRequestOutputs PRO ON PR.paymentrequest_id=PRO.paymentrequest_id
+        LEFT JOIN TransactionOutputs TXO ON PRO.keyinstance_id=TXO.keyinstance_id
+    """))
+    transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
+    date_created_by_paymentrequest_id: dict[int, int] = {}
+    paymentrequest_id_by_transaction_hash: dict[bytes, int] = {}
+    for row in pr_txhashes_read_rows:
+        date_created_by_paymentrequest_id[row[0]] = row[1]
+        if row[0] not in transaction_hashes_by_paymentrequest_id:
+            transaction_hashes_by_paymentrequest_id[row[0]] = []
+        # We will also get the payment requests with no transactions (represented by an empty list).
+        if row[2] is not None:
+            transaction_hashes_by_paymentrequest_id[row[0]].append(row[2])
+            paymentrequest_id_by_transaction_hash[row[2]] = row[0]
 
-    conn.execute("""
-        CREATE TABLE ServerPeerChannelMessages (
-            message_id                  INTEGER     PRIMARY KEY,
-            peer_channel_id             INTEGER     NOT NULL,
-            message_data                BLOB        NOT NULL,
-            message_flags               INTEGER     NOT NULL,
-            sequence                    INTEGER     NOT NULL,
-            date_received               INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
-        )
-    """)
+    next_payment_id = 1
+    payment_id_by_paymentrequest_id: dict[int, int] = {}
+    payment_rows: list[tuple[int, int, int]] = []
+    tx_payment_rows: list[tuple[int, bytes]] = []
+    for t in conn.execute("SELECT tx_hash, date_created FROM Transactions WHERE flags&?1=0",
+            (TxFlag.REMOVED,)):
+        tx_hash = cast(bytes, t[0])
+        tx_date_created = cast(int, t[1])
+        paymentrequest_id = paymentrequest_id_by_transaction_hash.get(tx_hash)
+        if paymentrequest_id is None:
+            payment_rows.append((next_payment_id, tx_date_created, tx_date_created))
+            # Re: 1. Map all the existing transactions to Payments.
+            # .. Here we add unique Payments for each standalone transaction.
+            tx_payment_rows.append((next_payment_id, tx_hash))
+            next_payment_id += 1
+            continue
 
-    conn.execute("""
-        CREATE TABLE ExternalPeerChannelMessages (
-            message_id                  INTEGER     PRIMARY KEY,
-            peer_channel_id             INTEGER     NOT NULL,
-            message_data                BLOB        NOT NULL,
-            message_flags               INTEGER     NOT NULL,
-            sequence                    INTEGER     NOT NULL,
-            date_received               INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
-        )
-    """)
+        # Re: 2. Map all payment requests to a Payment.
+        # .. Here we add common Payments for all payment requests linked to transactions.
+        existing_payment_id = payment_id_by_paymentrequest_id.get(paymentrequest_id)
+        if existing_payment_id is None:
+            pr_date_created = date_created_by_paymentrequest_id[paymentrequest_id]
+            payment_rows.append((next_payment_id, pr_date_created, pr_date_created))
+            payment_id_by_paymentrequest_id[paymentrequest_id] = next_payment_id
+            existing_payment_id = next_payment_id
+            next_payment_id += 1
 
-    conn.execute("""
-        CREATE TABLE ServerPushDataRegistrations (
-            server_id                   INTEGER     NOT NULL,
-            keyinstance_id              INTEGER     NOT NULL,
-            script_type                 INTEGER     NOT NULL,
-            pushdata_hash               BLOB        NOT NULL,
-            pushdata_flags              INTEGER     NOT NULL,
-            duration_seconds            INTEGER     NOT NULL,
-            date_registered             INTEGER     DEFAULT NULL,
-            date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (server_id) REFERENCES Servers (server_id),
-            FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
-        )
-    """)
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataRegistrations_unique
-            ON ServerPushDataRegistrations(server_id, pushdata_hash)
-    """)
+        # Re: 1. Map all the existing transactions to Payments.
+        # .. Here we add common Payments for each payment request-related transaction.
+        tx_payment_rows.append((existing_payment_id, tx_hash))
 
-    # TODO(sqlite) The `block_hash` column was `BLOCK` as of 2022-12-07 where it should have been
-    #     `BLOB`. This means that the affinity of the column would have been `NUMERIC`. As `BLOB`
-    #     values do not get converted, not even with strict typing, this should not present a
-    #     problem if we turn on strict typing. However if we do plan on turning on features like
-    #     that, this sort of problem indicates we should check column types and correct them.
-    conn.execute("""
-        CREATE TABLE ServerPushDataMatches (
-            server_id                   INTEGER     NOT NULL,
-            pushdata_hash               BLOB        NOT NULL,
-            transaction_hash            BLOB        NOT NULL,
-            transaction_index           INTEGER     NOT NULL,
-            block_hash                  BLOB        NULL,
-            match_flags                 INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
-            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
-        )
-    """)
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataMatches_unique
-            ON ServerPushDataMatches(pushdata_hash, transaction_hash, transaction_index)
-    """)
+    # Re: 2. Map all payment requests to a Payment.
+    # .. Here we add unique Payments for all payment requests that have no transactions.
+    for paymentrequest_id, transaction_hashes in transaction_hashes_by_paymentrequest_id.items():
+        if transaction_hashes:
+            continue
+        assert paymentrequest_id not in payment_id_by_paymentrequest_id
+        pr_date_created = date_created_by_paymentrequest_id[paymentrequest_id]
+        payment_rows.append((next_payment_id, pr_date_created, pr_date_created))
+        payment_id_by_paymentrequest_id[paymentrequest_id] = next_payment_id
+        next_payment_id += 1
 
-    # Transfer all merkle proof data from the Transactions table to a new proofs table.
-    # The pathways for insertion to this table are as follows:
-    #  1) Wallet._obtain_merkle_proofs_worker_async -> Wallet.import_transaction_async
-    #  2) Wallet._obtain_transactions_worker_async -> Wallet.import_transaction_async
-    #  3) wait_for_merkle_proofs_and_double_spends (not yet in use) - mAPI callbacks
-    # All proofs from all chains should be inserted here (i.e. including orphaned proofs). They
-    # can be pruned when the proof on the main server chain is buried by sufficient proof of work .
-    conn.execute("""CREATE TABLE IF NOT EXISTS TransactionProofs (
-        block_hash                      BLOB        NOT NULL,
-        tx_hash                         BLOB        NOT NULL,
-        proof_data                      BLOB        NOT NULL,
-        block_position                  INTEGER     NOT NULL,
-        block_height                    INTEGER     NOT NULL,
-        FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)
-    )""")
-    conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
-
-    conn.execute("""CREATE TABLE Contacts (
-        contact_id                              INTEGER     PRIMARY KEY,
-        contact_name                            TEXT        NOT NULL,
-        direct_declared_name                    TEXT        DEFAULT NULL,
-        local_peer_channel_id                   INTEGER     DEFAULT NULL,
-        remote_peer_channel_url                 TEXT        DEFAULT NULL,
-        remote_peer_channel_token               TEXT        DEFAULT NULL,
-        direct_identity_key_bytes               BLOB        DEFAULT NULL,
+    conn.execute("""CREATE TABLE Payments (
+        payment_id                              INTEGER     PRIMARY KEY,
+        contact_id                              INTEGER     DEFAULT NULL,
+        flags                                   INTEGER     DEFAULT 0,
         date_created                            INTEGER     NOT NULL,
         date_updated                            INTEGER     NOT NULL,
-        FOREIGN KEY (local_peer_channel_id)     REFERENCES ServerPeerChannels (peer_channel_id)
+        FOREIGN KEY (contact_id) REFERENCES Contacts (contact_id)
     )""")
-    conn.execute("CREATE UNIQUE INDEX idx_contacts ON Contacts (direct_identity_key_bytes) "
-        "WHERE direct_identity_key_bytes IS NOT NULL")
+    conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
+        "VALUES (?1, ?2, ?3)", payment_rows)
 
-    # We need to persist the updated next primary key value for the `Accounts` table.
-    # We need to persist the updated next identifier for the `Accounts` table.
-    conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
-        [ (v, k) for (k, v) in wallet_data.items() ])
+    conn.execute("ALTER TABLE Transactions ADD COLUMN payment_id INTEGER DEFAULT NULL")
+    conn.executemany("UPDATE Transactions SET payment_id=?1 WHERE tx_hash=?2", tx_payment_rows)
 
-    ## Database cleanup.
+    logger.debug("Updated %d transactions for %d created payments", len(tx_payment_rows),
+        len(payment_rows))
 
+    # Has to allow NULLs due to column creation and existing rows chicken and egg problem.
+    conn.execute("ALTER TABLE PaymentRequests ADD COLUMN payment_id INTEGER DEFAULT NULL "
+        "REFERENCES Payments (payment_id)")
+    pr_payment_rows = list(payment_id_by_paymentrequest_id.items())
+    conn.executemany("UPDATE PaymentRequests SET payment_id=?2 WHERE paymentrequest_id=?1",
+        pr_payment_rows)
+
+    # TODO(nocheckin) Payments. `AccountTransactions` -> `AccountPayments` migration
+    #     - Remember that transaction import needs to be replaced as the other side of this.
+
+    # Migrate `AccountTransactions` -> `AccountPayments`. `AccountTransactions.flags` was not
+    # used. `AccountTransactions.description` over grouped payment transactions not really used.
+    conn.execute("""
+        CREATE TABLE AccountPayments (
+            account_id INTEGER NOT NULL,
+            payment_id INTEGER NOT NULL,
+            flags INTEGER NOT NULL DEFAULT 0,
+            description TEXT DEFAULT NULL,
+            date_created INTEGER NOT NULL,
+            date_updated INTEGER NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
+            FOREIGN KEY (payment_id) REFERENCES Payments (payment_id)
+        )
+    """)
+    account_transaction_rows = cast(list[tuple[int, bytes, str|None, int, int]],
+        conn.execute("SELECT account_id, tx_hash, description, date_created, "
+            "date_updated FROM AccountTransactions"))
+    account_payments_by_key: dict[tuple[int, int], tuple[int, int, int, str|None, int, int]] = {}
+    payment_id_by_tx_hash: dict[bytes, int] = { t[1]: t[0] for t in tx_payment_rows }
+    # payment_by_id: dict[int, tuple[int, int, int]] = { t[0]: t for t in payment_rows }
+    for account_transaction_row in account_transaction_rows:
+        payment_id = payment_id_by_tx_hash[account_transaction_row[1]]
+        account_payment_key = account_transaction_row[0], payment_id
+        if account_payment_key in account_payments_by_key:
+            continue
+        account_payment_row = (account_transaction_row[0], payment_id, 0,
+            account_transaction_row[2], account_transaction_row[3], account_transaction_row[4])
+        account_payments_by_key[account_payment_key] = account_payment_row
+
+    account_payment_insert_rows = list(account_payments_by_key.values())
+    conn.executemany("INSERT INTO AccountPayments (account_id, payment_id, flags, description, "
+        "date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", account_payment_insert_rows)
+
+    conn.execute("DROP VIEW TransactionValues")
+    conn.execute("DROP VIEW TransactionSpentValues")
+    conn.execute("DROP VIEW TransactionReceivedValues")
+
+    conn.execute("""
+        CREATE VIEW TransactionReceivedValues (account_id, tx_hash, keyinstance_id, value)
+        AS
+            SELECT AP.account_id, T.tx_hash, TXO.keyinstance_id, TXO.value
+            FROM AccountPayments AP
+            INNER JOIN Transactions T ON T.payment_id=AP.payment_id
+            INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=T.tx_hash
+            INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
+            WHERE TXO.keyinstance_id IS NOT NULL AND KI.account_id=AP.account_id
+    """)
+
+    conn.execute("""
+        CREATE VIEW TransactionSpentValues (account_id, tx_hash, keyinstance_id, value) AS
+            SELECT AP.account_id, T.tx_hash, TXO.keyinstance_id, TXO.value
+            FROM AccountPayments AP
+            INNER JOIN Transactions T ON T.payment_id=AP.payment_id
+            INNER JOIN TransactionInputs TI ON TI.tx_hash=T.tx_hash
+            INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TI.spent_tx_hash
+                AND TXO.txo_index=TI.spent_txo_index
+            INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
+            WHERE TXO.keyinstance_id IS NOT NULL AND KI.account_id=AP.account_id
+    """)
+
+    conn.execute("""
+        CREATE VIEW TransactionValues (account_id, tx_hash, keyinstance_id, value) AS
+            SELECT account_id, tx_hash, keyinstance_id, value FROM TransactionReceivedValues
+            UNION ALL
+            SELECT account_id, tx_hash, keyinstance_id, -value FROM TransactionSpentValues
+    """)
+
+    conn.execute("DROP TABLE AccountTransactions")
+
+
+def _migrate_merkle_proofs(conn: sqlite3.Connection) -> None:
     # We are going to try and convert the ElectrumX proofs to TSC proofs.
     def unpack_proof(raw: bytes) -> tuple[int, list[bytes]]:
         io = BytesIO(raw)
@@ -547,7 +694,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         merkle_branch = [ bitcoinx.read_varbytes(io.read) for i in range(branch_count) ]
         return position, merkle_branch
 
-    def merkle_root_hash_from_proof(hash: bytes, branch: list[bytes], index:int) -> Optional[bytes]:
+    def merkle_root_hash_from_proof(hash: bytes, branch: list[bytes], index:int) -> bytes|None:
         '''From ElectrumX.'''
         for elt in branch:
             if index & 1:
@@ -563,8 +710,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     longest_chain = cast(Chain, app_state.headers.longest_chain())
     cursor = conn.execute("SELECT tx_hash, block_height, proof_data FROM Transactions "
         "WHERE proof_data IS NOT NULL")
-    updated_tx_rows = list[tuple[bytes, int, bytes]]()
-    new_proof_rows = list[tuple[bytes, bytes, bytes, int, int]]()
+    updated_tx_rows: list[tuple[bytes, int, bytes]] = []
+    new_proof_rows: list[tuple[bytes, bytes, bytes, int, int]] = []
     for tx_hash, block_height, proof_data in \
             cast(list[tuple[bytes, int, bytes]], cursor.fetchall()):
         proof_index, merkle_branch = unpack_proof(proof_data)
@@ -587,13 +734,13 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         merkle_root_bytes = cast(bytes, header.merkle_root)
         proof_merkle_root_bytes = merkle_root_hash_from_proof(tx_hash, merkle_branch, proof_index)
         if merkle_root_bytes == proof_merkle_root_bytes:
-            tsc_proof_nodes = list[TSCMerkleNode]()
+            tsc_proof_nodes: list[TSCMerkleNode] = []
             for branch_hash in merkle_branch:
                 tsc_proof_nodes.append(TSCMerkleNode(TSCMerkleNodeKind.HASH, branch_hash))
 
             # Needs transaction hash by default.
             # Needs block hash by default.
-            tsc_proof = TSCMerkleProof(ProofTargetFlags.BLOCK_HASH, proof_index,
+            tsc_proof = TSCMerkleProof(ProofTargetFlag.BLOCK_HASH, proof_index,
                 transaction_hash=tx_hash, block_hash=header.hash, nodes=tsc_proof_nodes)
             if verify_proof(tsc_proof, merkle_root_bytes):
                 new_proof_rows.append((header.hash, tx_hash, tsc_proof.to_bytes(), proof_index,
@@ -604,6 +751,23 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         else:
             logger.error("Invalid proof merkle root for transaction %s",
                 bitcoinx.hash_to_hex_str(tx_hash))
+
+    # Transfer all merkle proof data from the Transactions table to a new proofs table.
+    # The pathways for insertion to this table are as follows:
+    #  1) Wallet._obtain_merkle_proofs_worker_async -> Wallet.import_transaction_async
+    #  2) Wallet._obtain_transactions_worker_async -> Wallet.import_transaction_async
+    #  3) wait_for_merkle_proofs_and_double_spends (not yet in use) - mAPI callbacks
+    # All proofs from all chains should be inserted here (i.e. including orphaned proofs). They
+    # can be pruned when the proof on the main server chain is buried by sufficient proof of work .
+    conn.execute("""CREATE TABLE IF NOT EXISTS TransactionProofs (
+        block_hash                      BLOB        NOT NULL,
+        tx_hash                         BLOB        NOT NULL,
+        proof_data                      BLOB        NOT NULL,
+        block_position                  INTEGER     NOT NULL,
+        block_height                    INTEGER     NOT NULL,
+        FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)
+    )""")
+    conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
 
     if len(new_proof_rows) > 0:
         logger.debug("Converted and inserted %d transaction proofs", len(new_proof_rows))
@@ -624,7 +788,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
 
     # Add the NOT NULL constraint to block_height column. SQLite doesn't allow ADD CONSTRAINT
     # see: https://www.sqlite.org/omitted.html, so it has to be done this way as a workaround.
-    conn.execute("ALTER TABLE Transactions ADD COLUMN block_height2 NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE Transactions ADD COLUMN block_height2 INTEGER NOT NULL DEFAULT 0")
     conn.execute("UPDATE Transactions SET block_height2=block_height WHERE tx_hash=tx_hash;")
     conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
     conn.execute("ALTER TABLE Transactions RENAME COLUMN block_height2 TO block_height")
@@ -635,7 +799,60 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     cursor = conn.execute("UPDATE Transactions SET flags=(flags&?) WHERE flags&?", clear_bits_args)
     logger.debug("cleared HasProofData flag from %d transactions", cursor.rowcount)
 
-    ## Migration finalisation.
-    callbacks.progress(100, _("Update done"))
-    conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
-        [str(MIGRATION),date_updated,"migration"])
+def _introduce_mapi_broadcasts(conn: sqlite3.Connection) -> None:
+    # NOTE(AustEcon) - Track tx_hashes for which we are awaiting a merkle proof callback from mAPI.
+    # This is to safeguard against a missed notification from mAPI as well as to drive the lifetime
+    # management of a given channel.
+    #
+    # There should be waiting time threshold at which we give up and request the merkle
+    # proof directly from an indexer if it still has not arrived e.g. 24 hours since broadcast_date.
+    conn.execute("""
+        CREATE TABLE MAPIBroadcasts (
+            broadcast_id                INTEGER       PRIMARY KEY,
+            tx_hash                     BLOB          NOT NULL,
+            broadcast_server_id         INTEGER       NOT NULL,
+            mapi_broadcast_flags        INTEGER       NOT NULL,
+            peer_channel_id             INTEGER       DEFAULT NULL,
+            response_data               BLOB          DEFAULT NULL,
+            date_created                INTEGER       NOT NULL,
+            date_updated                INTEGER       NOT NULL,
+            FOREIGN KEY (tx_hash)               REFERENCES Transactions (tx_hash),
+            FOREIGN KEY (broadcast_server_id)   REFERENCES Servers (server_id),
+            FOREIGN KEY (peer_channel_id)       REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+def _migrate_server_tables(conn: sqlite3.Connection) -> None:
+    # Using a composite key to refer to servers and different tables is awkward, especially
+    # as we add dependent tables on servers. For this reason both the base server table and
+    # server account table are now merged and there is a primary key `server_id` column.
+    # TODO(1.4.0) Tip filters, issue#904. `tip_filter_peer_channel_id` may be unnecessary.
+    conn.execute("""
+        CREATE TABLE Servers2 (
+            server_id                   INTEGER     PRIMARY KEY,
+            server_type                 INTEGER     NOT NULL,
+            url                         TEXT        NOT NULL,
+            account_id                  INTEGER     DEFAULT NULL,
+            server_flags                INTEGER     NOT NULL DEFAULT 0,
+            api_key_template            TEXT        DEFAULT NULL,
+            encrypted_api_key           TEXT        DEFAULT NULL,
+            fee_quote_json              TEXT        DEFAULT NULL,
+            tip_filter_peer_channel_id  INTEGER     DEFAULT NULL,
+            date_last_connected         INTEGER     DEFAULT 0,
+            date_last_tried             INTEGER     DEFAULT 0,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
+            FOREIGN KEY (tip_filter_peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+    # We ignore the `ServerAccounts` table because if people have account-specific server entries
+    # they can recreate them. This is a new table and there will not be any real world usage.
+    conn.execute("DROP TABLE ServerAccounts")
+    conn.execute("DROP INDEX idx_Servers_unique")
+    conn.execute("DROP TABLE Servers")
+    conn.execute("ALTER TABLE Servers2 RENAME TO Servers")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_Servers_unique
+            ON Servers(server_type, url, account_id)
+    """)

@@ -5,7 +5,7 @@ import logging
 import requests
 from typing import cast, Iterable, List, Optional
 
-from electrumsv.constants import TxFlags
+from electrumsv.constants import TxFlag
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -73,8 +73,8 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.STATE_CLEARED) == TxFlags.STATE_CLEARED or \
-                    (tx_flags & TxFlags.STATE_SETTLED) == TxFlags.STATE_SETTLED:
+                    (tx_flags & TxFlag.STATE_CLEARED) == TxFlag.STATE_CLEARED or \
+                    (tx_flags & TxFlag.STATE_SETTLED) == TxFlag.STATE_SETTLED:
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:
@@ -99,7 +99,7 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
+                    (tx_flags & TxFlag.STATE_SETTLED == TxFlag.STATE_SETTLED):
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:

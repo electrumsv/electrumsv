@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import base64
 import concurrent.futures
 import copy
@@ -32,7 +33,7 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, cast, NamedTuple, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -46,10 +47,10 @@ from bitcoinx import hash_to_hex_str, Header, Unknown_Output
 from ...app_state import app_state
 from ...bitcoin import base_encode
 from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SUBPATH, \
-    ScriptType, TransactionImportFlag, TxFlags
+    ScriptType, TxFlag
 from ...i18n import _
 from ...logs import logs
-from ...dpp_messages import PaymentTerms
+from ...dpp_messages import PaymentTermsMessage
 from ...platform import platform
 from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
 from ...standards.tsc_merkle_proof import TSCMerkleProof
@@ -72,16 +73,16 @@ logger = logs.get_logger("tx-dialog")
 
 class TxInfo(NamedTuple):
     hash: bytes
-    state: TxFlags
+    state: TxFlag
     status: str
     can_broadcast: bool
     is_external: bool
-    amount: Optional[int]
-    fee: Optional[int]
-    height: Optional[int]
-    conf: Optional[int]
-    date_mined: Optional[int]
-    date_created: Optional[int]
+    amount: int|None
+    fee: int|None
+    height: int|None
+    conf: int|None
+    date_mined: int|None
+    date_created: int|None
 
 
 class InputColumn(enum.IntEnum):
@@ -167,9 +168,9 @@ class TxDialog(QDialog, MessageBoxMixin):
     dummy_signal = pyqtSignal(object, object)
     show_error_signal = pyqtSignal(str)
 
-    def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
-            context: Optional[TransactionContext], main_window: 'ElectrumWindow',
-            prompt_if_unsaved: bool, payment_request: Optional[PaymentTerms]=None) -> None:
+    def __init__(self, account: AbstractAccount|None, tx: Transaction,
+            context: TransactionContext|None, main_window: ElectrumWindow,
+            prompt_if_unsaved: bool, payment_request: PaymentTermsMessage|None=None) -> None:
         # We want to be a top-level window
         QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
@@ -190,7 +191,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self._tx_hash = tx.hash()
-        self._tx_state = TxFlags.UNSET
+        self._tx_state = TxFlag.UNSET
         if context is not None:
             self._context = copy.deepcopy(context)
         else:
@@ -267,15 +268,11 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._save_menu = QMenu()
         save_button.setMenu(self._save_menu)
 
-        self.cosigner_button = b = QPushButton(_("Send to cosigner"))
-        b.clicked.connect(self._on_button_clicked_cosigner_send)
-
         self._import_button = b = QPushButton(_("Import"))
         b.clicked.connect(self._on_button_clicked_import)
 
         # Action buttons
-        buttons = [self._import_button, self.cosigner_button, self.sign_button,
-            self.broadcast_button, self.cancel_button]
+        buttons = [self._import_button, self.sign_button, self.broadcast_button, self.cancel_button]
         # Transaction sharing buttons
         sharing_buttons = [copy_button, qr_button, save_button]
 
@@ -294,7 +291,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         # We provide this so the type signature of the signal method is correct.
         self.close()
 
-    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: Set[int]) \
+    def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: set[int]) \
             -> None:
         """
         Listen to see if the transaction we are displaying has been added to the wallet database.
@@ -309,15 +306,11 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def _on_button_clicked_import(self) -> None:
         assert self.tx.is_complete()
-        assert self._tx_state & TxFlags.MASK_STATELESS == 0
-        assert self._tx_state & TxFlags.MASK_STATE != 0
+        assert self._tx_state & TxFlag.MASK_STATELESS == 0
+        assert self._tx_state & TxFlag.MASK_STATE != 0
 
         self._wallet.import_transaction_with_error_callback(self.tx, self._tx_state,
             self.show_error_signal.emit)
-
-    def _on_button_clicked_cosigner_send(self) -> None:
-        assert self._account is not None
-        app_state.app_qt.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
     def _on_click_show_tx_hash_qr(self) -> None:
         self._main_window.show_qrcode(str(self.tx_hash_e.text()), 'Transaction ID', parent=self)
@@ -333,8 +326,8 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def update_tx_if_in_wallet(self) -> None:
         if self._tx_hash is not None:
-            flags = self._wallet.data.get_transaction_flags(self._tx_hash)
-            if flags is not None and flags & (TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED):
+            flags = self._wallet.data.read_transaction_flags(self._tx_hash)
+            if flags is not None and flags & (TxFlag.STATE_CLEARED | TxFlag.STATE_SETTLED):
                 self.update()
 
     def _on_button_clicked_broadcast(self) -> None:
@@ -386,7 +379,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def _on_button_clicked_sign(self) -> None:
         def sign_done(success: bool) -> None:
-            if not success and self._wallet.have_transaction(self.tx.hash()):
+            if not success and self._wallet.data.read_transaction_flags(self.tx.hash()) is not None:
                 # TODO(technical-debt) Clean up the WaitingDialog so we actually receive the
                 #     error that happened during the signing process. For now we manually check
                 #     if the reason we failed was because the transaction had already been signed
@@ -409,8 +402,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)
-        self._main_window.sign_tx(self.tx, sign_done, window=self, context=self._context,
-            import_flags=TransactionImportFlag.EXPLICIT_SIGN)
+        self._main_window.sign_tx(self.tx, sign_done, window=self, context=self._context)
         if not self.tx.is_complete():
             self.sign_button.setDisabled(False)
 
@@ -513,12 +505,6 @@ class TxDialog(QDialog, MessageBoxMixin):
                 int(tx_info_fee/size * 1000)))
         self.fee_label.setText(fee_str)
 
-        # Cosigner button
-        visible = self._account is not None and \
-            app_state.app_qt.cosigner_pool.show_send_to_cosigner_button(self._main_window,
-                self._account, self.tx)
-        self.cosigner_button.setVisible(visible)
-
         self._import_button.setVisible(tx_info.is_external)
         self._import_button.setEnabled(is_tx_complete)
         self._import_button.setToolTip(_("Import this transaction into the databasw")
@@ -619,8 +605,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             steps = len(self.tx.inputs)
 
         # The done callbacks should happen in the context of the GUI thread.
-        def on_done(weakwindow: 'ElectrumWindow',
-                future: concurrent.futures.Future[Optional[Dict[str, Any]]]) -> None:
+        def on_done(weakwindow: ElectrumWindow,
+                future: concurrent.futures.Future[dict[str, Any]|None]) -> None:
             try:
                 data = future.result()
             except concurrent.futures.CancelledError:
@@ -638,9 +624,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             progress_steps=steps, allow_cancel=True, close_delay=5)
 
     def _obtain_transaction_data_worker(self, format: TxSerialisationFormat,
-            tx_data: Dict[str, Any], completion_signal: Optional[pyqtBoundSignal],
-            completion_text: str, update_cb: Optional[WaitingUpdateCallback]=None) \
-                -> Optional[Dict[str, Any]]:
+            tx_data: dict[str, Any], completion_signal: pyqtBoundSignal|None,
+            completion_text: str, update_cb: WaitingUpdateCallback|None=None) \
+                -> dict[str, Any]|None:
         """ This wraps the worker code that runs in the threaded task by the waiting dialog. """
         assert self._account is not None
         data = self._account.extend_serialised_transaction(format, self.tx, self._context, tx_data,
@@ -659,7 +645,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             _("Data copied to clipboard"))
 
     def _copy_transaction_ready(self, format: TxSerialisationFormat,
-            tx_data: Optional[Union[str, Dict[str, Any]]]=None) -> None:
+            tx_data: str|dict[str, Any]|None=None) -> None:
         if tx_data is None:
             logger.debug("_copy_transaction_ready aborted")
             return
@@ -761,7 +747,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             return f"{account.get_id()}: {name}"
 
         is_complete = self.tx.is_complete()
-        is_tx_known = self._account and self._wallet.have_transaction(self._tx_hash)
+        # is_tx_known = self._account and \
+        #     self._wallet.data.read_transaction_flags(self._tx_hash) is not None
 
         spent_input_value = 0
         for outpoint in self._context.key_datas_by_spent_outpoint:
@@ -771,13 +758,13 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         tx_input: XTxInput
         for txi_index, tx_input in enumerate(self.tx.inputs):
-            account: Optional[AbstractAccount] = None
+            account: AbstractAccount|None = None
             account_name = ""
             source_text = ""
             amount_text = ""
             is_receiving = is_change = is_broken = False
             broken_text = ""
-            keyinstance_id: Optional[int] = None
+            keyinstance_id: int|None = None
 
             if tx_input.is_coinbase():
                 source_text = "<coinbase>"
@@ -902,12 +889,12 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     # Only called from the history ui dialog.
     def _get_tx_info(self, tx: Transaction) -> TxInfo:
-        amount: Optional[int]
+        amount: int|None
         value_delta = 0
         can_broadcast = False
         is_external = False
         fee = height = conf = date_created = date_mined = None
-        state = TxFlags.UNSET
+        state = TxFlag.UNSET
 
         wallet = self._wallet
         if tx.is_complete():
@@ -917,7 +904,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             if transaction_row is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
-                state = TxFlags.STATE_RECEIVED
+                state = TxFlag.STATE_RECEIVED
                 can_broadcast = wallet._network is not None
                 is_external = True
             else:
@@ -938,21 +925,21 @@ class TxDialog(QDialog, MessageBoxMixin):
                     for description_row in self._wallet.data.read_transaction_descriptions(
                         tx_hashes=[ self._tx_hash ]) if description_row.description is not None }
 
-                tx_flags = cast(TxFlags, wallet.data.get_transaction_flags(self._tx_hash))
-                state = tx_flags & TxFlags.MASK_STATE
-                if state & TxFlags.STATE_SETTLED:
+                tx_flags = cast(TxFlag, wallet.data.read_transaction_flags(self._tx_hash))
+                state = tx_flags & TxFlag.MASK_STATE
+                if state & TxFlag.STATE_SETTLED:
                     status = _("Verified")
-                elif state & TxFlags.STATE_CLEARED:
+                elif state & TxFlag.STATE_CLEARED:
                     if transaction_row.block_hash is not None:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')
-                elif state & TxFlags.STATE_RECEIVED:
+                elif state & TxFlag.STATE_RECEIVED:
                     status = _("Received")
                     can_broadcast = wallet._network is not None
-                elif state & TxFlags.STATE_DISPATCHED:
+                elif state & TxFlag.STATE_DISPATCHED:
                     status = _("Dispatched")
-                elif state & TxFlags.STATE_SIGNED:
+                elif state & TxFlag.STATE_SIGNED:
                     status = _("Signed")
                     can_broadcast = wallet._network is not None
                 else:
@@ -966,7 +953,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             # else:
             #     value_delta += delta_result.total
         else:
-            state = TxFlags.STATE_RECEIVED
+            state = TxFlag.STATE_RECEIVED
 
             # For now all inputs must come from the same account.
             for input in tx.inputs:
@@ -1026,7 +1013,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._main_window.toggle_tab(self._main_window.keys_tab, True, to_front=True)
         self._main_window.key_view.setFocus()
 
-    def select_in_coins_tab(self, account_id: int, txo_keys: Set[Outpoint]) -> None:
+    def select_in_coins_tab(self, account_id: int, txo_keys: set[Outpoint]) -> None:
         # Any transaction can be viewed in a transaction dialog. There is no requirement that the
         # transaction relate to the wallet at all, let alone to the currently selected account.
         # This means that it is necessary to check and change the currently selected account if
@@ -1057,7 +1044,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
 
 class InputTreeWidget(MyTreeWidget):
-    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
             [ _("Index"), _("Account"), _("Source"), _("Amount") ], InputColumn.SOURCE, [])
 
@@ -1080,7 +1067,7 @@ class InputTreeWidget(MyTreeWidget):
 
         keyinstance_id = cast(int, item.data(InputColumn.INDEX, Role.KEY_ID))
         tx_hash = cast(bytes, item.data(InputColumn.INDEX, Role.TX_HASH))
-        have_tx = parent._wallet.have_transaction(tx_hash)
+        have_tx = parent._wallet.data.read_transaction_flags(tx_hash) is not None
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)
@@ -1137,7 +1124,7 @@ class InputTreeWidget(MyTreeWidget):
 
 
 class OutputTreeWidget(MyTreeWidget):
-    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
             [ _("Index"), _("Account"), _("Destination"), _("Amount") ],
             OutputColumn.DESTINATION, [])

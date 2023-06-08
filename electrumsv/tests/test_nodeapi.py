@@ -22,7 +22,7 @@ import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
-    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+    ScriptType, TransactionOutputFlag, TxFlag
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.networks import SVRegTestnet
@@ -37,7 +37,7 @@ from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
     AccountTransactionOutputSpendableRowExtended, KeyData, PaymentRequestOutputRow, \
-    PaymentRequestRow, TransactionLinkState, TransactionOutputSpendableProtocol, \
+    PaymentRequestRow, TransactionOutputSpendableProtocol, \
     TransactionOutputSpendRow, TransactionRow, WalletBalance
 from .conftest import get_small_tx
 
@@ -1284,23 +1284,23 @@ async def test_call_getbalance_success_async(app_state_nodeapi: AppStateProxy, l
             utxos.append(
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
-                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 None, b""),)
         utxos.extend([
             # Confirmed UTXO
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
                 DerivationType.BIP32_SUBPATH,
-                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
+                FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
             # Unmatured UTXO
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
-                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH, b""),
             # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
-                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH2, b""),
         ])
         return utxos
@@ -1392,23 +1392,23 @@ async def test_call_getbalance_unsupported_derivation_type_async(app_state_nodea
             utxos.append(
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
-                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 None, b""),)
         utxos.extend([
             # Confirmed UTXO
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
                 DerivationType.ELECTRUM_OLD,
-                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
+                FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
             # Unmatured UTXO
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
-                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH, b""),
             # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
                 1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
-                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH2, b""),
         ])
         return utxos
@@ -1519,7 +1519,7 @@ async def test_call_getnewaddress_remote_monitoring_failure_async(
         return [ account ]
     wallet.get_visible_accounts.side_effect = get_visible_accounts
 
-    async def create_monitored_blockchain_payment_async(
+    async def create_monitored_blockchain_payment_async(contact_id: int|None,
             amount_satoshis: int | None, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
@@ -1583,7 +1583,7 @@ async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: 
     job_data.date_registered = None
     job_data.failure_reason = "The server had a problem test message"
 
-    async def create_monitored_blockchain_payment_async(
+    async def create_monitored_blockchain_payment_async(contact_id: int|None,
             amount_satoshis: int | None, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
@@ -1646,7 +1646,7 @@ async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy
     job_data.date_registered = 11111
     job_data.failure_reason = None
 
-    async def create_monitored_blockchain_payment_async(
+    async def create_monitored_blockchain_payment_async(contact_id: int|None,
             amount_satoshis: int | None, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
@@ -1799,7 +1799,7 @@ async def test_call_listunspent_success_async(
         return [
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 1000, 1111111,
                 ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1, DerivationType.BIP32_SUBPATH,
-                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b"")
+                FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b"")
         ]
     account.get_transaction_outputs_with_key_and_tx_data.side_effect = \
         get_transaction_outputs_with_key_and_tx_data
@@ -2019,10 +2019,8 @@ async def test_call_signrawtransaction_ok_async(
         return extended_transaction_input
     account.get_extended_input_for_spendable_output = get_extended_input_for_spendable_output
 
-    def sign_transaction(tx: Transaction, password: str,
-            context: TransactionContext|None=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
-                -> concurrent.futures.Future[TransactionLinkState] | None:
+    def sign_transaction(tx: Transaction, password: str, context: TransactionContext|None=None) \
+            -> concurrent.futures.Future[None] | None:
         nonlocal mock_data
         """
         We are not testing that the wallet is signing correctly. We are taking JSON pretend

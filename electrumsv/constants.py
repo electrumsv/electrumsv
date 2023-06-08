@@ -57,7 +57,7 @@ SEED_PREFIX_WALLET       = "02"
 # TODO Add an UNRELATED flag? used for external transactions that have been added
 #    to the database. I do not believe that we add these transactions at this time, they are
 #    instead ephemeral.
-class TxFlags(IntFlag):
+class TxFlag(IntFlag):
     UNSET = 0
 
     # The transaction has been "removed" and is no longer linked to any account.
@@ -106,33 +106,33 @@ class TxFlags(IntFlag):
             return repr(bitmask)
 
         # Handle existing values.
-        entry = TxFlags(bitmask)
+        entry = TxFlag(bitmask)
         if entry.name is not None:
-            return f"TxFlags({entry.name})"
+            return f"TxFlag({entry.name})"
 
         # Handle bit flags. Start with the highest bit, work back.
-        mask = int(TxFlags.PAYS_INVOICE)
+        mask = int(TxFlag.PAYS_INVOICE)
         names = []
         while mask > 0:
             value = bitmask & mask
             if value == mask:
-                entry = TxFlags(value)
+                entry = TxFlag(value)
                 if entry.name is not None:
                     names.append(entry.name)
                 else:
                     names.append(f"{value:x}")
             mask >>= 1
 
-        return f"TxFlags({'|'.join(names)})"
+        return f"TxFlag({'|'.join(names)})"
 
 
-class AccountFlags(IntFlag):
+class AccountFlag(IntFlag):
     NONE = 0
 
     IS_PETTY_CASH = 1 << 0
 
 
-class MasterKeyFlags(IntFlag):
+class MasterKeyFlag(IntFlag):
     NONE = 0
 
     # The generated seed phrase / master private key for backup.
@@ -143,21 +143,18 @@ class MasterKeyFlags(IntFlag):
     BIP39_SEED                          = 1 << 2
 
 
-class AccountTxFlags(IntFlag):
+class PaymentFlag(IntFlag):
     NONE = 0
 
-    # This transaction has been replaced by another transaction and is no longer relevant.
-    # An example of this is a transaction in a payment channel that is no longer the latest
-    # transaction that has the same set of ordered inputs.
-    REPLACED = 1 << 10
-    # This transaction has been manually removed from the account by the user.
-    DELETED = 1 << 11
+    # This payment has been manually removed by the user.
+    DELETED = 1 << 0
 
-    # This transaction is part of paying an invoice.
-    PAYS_INVOICE = 1 << 30
+    # This payment and any linked transactions are not to be included for the user by default.
+    REMOVED = DELETED
 
-    # This transaction should be ignored from being included in the account balance.
-    IRRELEVANT_MASK = REPLACED | DELETED
+
+class AccountPaymentFlag(IntFlag):
+    NONE = 0
 
 
 class BlockHeight(IntEnum):
@@ -279,23 +276,17 @@ class KeyInstanceFlag(IntFlag):
     MASK_ACTIVE_REASON = IS_PAYMENT_REQUEST | IS_INVOICE | USER_SET_ACTIVE
 
 
-class TransactionImportFlag(IntFlag):
+class ImportTransactionFlag(IntFlag):
     UNSET = 0
     # The user drove the process that caused this transaction to be imported.
     # This is used to decide if we should notify the user about the arrival of this transaction.
     PROMPTED                    = 1 << 0
     # The user has explicitly signed this transaction instead of implicitly signing/broadcasting.
-    EXPLICIT_SIGN               = 1 << 1
-    # The user has explicitly signed and broadcast this transaction.
-    EXPLICIT_BROADCAST          = 1 << 2
-    # The user is importing this manually from somewhere external.
     MANUAL_IMPORT               = 1 << 3
     # These transactions are associated with a payment request so attempt closing it post import.
     TIP_FILTER_MATCH            = 1 << 4
-
-    BROADCAST_P2P               = 0b00 << 10
-    BROADCAST_MAPI              = 0b01 << 10
-    MASK_BROADCAST_TYPE         = 0b11 << 10
+    # These transactions were found at the request of the restoration systems.
+    RESTORATION_MATCH           = 1 << 5
 
 
 class TransactionInputFlag(IntFlag):
@@ -315,7 +306,7 @@ class TransactionOutputFlag(IntFlag):
     COINBASE            = 1 << 4
 
 
-class PaymentFlag(IntFlag):
+class PaymentRequestFlag(IntFlag):
     NONE                        = 0
 
     # The state of the payment request. These states are atomic and are never combined.
@@ -696,3 +687,13 @@ class DPPMessageType(str, Enum):
     PAYMENT_ACK         = "payment.ack"
     PAYMENT_ERROR       = "payment.error"
     CHANNEL_EXPIRED     = "channel.expired"
+
+
+class BackupMessageFlag(IntFlag):
+    NONE                                        = 0
+
+    INCLUDES_MASTERKEYS                         = 1 << 1
+    INCLUDES_ACCOUNTS                           = 1 << 2
+    INCLUDES_ACCOUNT_TRANSACTIONS               = 1 << 3
+    INCLUDES_TRANSACTIONS                       = 1 << 4
+    INCLUDES_PAYMENTS                           = 1 << 5

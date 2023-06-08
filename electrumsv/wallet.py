@@ -31,7 +31,6 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import dataclasses
-from datetime import datetime, timezone
 from enum import IntFlag
 from functools import partial
 import json
@@ -51,22 +50,23 @@ from electrumsv_database.sqlite import DatabaseContext
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import  scripthash_bytes, ScriptTemplate
-from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
+from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlag, AccountType,
     API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
     DPPMessageType, KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
-    MasterKeyFlags, MAX_VALUE,
+    MasterKeyFlag, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
-    NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
+    NetworkServerFlag, NetworkServerType, PaymentRequestFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag,
     PEER_CHANNEL_EXPIRY_SECONDS, RECEIVING_SUBPATH, SERVER_USES,
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ScriptType,
-    TransactionImportFlag, TransactionInputFlag, TransactionOutputFlag, TxFlags,
+    ImportTransactionFlag, TransactionInputFlag, TransactionOutputFlag, TxFlag,
     unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
     WalletEventFlag, WalletEventType, WalletSettings)
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import Payment, PaymentACK, PaymentACKDict
-from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
+from .dpp_messages import PaymentMessage, PaymentACKMessage, PaymentACKDict
+from .exceptions import (BadServerError, DPPException, DPPRemoteException, BroadcastError,
+    ExcessiveFee,
     InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
     ServerConnectionError, ServerError, ServiceUnavailableError, UnsupportedAccountTypeError,
     UnsupportedScriptTypeError, UserCancelled, WalletLoadError)
@@ -108,19 +108,19 @@ from .transaction import (HardwareSigningMetadata, Transaction,
     TransactionContext, TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat,
     XPublicKey, XTxInput, XTxOutput)
 from .types import (BroadcastResult, ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
-    FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId,
+    FeeEstimatorProtocol, FeeQuoteCommon, ImportTransactionKeyUsage, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
     MasterKeyDataMultiSignature, MissingTransactionMetadata, Outpoint, OutputSpend,
-    ServerAccountKey, ServerAndCredential, TransactionFeeContext, TransactionKeyUsageMetadata,
+    ServerAccountKey, ServerAndCredential, TransactionFeeContext, TransactionImportContext,
     WaitingUpdateCallback, WalletStatusDict)
-from .util import format_satoshis, get_posix_timestamp, get_wallet_name_from_path, \
+from .util import get_posix_timestamp, get_wallet_name_from_path, \
     TriggeredCallbacks, ValueLocks
 from .util.cache import LRUCache
 from .wallet_database.exceptions import DatabaseUpdateError, KeyInstanceNotFoundError, \
     TransactionAlreadyExistsError
 from .wallet_database import functions as db_functions
-from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
+from .wallet_database.types import (AccountRow, AccountPaymentDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     ContactAddRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
@@ -129,7 +129,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     PaymentRequestRow, PaymentRequestOutputRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
     PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
     ServerPeerChannelRow, PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
     TransactionOutputAddRow, TransactionOutputSpendRow,
     TransactionOutputSpendableProtocol, TransactionOutputSpendableRow, TransactionProofUpdateRow,
     TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow,
@@ -151,7 +151,7 @@ if TYPE_CHECKING:
 logger = logs.get_logger("wallet")
 
 
-class AccountInstantiationFlags(IntFlag):
+class AccountInstantiationFlag(IntFlag):
     NONE = 0
     IMPORTED_PRIVATE_KEYS = 1 << 0
     IMPORTED_ADDRESSES = 1 << 1
@@ -188,10 +188,11 @@ class HistoryListEntry:
 
 @dataclasses.dataclass
 class MissingTransactionEntry:
-    import_flags: TransactionImportFlag
-    match_metadatas: set[TransactionKeyUsageMetadata]
+    import_flags: ImportTransactionFlag
+    match_metadatas: set[ImportTransactionKeyUsage]
     with_proof: bool = False
     account_ids: list[int] = dataclasses.field(default_factory=list)
+    payment_id: int|None = None
 
 
 @dataclasses.dataclass
@@ -242,7 +243,7 @@ class AbstractAccount:
         return self._wallet
 
     def is_petty_cash(self) -> bool:
-        return self._row.flags & AccountFlags.IS_PETTY_CASH != 0
+        return self._row.flags & AccountFlag.IS_PETTY_CASH != 0
 
     def requires_input_transactions(self) -> bool:
         return any(k.requires_input_transactions() for k in self.get_keystores())
@@ -360,23 +361,17 @@ class AbstractAccount:
             return None
         # Populate the description.
         context = TransactionContext()
-        desc = self.get_transaction_label(tx_hash)
-        if desc:
-            context.account_descriptions[self._id] = desc
+        apd_rows = self.get_transaction_labels([ tx_hash ])
+        if len(apd_rows) > 0 and apd_rows[0].description is not None:
+            context.account_descriptions[self._id] = apd_rows[0].description
         return tx, context
 
-    def set_transaction_label(self, tx_hash: bytes, text: str|None) \
+    def set_payment_label(self, payment_id: int, text: str|None) \
             -> concurrent.futures.Future[None]:
-        return self._wallet.set_transaction_labels([ (text, self._id, tx_hash) ])
-
-    def get_transaction_label(self, tx_hash: bytes) -> str:
-        rows = self._wallet.data.read_transaction_descriptions(self._id, tx_hashes=[ tx_hash ])
-        if len(rows) and rows[0].description:
-            return rows[0].description
-        return ""
+        return self._wallet.set_account_payment_labels([ (text, self._id, payment_id) ])
 
     def get_transaction_labels(self, tx_hashes: Sequence[bytes]) \
-            -> list[AccountTransactionDescriptionRow]:
+            -> list[AccountPaymentDescriptionRow]:
         return self._wallet.data.read_transaction_descriptions(self._id, tx_hashes=tx_hashes)
 
     def __str__(self) -> str:
@@ -452,9 +447,7 @@ class AbstractAccount:
         assert keyinstance is not None
         if keyinstance.description == text:
             return None
-        future = self._wallet.data.update_keyinstance_descriptions([ (text, keyinstance_id) ])
-        app_state.app_qt.on_keyinstance_label_change(self, keyinstance_id, text or "")
-        return future
+        return self._wallet.data.update_keyinstance_descriptions([ (text, keyinstance_id) ])
 
     def get_dummy_script_template(self, script_type: ScriptType | None=None) -> ScriptTemplate:
         public_key = PrivateKey(os.urandom(32)).public_key
@@ -519,9 +512,9 @@ class AbstractAccount:
     def get_local_transaction_entries(self, tx_hashes: list[bytes]|None=None) \
             -> list[TransactionValueRow]:
         return self._wallet.data.read_transaction_value_entries(self._id, tx_hashes=tx_hashes,
-            mask=TxFlags.MASK_STATE_LOCAL)
+            mask=TxFlag.MASK_STATE_LOCAL)
 
-    def get_transaction_value_entries(self, mask: TxFlags|None=None) -> list[TransactionValueRow]:
+    def get_transaction_value_entries(self, mask: TxFlag|None=None) -> list[TransactionValueRow]:
         return self._wallet.data.read_transaction_value_entries(self._id, mask=mask)
 
     def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
@@ -563,7 +556,7 @@ class AbstractAccount:
             value              = row.value,
         )
 
-    def get_history(self, domain: Sequence[int]|None=None) -> list[HistoryListEntry]:
+    def get_history(self, keyinstance_ids: Sequence[int]|None=None) -> list[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -579,15 +572,16 @@ class AbstractAccount:
         assert app_state.headers is not None
 
         history_raw: list[HistoryListEntry] = []
-        rows = db_functions.read_history_list(self._wallet.get_db_context(), self._id, domain)
-        for row in rows:
-            block_height = row.block_height
-            if block_height <= BlockHeight.MEMPOOL:
-                # This will list local transactions then unconfirmed then confirmed.
-                sort_key = (-block_height + 100000000000, row.date_created)
-            else:
-                assert row.block_position is not None
-                sort_key = (row.block_height, row.block_position)
+        for row in self._wallet.data.read_payment_history(self._id, keyinstance_ids):
+            # TODO(1.4.0) Payments. Ordering in the history list.
+            # block_height = row.block_height
+            # if block_height <= BlockHeight.MEMPOOL:
+            #     # This will list local transactions then unconfirmed then confirmed.
+            #     sort_key = (-block_height + 100000000000, row.date_created)
+            # else:
+            #     assert row.block_position is not None
+            #     sort_key = (row.block_height, row.block_position)
+            sort_key = (row.date_relevant, 0)
             history_raw.append(HistoryListEntry(sort_key, row, 0))
         history_raw.sort(key=lambda t: t.sort_key)
 
@@ -598,49 +592,50 @@ class AbstractAccount:
         history_raw.reverse()
         return history_raw
 
-    def export_history(self, from_datetime: datetime|None=None, to_datetime: datetime|None=None) \
-            -> list[AccountExportEntry]:
-        fx = app_state.fx
-        assert app_state.headers is not None
+    # TODO(1.4.0) Payments. Export history.
+    # def export_history(self, from_datetime: datetime|None=None, to_datetime: datetime|None=None) \
+    #         -> list[AccountExportEntry]:
+    #     fx = app_state.fx
+    #     assert app_state.headers is not None
 
-        out: list[AccountExportEntry] = []
-        for entry in self.get_history():
-            history_line = entry.row
+    #     out: list[AccountExportEntry] = []
+    #     for entry in self.get_history():
+    #         history_line = entry.row
 
-            entry_utc_date = datetime.now(tz=timezone.utc)
-            block_height = -0
-            if history_line.block_hash is not None:
-                header_data = self._wallet.lookup_header_for_hash(history_line.block_hash)
-                if header_data is None:
-                    # Most likely a transaction with a merkle proof that is waiting on the header
-                    logger.warning("Wallet has not processed header for %s in export_history",
-                        hash_to_hex_str(history_line.block_hash))
-                else:
-                    header = header_data[0]
-                    block_height = header.height
-                    entry_utc_date = datetime.fromtimestamp(header.timestamp, tz=timezone.utc)
+    #         entry_utc_date = datetime.now(tz=timezone.utc)
+    #         block_height = -0
+    #         if history_line.block_hash is not None:
+    #             header_data = self._wallet.lookup_header_for_hash(history_line.block_hash)
+    #             if header_data is None:
+    #                 # Most likely a transaction with a merkle proof that is waiting on the header
+    #                 logger.warning("Wallet has not processed header for %s in export_history",
+    #                     hash_to_hex_str(history_line.block_hash))
+    #             else:
+    #                 header = header_data[0]
+    #                 block_height = header.height
+    #                 entry_utc_date = datetime.fromtimestamp(header.timestamp, tz=timezone.utc)
 
-            if from_datetime and entry_utc_date < from_datetime:
-                continue
-            if to_datetime and entry_utc_date >= to_datetime:
-                continue
-            export_entry = AccountExportEntry(
-                txid=hash_to_hex_str(history_line.tx_hash),
-                height=block_height,
-                timestamp=entry_utc_date.isoformat(),
-                value=format_satoshis(history_line.value_delta,
-                    is_diff=True) if history_line.value_delta is not None else '--',
-                balance=format_satoshis(entry.balance),
-                label=history_line.description or "",
-                fiat_value=None,
-                fiat_balance=None)
-            if fx:
-                export_entry['fiat_value'] = fx.historical_value_str(history_line.value_delta,
-                    entry_utc_date)
-                export_entry['fiat_balance'] = fx.historical_value_str(entry.balance,
-                    entry_utc_date)
-            out.append(export_entry)
-        return out
+    #         if from_datetime and entry_utc_date < from_datetime:
+    #             continue
+    #         if to_datetime and entry_utc_date >= to_datetime:
+    #             continue
+    #         export_entry = AccountExportEntry(
+    #             txid=hash_to_hex_str(history_line.tx_hash),
+    #             height=block_height,
+    #             timestamp=entry_utc_date.isoformat(),
+    #             value=format_satoshis(history_line.value_delta,
+    #                 is_diff=True) if history_line.value_delta is not None else '--',
+    #             balance=format_satoshis(entry.balance),
+    #             label=history_line.description or "",
+    #             fiat_value=None,
+    #             fiat_balance=None)
+    #         if fx:
+    #             export_entry['fiat_value'] = fx.historical_value_str(history_line.value_delta,
+    #                 entry_utc_date)
+    #             export_entry['fiat_balance'] = fx.historical_value_str(entry.balance,
+    #                 entry_utc_date)
+    #         out.append(export_entry)
+    #     return out
 
     def dust_threshold(self) -> int:
         """
@@ -867,9 +862,7 @@ class AbstractAccount:
         return script_template.to_script()
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: TransactionContext|None=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
-                -> concurrent.futures.Future[TransactionLinkState] | None:
+            context: TransactionContext|None=None) -> concurrent.futures.Future[None]|None:
         if self.is_watching_only():
             return None
 
@@ -908,11 +901,11 @@ class AbstractAccount:
         tx.update_script_offsets()
 
         tx_hash = tx.hash()
-        tx_flags = TxFlags.STATE_SIGNED
+        tx_flags = TxFlag.STATE_SIGNED
         if tx_context.invoice_id:
-            tx_flags |= TxFlags.PAYS_INVOICE
+            tx_flags |= TxFlag.PAYS_INVOICE
 
-        def callback(callback_future: concurrent.futures.Future[TransactionLinkState]) -> None:
+        def callback(callback_future: concurrent.futures.Future[None]) -> None:
             if callback_future.cancelled():
                 return
             callback_future.result()
@@ -923,11 +916,12 @@ class AbstractAccount:
                 self._wallet.data.update_invoice_transactions(
                     [ (tx_hash, tx_context.invoice_id) ])
 
-            if len(tx_context.account_descriptions) > 0:
-                update_entries: list[tuple[str | None, int, bytes]] = [
-                    (description, account_id, tx_hash) for (account_id, description)
-                    in tx_context.account_descriptions.items() ]
-                self._wallet.set_transaction_labels(update_entries)
+            # TODO(nocheckin) Payments. Set payment description not a transaction description.
+            # if len(tx_context.account_descriptions) > 0:
+            #     update_entries: list[tuple[str | None, int, bytes]] = [
+            #         (description, account_id, tx_hash) for (account_id, description)
+            #         in tx_context.account_descriptions.items() ]
+            #     self._wallet.set_transaction_labels(update_entries)
 
         # These need to be explicitly passed into the import transaction logic.
         transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {}
@@ -946,9 +940,11 @@ class AbstractAccount:
             if len(key_usages) == 1:
                 transaction_output_key_usage[output_index] = key_usages[0]
 
+        import_context = TransactionImportContext(output_key_usage=transaction_output_key_usage)
+        # TODO(nocheckin) Payments. Map it to the payment it is being signed for.
+        assert import_context.payment_id is not None
         transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction_async(
-            tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None, import_flags,
-            transaction_output_key_usage=transaction_output_key_usage))
+            tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None, import_context))
         transaction_future.add_done_callback(callback)
         return transaction_future
 
@@ -1001,7 +997,7 @@ class AbstractAccount:
                 # In the longer term, the other party whose coin is being spent should have
                 # provided the source transaction. The only way we should lack it is because of
                 # bad wallet management.
-                if self._wallet.have_transaction(txin.prev_hash):
+                if self._wallet.data.read_transaction_flags(txin.prev_hash) is not None:
                     self._logger.debug("fetching input transaction %s from cache", txid)
                     if update_cb is not None:
                         update_cb(False, _("Retrieving local transaction.."))
@@ -1097,19 +1093,19 @@ class AbstractAccount:
     def get_masterkey_id(self) -> int|None:
         raise NotImplementedError
 
-    async def create_payment_request_async(self, amount: int | None,
+    async def create_payment_request_async(self, contact_id: int|None, amount: int | None,
             internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
             dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
-            flags: PaymentFlag=PaymentFlag.NONE) \
+            flags: PaymentRequestFlag=PaymentRequestFlag.NONE) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        payment_type = flags & PaymentFlag.MASK_TYPE
+        payment_type = flags & PaymentRequestFlag.MASK_TYPE
 
         # We do not allow setting the state flags.
-        assert flags & PaymentFlag.MASK_STATE == PaymentFlag.NONE
+        assert flags & PaymentRequestFlag.MASK_STATE == PaymentRequestFlag.NONE
         # The request and output amount can only be blank for @BlindPaymentRequests.
-        assert isinstance(amount, int) or payment_type == PaymentFlag.TYPE_MONITORED
+        assert isinstance(amount, int) or payment_type == PaymentRequestFlag.TYPE_MONITORED
 
         # We set `KeyInstanceFlag.ACTIVE` here with the understanding that we are responsible for
         # removing it when the payment request is deleted, expires or whatever.
@@ -1128,30 +1124,31 @@ class AbstractAccount:
                 key_data.derivation_type, key_data.derivation_data2)
             assert key_script_type == script_type
 
-        if payment_type == PaymentFlag.TYPE_MONITORED:
+        if payment_type == PaymentRequestFlag.TYPE_MONITORED:
             # This will transition to `STATE_UNPAID` when known to be remotely registered.
-            flags |= PaymentFlag.STATE_PREPARING
+            flags |= PaymentRequestFlag.STATE_PREPARING
         else:
-            flags |= PaymentFlag.STATE_UNPAID
+            flags |= PaymentRequestFlag.STATE_UNPAID
 
         date_created = int(time.time())
-        # This will get the payment request id assigned on insert.
-        request_row = PaymentRequestRow(None, flags, amount, date_expires, internal_description,
-            server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, encrypted_key_text,
-            date_created, date_created)
+        # `PaymentRequests.paymentrequest_id` is assigned on insert.
+        # `PaymentRequests.payment_id` will have a row created and the id inserted.
+        request_row = PaymentRequestRow(None, contact_id, flags, amount, date_expires,
+            internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+            encrypted_key_text, date_created, date_created)
         request_output_rows: list[PaymentRequestOutputRow] = [
             PaymentRequestOutputRow(None, 0, 0, script_type, script_template.to_script_bytes(),
                 pushdata_hash, amount, key_data.keyinstance_id, date_created, date_created),
         ]
         request_row, request_output_rows = await self._wallet.data.create_payment_request_async(
-            request_row, request_output_rows)
+            self._id, None, request_row, request_output_rows)
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
             [ key_data.keyinstance_id ])
 
         return request_row, request_output_rows
 
-    async def create_hosted_invoice_async(self, amount_satoshis: int, date_expires: int,
-            description: str | None, merchant_reference: str | None) \
+    async def create_hosted_invoice_async(self, contact_id: int|None, amount_satoshis: int,
+            date_expires: int, description: str | None, merchant_reference: str | None) \
                 -> HostedInvoiceCreationResult:
         """
         Raises `UserCancelled` if the user cancels a dialog they need to use correctly in order
@@ -1172,10 +1169,11 @@ class AbstractAccount:
         secure_public_key = cast(PublicKey, secure_private_key.public_key)
         encrypted_key_text = pw_encode(secure_private_key.to_hex(), password)
         dpp_invoice_id = secure_public_key.to_address(compressed=True, network=Net.COIN).to_string()
-        request_row, request_output_rows = await self.create_payment_request_async(amount_satoshis,
+        request_row, request_output_rows = await self.create_payment_request_async(contact_id,
+            amount_satoshis,
             description, merchant_reference, server_id=server_state.server.server_id,
             date_expires=date_expires, dpp_invoice_id=dpp_invoice_id,
-            encrypted_key_text=encrypted_key_text, flags=PaymentFlag.TYPE_INVOICE)
+            encrypted_key_text=encrypted_key_text, flags=PaymentRequestFlag.TYPE_INVOICE)
         # We need to convert it to a "read row" to pass to the web socket.
         assert request_row.paymentrequest_id is not None
         self._wallet.register_outstanding_invoice(request_row, password)
@@ -1211,9 +1209,11 @@ class AbstractAccount:
             request_id=request_id)
         assert request_row is not None
         await close_dpp_server_connection_async(self._wallet.dpp_proxy_server_states, request_row)
-        await self._wallet.data.delete_payment_requests_async([request_id], PaymentFlag.ARCHIVED)
+        await self._wallet.data.delete_payment_requests_async([request_id],
+            PaymentRequestFlag.ARCHIVED)
 
-    async def create_monitored_blockchain_payment_async(self, amount_satoshis: int | None,
+    async def create_monitored_blockchain_payment_async(self, contact_id: int|None,
+            amount_satoshis: int | None,
             internal_description: str | None, merchant_reference: str | None,
             date_expires: int | None = None) -> tuple[PaymentRequestRow|None,
                 list[PaymentRequestOutputRow], TipFilterRegistrationJobOutput]:
@@ -1230,9 +1230,10 @@ class AbstractAccount:
         if server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
             raise ServiceUnavailableError()
 
-        request_row, request_output_rows = await self.create_payment_request_async(amount_satoshis,
+        request_row, request_output_rows = await self.create_payment_request_async(contact_id,
+            amount_satoshis,
             internal_description, merchant_reference, date_expires=date_expires,
-            flags=PaymentFlag.TYPE_MONITORED)
+            flags=PaymentRequestFlag.TYPE_MONITORED)
         assert request_row.paymentrequest_id is not None
         assert request_row.date_expires is not None
 
@@ -1248,15 +1249,15 @@ class AbstractAccount:
         if job.output.date_registered is None:
             # A failed monitoring registration is a failed creation. Delete the request.
             await self._wallet.data.delete_payment_requests_async([ request_row.paymentrequest_id ],
-                PaymentFlag.DELETED)
+                PaymentRequestFlag.DELETED)
             return None, [], job.output
 
         # Formally promote the payment request from temporary to pending payment.
         await self._wallet.data.update_payment_request_state_async(
-            request_row.paymentrequest_id, PaymentFlag.STATE_UNPAID,
-            PaymentFlag.CLEARED_MASK_STATE)
-        new_flags = (request_row.request_flags & PaymentFlag.CLEARED_MASK_STATE) | \
-            PaymentFlag.STATE_UNPAID
+            request_row.paymentrequest_id, PaymentRequestFlag.STATE_UNPAID,
+            PaymentRequestFlag.CLEARED_MASK_STATE)
+        new_flags = (request_row.request_flags & PaymentRequestFlag.CLEARED_MASK_STATE) | \
+            PaymentRequestFlag.STATE_UNPAID
         request_row = request_row._replace(request_flags=new_flags)
         return request_row, request_output_rows, job.output
 
@@ -1859,6 +1860,9 @@ class WalletDataAccess:
 
     # Accounts.
 
+    def read_accounts(self) -> list[AccountRow]:
+        return db_functions.read_accounts(self._db_context)
+
     def read_account_balance(self, account_id: int, maturity_height: int,
             txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
             txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
@@ -1882,17 +1886,14 @@ class WalletDataAccess:
 
     # Account transactions.
 
-    def read_account_ids_for_transaction(self, tx_hash: bytes) -> list[int]:
-        return db_functions.read_account_ids_for_transaction(self._db_context, tx_hash)
-
     def read_transaction_descriptions(self, account_id: int|None=None,
-            tx_hashes: Sequence[bytes]|None=None) -> list[AccountTransactionDescriptionRow]:
+            tx_hashes: Sequence[bytes]|None=None) -> list[AccountPaymentDescriptionRow]:
         return db_functions.read_transaction_descriptions(self._db_context,
             account_id, tx_hashes)
 
-    def update_account_transaction_descriptions(self,
-            entries: Iterable[tuple[str|None, int, bytes]]) -> concurrent.futures.Future[None]:
-        return db_functions.update_account_transaction_descriptions(self._db_context,
+    def update_account_payment_descriptions(self,
+            entries: Iterable[tuple[str|None, int, int]]) -> concurrent.futures.Future[None]:
+        return db_functions.update_account_payment_descriptions(self._db_context,
             entries)
 
     # Contacts
@@ -1942,9 +1943,6 @@ class WalletDataAccess:
         return db_functions.read_invoice(self._db_context, invoice_id=invoice_id,
             tx_hash=tx_hash, payment_uri=payment_uri)
 
-    def read_invoice_duplicate(self, value: int, payment_uri: str) -> InvoiceRow|None:
-        return db_functions.read_invoice_duplicate(self._db_context, value, payment_uri)
-
     def read_invoices_for_account(self, account_id: int, flags: int|None=None,
             mask: int|None=None) -> list[InvoiceAccountRow]:
         return db_functions.read_invoices_for_account(self._db_context, account_id, flags,
@@ -1959,7 +1957,7 @@ class WalletDataAccess:
         return db_functions.update_invoice_descriptions(self._db_context, entries)
 
     async def update_invoice_flags_async(self,
-            entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) -> None:
+            entries: Iterable[tuple[PaymentRequestFlag, PaymentRequestFlag, int]]) -> None:
         await self._db_context.run_in_thread_async(db_functions.update_invoice_flags, entries)
 
     def delete_invoices(self, invoice_ids: list[int]) -> concurrent.futures.Future[None]:
@@ -1969,6 +1967,9 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
 
     # Key instances.
+
+    def read_masterkeys(self) -> list[MasterKeyRow]:
+        return db_functions.read_masterkeys(self._db_context)
 
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
             derivation_path: DerivationPath,
@@ -2093,20 +2094,33 @@ class WalletDataAccess:
         return db_functions.update_network_servers_transaction(self._db_context,
             create_rows, update_rows, deleted_server_ids, deleted_server_keys)
 
+    # Payments.
+
+    def read_payment_history(self, account_id: int|None, keyinstance_ids: Sequence[int]|None=None) \
+            -> list[HistoryListRow]:
+        return db_functions.read_payment_history(self._db_context, account_id, keyinstance_ids)
+
+    async def delete_payment_async(self, payment_id: int) -> None:
+        return await self._db_context.run_in_thread_async(db_functions.remove_payment_write,
+            payment_id)
+
     # Payment requests.
 
-    async def create_payment_request_async(self, request_entry: PaymentRequestRow,
+    async def create_payment_request_async(self, account_id: int, contact_id: int|None,
+            request_entry: PaymentRequestRow,
             request_output_entries: list[PaymentRequestOutputRow]) \
             -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
         return await self._db_context.run_in_thread_async(
-            db_functions.create_payment_request_write, request_entry, request_output_entries)
+            db_functions.create_payment_request_write, account_id, contact_id, request_entry,
+                request_output_entries)
 
     def read_payment_request(self, request_id: int) \
             -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
         return db_functions.read_payment_request(self._db_context, request_id)
 
-    def read_payment_requests(self, *, account_id: int | None=None, flags: PaymentFlag | None=None,
-            mask: PaymentFlag | None=None, server_id: int | None=None) \
+    def read_payment_requests(self, *, account_id: int | None=None,
+            flags: PaymentRequestFlag | None=None, mask: PaymentRequestFlag | None=None,
+            server_id: int | None=None) \
                 -> list[PaymentRequestRow]:
         """
         Warning: This database function does not filter out deleted or archived payment requests
@@ -2118,11 +2132,6 @@ class WalletDataAccess:
     def read_payment_request_ids_for_transaction(self, transaction_hash: bytes) -> list[int]:
         return db_functions.read_payment_request_ids_for_transaction(self._db_context,
             transaction_hash)
-
-    async def read_payment_request_outputs_async(self, paymentrequest_ids: list[int]) \
-            -> list[PaymentRequestOutputRow]:
-        return await self._db_context.run_in_thread_async(
-            db_functions.read_payment_request_outputs, paymentrequest_ids)
 
     async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
             -> dict[int, list[bytes]]:
@@ -2143,13 +2152,13 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(
             db_functions.update_payment_requests_write, entries)
 
-    async def update_payment_request_state_async(self, request_id: int, flags: PaymentFlag,
-            mask: PaymentFlag) -> None:
+    async def update_payment_request_state_async(self, request_id: int, flags: PaymentRequestFlag,
+            mask: PaymentRequestFlag) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_payment_request_flags_write, request_id, flags, mask)
 
     async def close_paid_payment_request_async(self, request_id: int) \
-            -> list[tuple[str, int, bytes]]:
+            -> list[tuple[str, int, int]]:
         """
         Wrap the database operations required to link a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
@@ -2160,7 +2169,7 @@ class WalletDataAccess:
             request_id)
 
     async def delete_payment_requests_async(self, paymentrequest_ids: list[int],
-            update_flag: PaymentFlag) -> None:
+            update_flag: PaymentRequestFlag) -> None:
         for _paymentrequest_id, keyinstance_ids_by_account_id in \
                 await self._db_context.run_in_thread_async(
                     db_functions.delete_payment_requests_write, paymentrequest_ids, update_flag):
@@ -2345,13 +2354,13 @@ class WalletDataAccess:
             -> list[TransactionDeltaSumRow]:
         return db_functions.read_transaction_values(self._db_context, tx_hash, account_id)
 
-    def get_transaction_flags(self, tx_hash: bytes) -> TxFlags | None:
+    def read_transaction_flags(self, tx_hash: bytes) -> TxFlag | None:
         return db_functions.read_transaction_flags(self._db_context, tx_hash)
 
     async def import_transaction_async(self, tx_row: TransactionRow,
             txi_rows: list[TransactionInputAddRow], txo_rows: list[TransactionOutputAddRow],
-            proof_row: MerkleProofRow | None, *, rollback_on_spend_conflict: bool=False) \
-                -> TransactionLinkState:
+            proof_row: MerkleProofRow | None, context: TransactionImportContext) \
+                -> None:
         """
         Wrap the database operations required to import a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
@@ -2361,20 +2370,16 @@ class WalletDataAccess:
         - `DatabaseUpdateError` if there are spend conflicts and it was requested that the
               transaction was rolled back.
         """
-        return await self._db_context.run_in_thread_async(db_functions.import_transaction, tx_row,
-            txi_rows, txo_rows, proof_row, rollback_on_spend_conflict=rollback_on_spend_conflict)
+        await self._db_context.run_in_thread_async(db_functions.import_transaction, tx_row,
+            txi_rows, txo_rows, proof_row, context)
 
-    async def link_transaction_async(self, tx_hash: bytes, *,
-            rollback_on_spend_conflict: bool=False) -> TransactionLinkState:
+    async def link_transaction_async(self, tx_hash: bytes,
+            context: TransactionImportContext) -> None:
         """
-        Link an existing transaction to any applicable accounts.
-
-        We do not know whether the transaction uses any wallet keys, and is related to any
-        accounts related to those keys. We will work this out as part of the importing process.
-        This should not be done for any pre-existing transactions.
+        Link an existing transaction to any applicable accounts and key usage.
         """
-        return await self._db_context.run_in_thread_async(db_functions.link_transaction, tx_hash,
-            rollback_on_spend_conflict=rollback_on_spend_conflict)
+        await self._db_context.run_in_thread_async(db_functions.link_transaction, tx_hash,
+            context)
 
     def read_transaction(self, transaction_hash: bytes) -> TransactionRow | None:
         return db_functions.read_transaction(self._db_context, transaction_hash)
@@ -2386,7 +2391,7 @@ class WalletDataAccess:
         return db_functions.read_unconnected_merkle_proofs(self._db_context)
 
     def read_transaction_value_entries(self, account_id: int, *,
-            tx_hashes: list[bytes]|None=None, mask: TxFlags|None=None) \
+            tx_hashes: list[bytes]|None=None, mask: TxFlag|None=None) \
                 -> list[TransactionValueRow]:
         return db_functions.read_transaction_value_entries(self._db_context, account_id,
             tx_hashes=tx_hashes, mask=mask)
@@ -2395,8 +2400,8 @@ class WalletDataAccess:
             -> list[TransactionExistsRow]:
         return db_functions.read_transactions_exist(self._db_context, tx_hashes, account_id)
 
-    async def set_transaction_state_async(self, transaction_hash: bytes, flag: TxFlags,
-            ignore_mask: TxFlags | None=None) -> bool:
+    async def set_transaction_state_async(self, transaction_hash: bytes, flag: TxFlag,
+            ignore_mask: TxFlag | None=None) -> bool:
         """
         Change the state of a transaction but only if it is in an expected state.
 
@@ -2412,7 +2417,7 @@ class WalletDataAccess:
         # locations not `set_transaction_state_async`.
         if succeeded:
             self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
-                flag & TxFlags.MASK_STATE)
+                flag & TxFlag.MASK_STATE)
             if app_state.daemon.nodeapi_server is not None:
                 app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
         return succeeded
@@ -2424,12 +2429,12 @@ class WalletDataAccess:
         # @TransactionStateChange
         for transaction_hash in transaction_hashes:
             self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
-                TxFlags.STATE_CLEARED)
+                TxFlag.STATE_CLEARED)
             if app_state.daemon.nodeapi_server is not None:
                 app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
         return transaction_hashes
 
-    async def update_transaction_flags_async(self, entries: list[tuple[TxFlags, TxFlags, bytes]]) \
+    async def update_transaction_flags_async(self, entries: list[tuple[TxFlag, TxFlag, bytes]]) \
             -> int:
         return await self._db_context.run_in_thread_async(
             db_functions.update_transaction_flags_write, entries)
@@ -2437,13 +2442,13 @@ class WalletDataAccess:
     async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
             proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
             processed_message_ids: list[int], processed_message_ids_externally_owned: list[int],
-            event_relevant_flags: set[TxFlags]) -> None:
+            event_relevant_flags: set[TxFlag]) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
                 proof_update_rows, processed_message_ids, processed_message_ids_externally_owned)
         # @TransactionStateChange
         for update_row in tx_update_rows:
-            state_flags = update_row.tx_flags & TxFlags.MASK_STATE
+            state_flags = update_row.tx_flags & TxFlag.MASK_STATE
             if state_flags not in event_relevant_flags:
                 continue
             self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, update_row.tx_hash,
@@ -2453,19 +2458,19 @@ class WalletDataAccess:
 
     async def update_transaction_proofs_and_flags(self,
             tx_update_rows: list[TransactionProofUpdateRow],
-            flag_entries: list[tuple[TxFlags, TxFlags, bytes]]) -> None:
+            flag_entries: list[tuple[TxFlag, TxFlag, bytes]]) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_and_flag_write, tx_update_rows, flag_entries)
 
         # @TransactionStateChange
-        updated_entries: set[tuple[bytes, TxFlags]] = set()
+        updated_entries: set[tuple[bytes, TxFlag]] = set()
         for update_row in tx_update_rows:
             updated_entries.add((update_row.tx_hash, update_row.tx_flags))
         for _flag_mask_bits, flag_set_bits, transaction_hash in flag_entries:
             updated_entries.add((transaction_hash, flag_set_bits))
         for transaction_hash, transaction_flags in updated_entries:
             self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
-                transaction_flags & TxFlags.MASK_STATE)
+                transaction_flags & TxFlag.MASK_STATE)
             if app_state.daemon.nodeapi_server is not None:
                 app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
 
@@ -2711,16 +2716,16 @@ class Wallet:
         self._accounts.clear()
         self._wallet_master_keystore = None
 
-        masterkey_rows = db_functions.read_masterkeys(self.get_db_context())
+        masterkey_rows = self.data.read_masterkeys()
         # Create the keystores for masterkeys without parent masterkeys first.
         for mk_row in sorted(masterkey_rows,
                 key=lambda t: 0 if t.parent_masterkey_id is None else t.parent_masterkey_id):
             keystore = self._realize_keystore(mk_row)
-            if mk_row.flags & MasterKeyFlags.WALLET_SEED:
+            if mk_row.flags & MasterKeyFlag.WALLET_SEED:
                 self._wallet_master_keystore = cast(BIP32_KeyStore, keystore)
         assert self._wallet_master_keystore is not None, "migration 29 master keystore missing"
 
-        account_flags: dict[int, AccountInstantiationFlags] = {}
+        account_flags: dict[int, AccountInstantiationFlag] = {}
         keyinstances_by_account_id: dict[int, list[KeyInstanceRow]] = {}
         # TODO Avoid reading in all the keyinstances we are not interested in.
         for keyinstance_row in self.data.read_keyinstances():
@@ -2728,23 +2733,23 @@ class Wallet:
                 if keyinstance_row.account_id not in keyinstances_by_account_id:
                     if keyinstance_row.account_id not in account_flags:
                         account_flags[keyinstance_row.account_id] \
-                            = AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS
+                            = AccountInstantiationFlag.IMPORTED_PRIVATE_KEYS
                     else:
                         account_flags[keyinstance_row.account_id] |= \
-                            AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS
+                            AccountInstantiationFlag.IMPORTED_PRIVATE_KEYS
                     keyinstances_by_account_id[keyinstance_row.account_id] = []
                 keyinstances_by_account_id[keyinstance_row.account_id].append(keyinstance_row)
             elif keyinstance_row.derivation_type in ADDRESS_TYPES:
                 if keyinstance_row.account_id not in account_flags:
                     account_flags[keyinstance_row.account_id] \
-                        = AccountInstantiationFlags.IMPORTED_ADDRESSES
+                        = AccountInstantiationFlag.IMPORTED_ADDRESSES
                 else:
                     account_flags[keyinstance_row.account_id] |= \
-                        AccountInstantiationFlags.IMPORTED_ADDRESSES
+                        AccountInstantiationFlag.IMPORTED_ADDRESSES
 
-        for account_row in db_functions.read_accounts(self.get_db_context()):
+        for account_row in self.data.read_accounts():
             account = self._instantiate_account(account_row,
-                account_flags.get(account_row.account_id, AccountInstantiationFlags.NONE))
+                account_flags.get(account_row.account_id, AccountInstantiationFlag.NONE))
             if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
                 keyinstance_rows = keyinstances_by_account_id[account_row.account_id]
                 assert keyinstance_rows
@@ -2923,16 +2928,16 @@ class Wallet:
         self._masterkey_rows[row.masterkey_id] = row
         return keystore
 
-    def _instantiate_account(self, account_row: AccountRow, flags: AccountInstantiationFlags) \
+    def _instantiate_account(self, account_row: AccountRow, flags: AccountInstantiationFlag) \
             -> AbstractAccount:
         """
         Create the correct account type instance and register it for the given account id.
         """
         account: AbstractAccount|None = None
         if account_row.default_masterkey_id is None:
-            if flags & AccountInstantiationFlags.IMPORTED_ADDRESSES:
+            if flags & AccountInstantiationFlag.IMPORTED_ADDRESSES:
                 account = ImportedAddressAccount(self, account_row)
-            elif flags & AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS:
+            elif flags & AccountInstantiationFlag.IMPORTED_PRIVATE_KEYS:
                 account = ImportedPrivkeyAccount(self, account_row)
             else:
                 raise WalletLoadError(_("unknown imported account type"))
@@ -2954,7 +2959,7 @@ class Wallet:
         self.register_account(account_row.account_id, account)
         return account
 
-    def _create_account_from_data(self, account_row: AccountRow, flags: AccountInstantiationFlags) \
+    def _create_account_from_data(self, account_row: AccountRow, flags: AccountInstantiationFlag) \
             -> AbstractAccount:
         account = self._instantiate_account(account_row, flags)
 
@@ -3045,12 +3050,12 @@ class Wallet:
         else:
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")
 
-        creation_flags = AccountInstantiationFlags.NONE
+        creation_flags = AccountInstantiationFlag.NONE
         if keystore_result.account_creation_type == AccountCreationType.NEW:
-            creation_flags |= AccountInstantiationFlags.NEW
+            creation_flags |= AccountInstantiationFlag.NEW
 
         basic_row = AccountRow(keystore_result.account_id, masterkey_row.masterkey_id, script_type,
-            account_name, AccountFlags.NONE, None, None)
+            account_name, AccountFlag.NONE, None, None, int(time.time()), int(time.time()))
         rows = self.add_accounts([ basic_row ])
         return self._create_account_from_data(rows[0], creation_flags)
 
@@ -3059,13 +3064,13 @@ class Wallet:
         raw_keyinstance_rows: list[KeyInstanceRow] = []
 
         account_name: str|None = None
-        account_flags: AccountInstantiationFlags
+        account_flags: AccountInstantiationFlag
         if text_type == KeystoreTextType.ADDRESSES:
             account_name = "Imported addresses"
-            account_flags = AccountInstantiationFlags.IMPORTED_ADDRESSES
+            account_flags = AccountInstantiationFlag.IMPORTED_ADDRESSES
         elif text_type == KeystoreTextType.PRIVATE_KEYS:
             account_name = "Imported private keys"
-            account_flags = AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS
+            account_flags = AccountInstantiationFlag.IMPORTED_PRIVATE_KEYS
         else:
             raise WalletLoadError(f"Unhandled text type {text_type}")
 
@@ -3095,8 +3100,8 @@ class Wallet:
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
                     KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
 
-        basic_account_row = AccountRow(-1, None, script_type, account_name, AccountFlags.NONE,
-            None, None)
+        basic_account_row = AccountRow(-1, None, script_type, account_name, AccountFlag.NONE,
+            None, None, int(time.time()), int(time.time()))
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 
@@ -3509,11 +3514,10 @@ class Wallet:
 
         return tx, context
 
-    async def add_local_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            block_height: int, block_hash: bytes | None=None, block_position: int | None=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
-            transaction_output_key_usage: dict[int, tuple[int, ScriptType]] | None = None) \
-                -> TransactionLinkState:
+    async def add_local_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlag,
+            block_height: int, block_hash: bytes|None, block_position: int|None,
+            context: TransactionImportContext) \
+                -> None:
         """
         This is currently only called when an account constructs and signs a transaction
 
@@ -3521,18 +3525,13 @@ class Wallet:
         - `TransactionAlreadyExistsError` if the transaction is already in the wallet database.
         - `DatabaseUpdateError` if there are spend conflicts and the transaction was rolled back.
         """
-        return await self._import_transaction_async(tx_hash, tx, flags, block_height, block_hash,
-            block_position, import_flags=import_flags, rollback_on_spend_conflict=True,
-            transaction_output_key_usage=transaction_output_key_usage)
+        context.rollback_on_spend_conflict = True
+        await self._import_transaction_async(tx_hash, tx, flags, block_height, block_hash,
+            block_position, context, None)
 
-    async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            block_height: int, block_hash: bytes | None=None, block_position: int | None=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
-            proof_row: MerkleProofRow | None=None, *,
-            transaction_output_key_usage: dict[int, tuple[int, ScriptType]] | None = None,
-            key_usage_metadatas: set[TransactionKeyUsageMetadata] | None = None,
-            rollback_on_spend_conflict: bool=False) \
-                -> TransactionLinkState:
+    async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlag,
+            block_height: int, block_hash: bytes|None, block_position: int|None,
+            import_context: TransactionImportContext, proof_row: MerkleProofRow|None) -> None:
         """
         This is currently only called when a missing transaction arrives.
 
@@ -3549,25 +3548,14 @@ class Wallet:
         # detected, obtained and is importing the transaction.
         missing_entry = self._missing_transactions.get(tx_hash)
         if missing_entry is not None:
-            import_flags |= missing_entry.import_flags
-
-        if key_usage_metadatas is not None:
-            assert transaction_output_key_usage is None
-            transaction_output_key_usage = map_transaction_output_key_usage(tx,
-                key_usage_metadatas)
+            import_context.flags |= missing_entry.import_flags
 
         return await self._import_transaction_async(tx_hash, tx, flags, block_height, block_hash,
-            block_position, import_flags=import_flags, proof_row=proof_row,
-            transaction_output_key_usage=transaction_output_key_usage,
-            rollback_on_spend_conflict=rollback_on_spend_conflict)
+            block_position, import_context, proof_row)
 
     async def _import_transaction_async(self, transaction_hash: bytes, transaction: Transaction,
-            flags: TxFlags, block_height: int, block_hash: bytes | None, block_position: int | None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
-            proof_row: MerkleProofRow | None=None, *,
-            transaction_output_key_usage: dict[int, tuple[int, ScriptType]] | None = None,
-            rollback_on_spend_conflict: bool=False) \
-                -> TransactionLinkState:
+            flags: TxFlag, block_height: int, block_hash: bytes | None, block_position: int | None,
+            context: TransactionImportContext, proof_row: MerkleProofRow|None) -> None:
         """
         Add an external complete transaction to the database.
 
@@ -3582,15 +3570,13 @@ class Wallet:
         timestamp = int(time.time())
         transaction_output_flags = TransactionOutputFlag.COINBASE if transaction.is_coinbase() \
             else TransactionOutputFlag.NONE
-        if transaction_output_key_usage is None:
-            transaction_output_key_usage = {}
 
         # The database layer should be decoupled from core wallet logic so we need to
         # break down the transaction and related data for it to consume.
         transaction_row = TransactionRow(transaction_hash, transaction.to_bytes(), flags,
             block_hash, block_height, block_position, fee_value=None, description=None,
-            version=transaction.version, locktime=transaction.locktime, date_created=timestamp,
-            date_updated=timestamp)
+            version=transaction.version, locktime=transaction.locktime,
+            payment_id=context.payment_id, date_created=timestamp, date_updated=timestamp)
 
         transaction_input_rows: list[TransactionInputAddRow] = []
         for input_index, transaction_input in enumerate(transaction.inputs):
@@ -3603,21 +3589,21 @@ class Wallet:
 
         transaction_output_rows: list[TransactionOutputAddRow] = []
         for output_index, transaction_output in enumerate(transaction.outputs):
-            keyinstance_id, script_type = transaction_output_key_usage.get(output_index,
+            keyinstance_id, script_type = context.output_key_usage.get(output_index,
                 (None, ScriptType.NONE))
             transaction_output_row = TransactionOutputAddRow(transaction_hash, output_index,
                 transaction_output.value,
                 keyinstance_id,
                 script_type,
                 transaction_output_flags,
+                # TODO(nocheckin) Transaction outputs. Document why we do script hash.
                 scripthash_bytes(transaction_output.script_pubkey),
                 transaction_output.script_offset, transaction_output.script_length,
                 timestamp, timestamp)
             transaction_output_rows.append(transaction_output_row)
 
-        link_state = await self.data.import_transaction_async(transaction_row,
-            transaction_input_rows, transaction_output_rows, proof_row,
-            rollback_on_spend_conflict=rollback_on_spend_conflict)
+        await self.data.import_transaction_async(transaction_row,
+            transaction_input_rows, transaction_output_rows, proof_row, context)
 
         async with self._obtain_transactions_async_lock:
             if transaction_hash in self._missing_transactions:
@@ -3625,7 +3611,7 @@ class Wallet:
                 self.logger.debug("Removed missing transaction %s",
                     hash_to_hex_str(transaction_hash)[:8])
                 self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED, transaction_row,
-                    transaction, link_state)
+                    transaction, context)
 
         # TODO(1.4.0) MAPI management, issue#910. Allow user to correct lost STATE_SIGNED or
         #     STATE_CLEARED transactions. This would likely be some UI option that used spent
@@ -3634,14 +3620,14 @@ class Wallet:
 
         # We monitor local and mempool transactions to see if they have been mined.
         # TODO(1.4.0) Transaction import, issue#913. Think through all the edge cases.
-        if self._network is not None and flags & (TxFlags.MASK_STATE_LOCAL | TxFlags.STATE_CLEARED):
+        if self._network is not None and flags & (TxFlag.MASK_STATE_LOCAL | TxFlag.STATE_CLEARED):
             # We do not monitor local transactions that are being MAPI broadcast.
             # We do not monitor transactions that have proof and are pending verification.
             monitor_spent_outputs = True
-            if flags & TxFlags.STATE_SIGNED:
+            if flags & TxFlag.STATE_SIGNED:
                 # We use the spent output monitoring for all transactions in our wallet.
                 pass
-            elif flags & TxFlags.STATE_CLEARED:
+            elif flags & TxFlag.STATE_CLEARED:
                 if proof_row is not None:
                     # We do not need to monitor this broadcast as we already have the proof for
                     # this transaction but were not able to verify it due to the lack of the
@@ -3664,16 +3650,14 @@ class Wallet:
         # This primarily routes a notification to the user interface, for it to update for this
         # specific change.
         self.events.trigger_callback(WalletEvent.TRANSACTION_ADD, transaction_hash, transaction,
-            link_state, import_flags)
+            context)
 
         if app_state.daemon.nodeapi_server is not None:
             app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
 
-        return link_state
-
-    def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlags,
+    def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlag,
             error_callback: Callable[[str], None]) -> None:
-        def callback(callback_future: concurrent.futures.Future[TransactionLinkState]) -> None:
+        def callback(callback_future: concurrent.futures.Future[None]) -> None:
             if callback_future.cancelled():
                 return
             try:
@@ -3683,8 +3667,9 @@ class Wallet:
             except TransactionAlreadyExistsError:
                 error_callback(_("That transaction has already been imported"))
 
+        import_context = TransactionImportContext(flags=ImportTransactionFlag.MANUAL_IMPORT)
         future = app_state.async_.spawn(self.add_local_transaction_async(tx.hash(), tx,
-            tx_state, BlockHeight.LOCAL, None, TransactionImportFlag.MANUAL_IMPORT))
+            tx_state, BlockHeight.LOCAL, None, None, import_context))
         future.add_done_callback(callback)
 
     def read_bip32_keys_gap_size(self, account_id: int, masterkey_id: int, prefix_bytes: bytes) \
@@ -3692,28 +3677,18 @@ class Wallet:
         return db_functions.read_bip32_keys_gap_size(self.get_db_context(), account_id,
             masterkey_id, prefix_bytes)
 
-    def remove_transaction(self, tx_hash: bytes) -> concurrent.futures.Future[bool]:
+    async def remove_payment_async(self, payment_id: int) -> None:
         """
-        Unlink the transaction from accounts and their associated data.
+        Unlink the payment from accounts and their coins it was spending.
 
         This will not delete the transaction from the database. It will however remove any
         links to the transaction including:
-        - Invoice assocations with the transaction.
+        - Invoice associations with the transaction.
         """
-        tx_id = hash_to_hex_str(tx_hash)
-        self.logger.debug("removing tx from history %s", tx_id)
-
-        def on_db_call_done(future: concurrent.futures.Future[bool]) -> None:
-            # Skip if the operation was cancelled.
-            if future.cancelled():
-                return
-            # Raise any exception if it errored or get the result if completed successfully.
-            future.result()
-            self.events.trigger_callback(WalletEvent.TRANSACTION_DELETE, self._id, tx_hash)
-
-        future = db_functions.remove_transaction(self.get_db_context(), tx_hash)
-        future.add_done_callback(on_db_call_done)
-        return future
+        self.logger.debug("removing payment from wallet %d", payment_id)
+        await self.data.delete_payment_async(payment_id)
+        # TODO(nocheckin) Payments. Transaction -> payment?
+        self.events.trigger_callback(WalletEvent.TRANSACTION_DELETE, self._id, b"tx_id???")
 
     def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) \
             -> tuple[concurrent.futures.Future[None]|None, list[KeyInstanceRow]]:
@@ -3770,7 +3745,7 @@ class Wallet:
                     return account
         return None
 
-    def set_transaction_labels(self, entries: list[tuple[str|None, int, bytes]]) \
+    def set_account_payment_labels(self, entries: list[tuple[str|None, int, int]]) \
             -> concurrent.futures.Future[None]:
         def callback(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
@@ -3781,11 +3756,7 @@ class Wallet:
 
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE, entries)
 
-            for text, account_id, tx_hash in entries:
-                account = self._accounts[account_id]
-                app_state.app_qt.on_transaction_label_change(account, tx_hash, text or "")
-
-        future = self.data.update_account_transaction_descriptions(entries)
+        future = self.data.update_account_payment_descriptions(entries)
         future.add_done_callback(callback)
         return future
 
@@ -3809,8 +3780,8 @@ class Wallet:
             raise BroadcastError("P2P broadcast is not currently supported")
 
         if result.success:
-            await self.data.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
-                TxFlags.MASK_STATE_BROADCAST)
+            await self.data.set_transaction_state_async(broadcast_hash, TxFlag.STATE_CLEARED,
+                TxFlag.MASK_STATE_BROADCAST)
 
         return result
 
@@ -4236,24 +4207,25 @@ class Wallet:
                 [(peer_channel_server_state)]
 
     async def send_outgoing_direct_payment_async(self, invoice_id: int,
-            transaction: Transaction) -> PaymentACK:
+            transactions: list[Transaction]) -> PaymentACKMessage:
         """
-        Raises `Bip270Exception` if the remote server returned an error. `exception.args[0]`
+        Raises `DPPException` if the remote server returned an error. `exception.args[0]`
             contains text describing the error.
         """
         assert self._network is not None
         invoice_row = self.data.read_invoice(invoice_id=invoice_id)
         assert invoice_row is not None
         # Calling logic should have detected this and warned/confirmed with the user.
-        transaction_hash = transaction.hash()
+        # TODO(nocheckin) Payments. Why does Invoice have a `tx_hash`?
+        transaction_hash = transactions[0].hash()
         assert transaction_hash == invoice_row.tx_hash
 
         payment_ack = await send_outgoing_direct_payment_async(
-            invoice_row.payment_uri, transaction.to_hex())
-        await self.data.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
-            TxFlags.MASK_STATE_BROADCAST)
+            invoice_row.payment_uri, transactions)
+        await self.data.set_transaction_state_async(transaction_hash, TxFlag.STATE_DISPATCHED,
+            TxFlag.MASK_STATE_BROADCAST)
         await self.data.update_invoice_flags_async(
-            [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.STATE_PAID, invoice_id) ])
+            [ (PaymentRequestFlag.CLEARED_MASK_STATE, PaymentRequestFlag.STATE_PAID, invoice_id) ])
         await self.notify_external_listeners_async("outgoing-payment-delivered",
             invoice_id=invoice_id)
         return payment_ack
@@ -4310,20 +4282,23 @@ class Wallet:
         #     this on reconnection to the server, and drop any messages.
         paymentrequest_ids: list[int] = []
         for paymentrequest_row in self.data.read_payment_requests(
-                flags=PaymentFlag.STATE_PREPARING | PaymentFlag.TYPE_MONITORED,
-                mask=PaymentFlag.MASK_STATE | PaymentFlag.MASK_TYPE | PaymentFlag.MASK_HIDDEN):
+                flags=PaymentRequestFlag.STATE_PREPARING | PaymentRequestFlag.TYPE_MONITORED,
+                mask=PaymentRequestFlag.MASK_STATE | PaymentRequestFlag.MASK_TYPE |
+                    PaymentRequestFlag.MASK_HIDDEN):
             assert paymentrequest_row.paymentrequest_id is not None
             if paymentrequest_row.date_created + 2 * 24 * 60 * 60 < time.time():
                 paymentrequest_ids.append(paymentrequest_row.paymentrequest_id)
         if len(paymentrequest_ids) > 0:
             app_state.async_.spawn(
-                self.data.delete_payment_requests_async(paymentrequest_ids, PaymentFlag.DELETED))
+                self.data.delete_payment_requests_async(paymentrequest_ids,
+                    PaymentRequestFlag.DELETED))
 
         # DPP invoices. Cache runtime state.
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         for paymentrequest_row in self.data.read_payment_requests(
-                flags=PaymentFlag.STATE_UNPAID | PaymentFlag.TYPE_INVOICE,
-                mask=PaymentFlag.MASK_STATE | PaymentFlag.MASK_TYPE | PaymentFlag.MASK_HIDDEN):
+                flags=PaymentRequestFlag.STATE_UNPAID | PaymentRequestFlag.TYPE_INVOICE,
+                mask=PaymentRequestFlag.MASK_STATE | PaymentRequestFlag.MASK_TYPE | \
+                    PaymentRequestFlag.MASK_HIDDEN):
             self.register_outstanding_invoice(paymentrequest_row, password)
 
     def register_outstanding_invoice(self, payment_request_row: PaymentRequestRow,
@@ -4772,25 +4747,24 @@ class Wallet:
         from any state in the sequence if needed.
         """
         payment_request_rows = self.data.read_payment_requests(
-            flags=PaymentFlag.TYPE_INVOICE | PaymentFlag.STATE_UNPAID,
-            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE | PaymentFlag.MASK_HIDDEN,
+            flags=PaymentRequestFlag.TYPE_INVOICE | PaymentRequestFlag.STATE_UNPAID,
+            mask=PaymentRequestFlag.MASK_TYPE | PaymentRequestFlag.MASK_STATE | \
+                PaymentRequestFlag.MASK_HIDDEN,
             server_id=state.server.server_id)
 
-        # Initialize ws:// connections for pre-existing active invoice records from the database
+        # Establish connections for invoices still in-progress.
         assert len(state.dpp_websockets) == 0
-        await create_dpp_server_connections_async(state, payment_request_rows)
+        if len(payment_request_rows) > 0:
+            dpp_messages = db_functions.read_dpp_messages_by_pr_id(self._db_context,
+                [ pr_row.paymentrequest_id for pr_row in payment_request_rows ])
+            for dpp_message in self._filter_out_earlier_dpp_message_states(dpp_messages):
+                state.dpp_messages_queue.put_nowait(dpp_message)
 
-        # Initialize the state machine message queue for pre-existing active invoice records
-        paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in payment_request_rows]
-        dpp_messages = db_functions.read_dpp_messages_by_pr_id(self._db_context, paymentrequest_ids)
-        for dpp_message in self._filter_out_earlier_dpp_message_states(dpp_messages):
-            state.dpp_messages_queue.put_nowait(dpp_message)
+            await create_dpp_server_connections_async(state, payment_request_rows)
 
-        # State machine
         while self.is_running():
-            message_row: DPPMessageRow
             message_row = await state.dpp_messages_queue.get()
-            if message_row.type == DPPMessageType.JOIN_SUCCESS:
+            if DPPMessageType.JOIN_SUCCESS == message_row.type:
                 continue
 
             request_row, request_output_rows = self.data.read_payment_request(
@@ -4800,18 +4774,21 @@ class Wallet:
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
-            if request_row.request_flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_PAID:
-                if message_row.type == DPPMessageType.PAYMENT:
-                    # Defensive code in the case that the payer tries to pay an invoice that is
-                    # already paid.
+            assert request_row.paymentrequest_id is not None
+            assert request_row.request_flags & PaymentRequestFlag.MASK_TYPE == \
+                PaymentRequestFlag.TYPE_INVOICE, request_row.request_flags
+
+            request_state = request_row.request_flags & PaymentRequestFlag.MASK_STATE
+            if PaymentRequestFlag.STATE_PAID == request_state:
+                if DPPMessageType.PAYMENT == message_row.type:
                     assert request_row.dpp_ack_json is not None
                     self.logger.warning("Peer attempted to pay for an already paid invoice")
                     dpp_ack_dict = cast(PaymentACKDict, json.loads(request_row.dpp_ack_json))
-                    dpp_ack_message = dpp_make_ack(txid=dpp_ack_dict["mode"]["transactionIds"][0],
-                        message_row_received=message_row)
+                    dpp_ack_message = dpp_make_ack(dpp_ack_dict["mode"]["transactionIds"],
+                        message_row)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                     continue
-                elif message_row.type == DPPMessageType.REQUEST_CREATE:
+                elif DPPMessageType.REQUEST_CREATE == message_row.type:
                     error_reason = "Requested payment terms for an already paid invoice. " \
                         f"Invoice id: {request_row.dpp_invoice_id}"
                     self.logger.warning(error_reason)
@@ -4820,15 +4797,11 @@ class Wallet:
                     continue
                 raise NotImplementedError("Unexpected message type")
 
-            assert request_row.paymentrequest_id is not None
-            assert request_row.request_flags & PaymentFlag.MASK_TYPE == PaymentFlag.TYPE_INVOICE, \
-                request_row.request_flags
-
-            # Update flag to new state & write to database
-            assert message_row.type in MESSAGE_STATE_BY_TYPE, message_row.type
-            new_state = MESSAGE_STATE_BY_TYPE[message_row.type]
-            if request_row.request_flags & PaymentFlag.MASK_DPP_STATE != new_state:
-                new_flags = request_row.request_flags & ~PaymentFlag.MASK_DPP_STATE | new_state
+            # Update the payment request flags depending on the message type.
+            request_state = MESSAGE_STATE_BY_TYPE[message_row.type]
+            if request_row.request_flags & PaymentRequestFlag.MASK_DPP_STATE != request_state:
+                new_flags = request_row.request_flags & ~PaymentRequestFlag.MASK_DPP_STATE \
+                    | request_state
                 request_row = request_row._replace(request_flags=new_flags)
                 assert request_row.paymentrequest_id is not None
                 update_row = PaymentRequestUpdateRow(new_flags, request_row.requested_value,
@@ -4837,12 +4810,11 @@ class Wallet:
                     request_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
-            self.logger.debug("State machine processing DPPMessageRow: %s for state: %s",
-                message_row, request_row.request_flags)
+            self.logger.debug("State machine processing message: %s state: %s", message_row,
+                request_state)
 
-            # ----- States for when we are the Payee ----- #
-            if request_row.request_flags & PaymentFlag.MASK_DPP_STATE == \
-                    PaymentFlag.DPP_TERMS_REQUESTED:
+            # Payee-related states.
+            if PaymentRequestFlag.DPP_TERMS_REQUESTED == request_state:
                 assert request_row.server_id is not None
                 assert request_row.dpp_invoice_id is not None
                 server_url = self.get_dpp_server_url(request_row.server_id)
@@ -4851,53 +4823,67 @@ class Wallet:
                 dpp_response_message = dpp_make_payment_request_response(server_url, credential_id,
                     request_row, request_output_rows, message_row)
                 app_state.async_.spawn(dpp_websocket_send(state, dpp_response_message))
+                continue
 
-            elif request_row.request_flags & PaymentFlag.MASK_DPP_STATE == \
-                    PaymentFlag.DPP_PAYMENT_RECEIVED:
-                # This parsing step also validates the received `Payment` message
-                try:
-                    payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
-                except Bip270Exception:
-                    self.logger.exception("Received direct-payment-protocol `Payment` was invalid")
-                    continue
+            if PaymentRequestFlag.DPP_PAYMENT_RECEIVED != request_state:
+                # TODO(nocheckin) Payments. Should we logged states that are not handled?
+                continue
 
-                # As the *Payee*, we broadcast the transaction
-                tx = Transaction.from_hex(payment_obj.transaction_hex)
-                assert request_row.paymentrequest_id is not None
-                try:
-                    await self.validate_payment_request_async(request_row.paymentrequest_id,
-                        [ (tx, None) ])
-                except Bip270Exception as e:
-                    self.logger.exception("Bip270Exception validating payment request: %s, "
-                        "txid: %s", request_row.paymentrequest_id, tx.txid())
-                    error_reason = str(e)
-                    dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-                    continue
-                except Exception:
-                    self.logger.exception("Unexpected exception validating the payment request: "
-                        "%s, txid: %s", request_row.paymentrequest_id, tx.txid())
-                    error_reason = "The Payee wallet encountered an unexpected exception " \
-                        f"validating payment request: {request_row.paymentrequest_id}, " \
-                        f"txid: {tx.txid()}."
-                    dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
-                        "Internal Server Error")
-                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-                    continue
+            try:
+                payment_obj = PaymentMessage.from_json(message_row.body.decode('utf-8'))
+            except DPPRemoteException as dpp_exception:
+                self.logger.exception("Received Payment message invalid")
+                dpp_err_message = dpp_make_payment_error(message_row, str(dpp_exception))
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                continue
 
-                # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
-                viable_fee_contexts = await self.update_mapi_fee_quotes_async(
-                    state.petty_cash_account_id)
-                if len(viable_fee_contexts) == 0:
-                    self.logger.exception("No available mAPI servers with fee quotes")
-                    continue
+            tx_list: list[tuple[Transaction, TransactionContext|None]] = \
+                [ (tx, None) for tx in payment_obj.transactions ]
+            # NOTE(rt12) Incomplete tx have `txid=None`. These were validated as complete above.
+            tx_ids = [ cast(str, tx.txid()) for tx in payment_obj.transactions ]
 
-                # @pettycash @accountkeys ??
-                # The petty cash account is supposed to fund general wallet background maintenance
-                # without requiring the user to enter their password to approve spending. Is it the
-                # right choice to use here? Is there any other option?
-                mapi_server_hint = \
-                    self.get_mapi_broadcast_context(state.petty_cash_account_id, tx)
+            # As the *Payee*, we broadcast the transaction
+            assert request_row.paymentrequest_id is not None
+            try:
+                await self.validate_payment_request_async(request_row.paymentrequest_id,
+                    tx_list)
+            except DPPException as e:
+                self.logger.exception("DPPException validating payment request: %s, "
+                    "txid: %s", request_row.paymentrequest_id, tx_ids)
+                error_reason = str(e)
+                dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                continue
+            # TODO(nocheckin) Payments. The programmer who wrote this code did not understand
+            #     the code they were writing otherwise they could have caught the exceptions
+            #     they knew were being raised. Fix.
+            except Exception:
+                self.logger.exception("Unexpected exception validating the payment request: "
+                    "%s, txid: %s", request_row.paymentrequest_id, tx_ids)
+                error_reason = "The Payee wallet encountered an unexpected exception " \
+                    f"validating payment request: {request_row.paymentrequest_id}, " \
+                    f"txid: {tx_ids}."
+                dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                    "Internal Server Error")
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                continue
+
+            # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
+            viable_fee_contexts = await self.update_mapi_fee_quotes_async(
+                state.petty_cash_account_id)
+            if len(viable_fee_contexts) == 0:
+                self.logger.exception("No available mAPI servers with fee quotes")
+                continue
+
+            # TODO(nocheckin) Payments. Multi-transaction correct behaviour for mapi fees.
+            # - This needs some thinking. What does it mean to broadcast one tx of a payment but
+            #   not any others. Best approach is to show the payment as partial and failed and
+            #   leave it up to the user to refund (and provide that UI/functionality). No
+            #   automation.
+            # - We also want to have payment validation that does proof and output spend validation.
+            failure_reason: str|None = None
+            for tx_idx, (tx, _tx_context) in enumerate(tx_list):
+                mapi_server_hint = self.get_mapi_broadcast_context(state.petty_cash_account_id, tx)
                 assert mapi_server_hint is not None
                 tx_context = TransactionContext(mapi_server_hint=mapi_server_hint)
                 try:
@@ -4906,56 +4892,55 @@ class Wallet:
                     self.logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
 
-                if broadcast_result.success:
-                    try:
-                        # NOTE: This will update the payment request with PaymentFlag.PAID
-                        await self.close_payment_request_async(request_row.paymentrequest_id,
-                            [(tx, None)])
-                    except Bip270Exception as e:
-                        error_reason = str(e)
-                        dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-                        self.logger.exception("Unexpected exception processing the transaction")
-                        continue
-                    except Exception:
-                        self.logger.exception("Unexpected exception processing the transaction")
-                        error_reason = "The Payee wallet encountered an unexpected exception " \
-                            "processing this transaction."
-                        dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
-                            "Internal Server Error")
-                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-                        continue
+                if not broadcast_result.success:
+                    failure_reason = broadcast_result.mapi_response['resultDescription']
+                    self.logger.error("mAPI broadcast for txid %s failed: '%s'",
+                        tx_ids[tx_idx], failure_reason)
+                    break
 
-                    # Re-read from the db because `close_payment_request_async` applied updates
-                    request_row, request_output_rows = self.data.read_payment_request(
-                        request_id=message_row.paymentrequest_id)
-                    assert request_row is not None
-                    assert request_row.paymentrequest_id is not None
+            if failure_reason is not None:
+                # Notify the payer why we rejected their payment.
+                dpp_err_message = dpp_make_payment_error(message_row, failure_reason)
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                continue
 
-                    # Add dpp_ack_json to payment_request_row in case the Payer tries to
-                    # re-attempt payment for the same invoice.
-                    dpp_ack_message = dpp_make_ack(tx.txid(), message_row)
-                    update_row = PaymentRequestUpdateRow(request_row.request_flags,
-                        request_row.requested_value, request_row.date_expires,
-                        request_row.description, request_row.merchant_reference,
-                        dpp_ack_message.body.decode('utf-8'),
-                        request_row.paymentrequest_id)
-                    await self.data.update_payment_requests_async([update_row])
+            try:
+                # TODO(nocheckin) Payment requests. This duplicates the validation there ^
+                # NOTE: This will update the payment request with PaymentFlag.PAID
+                await self.close_payment_request_async(request_row.paymentrequest_id,
+                    tx_list)
+            except DPPException as e:
+                error_reason = str(e)
+                dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                self.logger.exception("Unexpected exception processing the transaction")
+                continue
+            except Exception:
+                self.logger.exception("Unexpected exception processing the transaction")
+                error_reason = "The Payee wallet encountered an unexpected exception " \
+                    "processing this transaction."
+                dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                    "Internal Server Error")
+                app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                continue
 
-                    # Send PaymentACK to payer
-                    app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
-                else:
-                    self.logger.error("mAPI broadcast for txid: %s failed with reason: %s",
-                        tx.txid(), broadcast_result.mapi_response['resultDescription'])
+            # Re-read from the db because `close_payment_request_async` applied updates
+            request_row, request_output_rows = self.data.read_payment_request(
+                request_id=message_row.paymentrequest_id)
+            assert request_row is not None
+            assert request_row.paymentrequest_id is not None
 
-                    # Inform the *Payer* of the reason we rejected their `Payment`
-                    error_reason = broadcast_result.mapi_response['resultDescription']
-                    dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+            # Add dpp_ack_json to payment_request_row in case the Payer tries to
+            # re-attempt payment for the same invoice. RT: What does ths even mean? Why do we care??
+            dpp_ack_message = dpp_make_ack(tx_ids, message_row)
+            update_row = PaymentRequestUpdateRow(request_row.request_flags,
+                request_row.requested_value, request_row.date_expires,
+                request_row.description, request_row.merchant_reference,
+                dpp_ack_message.body.decode('utf-8'),
+                request_row.paymentrequest_id)
+            await self.data.update_payment_requests_async([update_row])
 
-            # ----- States for when we are the Payer ----- #
-            # NOTE: Not included because when we are the ** Payer **, we use the simplified
-            # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
+            app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
 
     async def garbage_collect_externally_owned_peer_channels_async(self) -> None:
         """Cleanup peer channels that have mAPI callback messages with timestamp past the
@@ -5050,7 +5035,7 @@ class Wallet:
 
             # Reconcile the received server state against the database state.
             mined_transactions: set[tuple[bytes, bytes]] = set()
-            mempool_transactions: dict[bytes, TxFlags] = {}
+            mempool_transactions: dict[bytes, TxFlag] = {}
             for spent_output in spent_outputs:
                 spent_outpoint = Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
@@ -5106,7 +5091,7 @@ class Wallet:
                             # The blockchain server has informed us that the transaction is in
                             # a block. The wallet believes the transaction was either in the
                             # mempool already or is watching to see if someone else broadcasts it.
-                            if row.flags & TxFlags.MASK_STATE_LOCAL:
+                            if row.flags & TxFlag.MASK_STATE_LOCAL:
                                 # Process someone else broadcasting this transaction.
                                 # TODO(1.4.0) User experience, issue#909. Notify the user that
                                 #     this local transaction has been broadcast unexpectedly.
@@ -5124,7 +5109,7 @@ class Wallet:
                             # TODO(reorgs) Consider using this output spend to check consistency.
                             self.logger.debug("Unspent output event, transaction reorged %r ~ %r",
                                 spent_output, row)
-                    elif row.block_hash is None and row.flags & TxFlags.MASK_STATE_LOCAL:
+                    elif row.block_hash is None and row.flags & TxFlag.MASK_STATE_LOCAL:
                         # The blockchain server has informed us that a transaction we do not
                         # know to be broadcast, has been broadcast and is in the mempool.
 
@@ -5145,10 +5130,10 @@ class Wallet:
                 # the state to cleared.
                 date_updated = get_posix_timestamp()
                 tx_update_row = TransactionProofUpdateRow(block_hash, BlockHeight.MEMPOOL, None,
-                    TxFlags.STATE_CLEARED, date_updated, tx_hash)
+                    TxFlag.STATE_CLEARED, date_updated, tx_hash)
                 tx_update_rows.append(tx_update_row)
 
-            flag_update_rows = [ (TxFlags.MASK_STATELESS, TxFlags.STATE_CLEARED, tx_hash)
+            flag_update_rows = [ (TxFlag.MASK_STATELESS, TxFlag.STATE_CLEARED, tx_hash)
                 for tx_hash in mempool_transactions ]
 
             # This is an atomic update. If it succeeds then the missing proofs will get triggered
@@ -5166,7 +5151,7 @@ class Wallet:
             candidates: list[tuple[Transaction, TransactionContext | None]],
             error_callback: Callable[[str], None] | None=None) -> None:
         """
-        Raises `Bip270Exception` if the candidate transactions do not fully and correctly pay for
+        Raises `DPPException` if the candidate transactions do not fully and correctly pay for
             the payment request.
         """
         request_row, request_output_rows = self.data.read_payment_request(request_id)
@@ -5174,7 +5159,7 @@ class Wallet:
         assert len(request_output_rows) > 0
 
         if not all(transaction.is_complete() for transaction, transaction_context in candidates):
-            raise Bip270Exception(_("One or more of the transactions provided are not final."))
+            raise DPPRemoteException(_("One or more of the transactions provided are not final."))
 
         request_output_row_by_script_bytes = {
             request_output_row.output_script_bytes: request_output_row
@@ -5198,7 +5183,7 @@ class Wallet:
                     self.logger.debug("Transaction '%s' output %d has value %d, "
                         "expected value %d", hash_to_hex_str(transaction_hash), output_index,
                         transaction_output.value, request_output_row.output_value)
-                    raise Bip270Exception(_("The transactions do not provide the correct values."))
+                    raise DPPException(_("The transactions do not provide the correct values."))
                 transaction_output_key_usage[output_index] = (request_output_row.keyinstance_id,
                     request_output_row.output_script_type)
 
@@ -5207,18 +5192,18 @@ class Wallet:
         if received_value != request_row.requested_value:
             self.logger.debug("The transactions are incorrect and provided value %d but "
                 "expected value %d satoshis.", received_value, request_row.requested_value)
-            raise Bip270Exception(_("The transactions do not provide the correct values."))
+            raise DPPException(_("The transactions do not provide the correct values."))
 
         # NOTE(output-spends) This will trigger registration for output spend events to monitor
         #     if this transaction gets broadcast externally.
         for transaction_index, (transaction, transaction_context) in enumerate(candidates):
             transaction_hash = transaction_hashes[transaction_index]
             transaction_output_key_usage = transaction_output_key_usages[transaction_index]
+            import_context = TransactionImportContext(flags=ImportTransactionFlag.MANUAL_IMPORT,
+                output_key_usage=transaction_output_key_usage)
             try:
                 await self.add_local_transaction_async(transaction.hash(), transaction,
-                    TxFlags.STATE_RECEIVED, BlockHeight.LOCAL, None,
-                    TransactionImportFlag.MANUAL_IMPORT,
-                    transaction_output_key_usage=transaction_output_key_usage)
+                    TxFlag.STATE_RECEIVED, BlockHeight.LOCAL, None, None, import_context)
             except DatabaseUpdateError as update_exception:
                 # TODO Abort/bail.
                 pass
@@ -5241,32 +5226,31 @@ class Wallet:
         # Notify any dependent systems including the GUI that the payment request has been updated.
         self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, [ request_id ])
         if len(transaction_description_update_rows):
+            # TODO(nocheckin) Payments. Replace for payments not transactions.
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
                 transaction_description_update_rows)
 
-    async def _close_payment_request_for_transaction_async(self, transaction_hash: bytes) -> None:
+    async def _check_if_transaction_closes_payment_request(self, transaction_hash: bytes) -> None:
         """
         This transaction is expected to be related to an outstanding payment request and we need
         to locate that payment request, and see if it closes out that payment request as paid.
 
         At the time of writing this is related to the tip filter and blockchain monitored ones.
         """
-        payment_request_ids = self.data.read_payment_request_ids_for_transaction(transaction_hash)
-        # The caller should only call this in circumstances where they expect there to be a payment
-        # request associated with this transaction. Our policy is to error in problem situations.
-        assert len(payment_request_ids) > 0, "_close_payment_request_for_transaction_async given " \
+        paymentrequest_ids = self.data.read_payment_request_ids_for_transaction(transaction_hash)
+        assert len(paymentrequest_ids) > 0, "_check_if_transaction_closes_payment_request given " \
             "a transaction hash that is not linked to keys associated with outstanding payment " \
             f"requests {hash_to_hex_str(transaction_hash)}"
 
         closed_payment_request_ids: list[int] = []
-        all_transaction_description_update_rows: list[tuple[str, int, bytes]] = []
-        for payment_request_id in payment_request_ids:
-            request_row, request_output_rows = self.data.read_payment_request(payment_request_id)
+        all_updated_rows: list[tuple[str, int, int]] = []
+        for paymentrequest_id in paymentrequest_ids:
+            request_row, request_output_rows = self.data.read_payment_request(paymentrequest_id)
             assert request_row is not None
             assert len(request_output_rows) > 0
 
             # @BlindPaymentRequests
-            # This is to support the node wallet comparible JSON-RPC API. The GUI does not use it.
+            # This is to support the node wallet comparable JSON-RPC API. The GUI does not use it.
             # The idea is that these payment requests relate to an existing externally registered
             # tip filter registration and the external party should be notified about all payment
             # transactions to this key.
@@ -5274,22 +5258,18 @@ class Wallet:
                 continue
 
             try:
-                transaction_description_update_rows = \
-                    await self.data.close_paid_payment_request_async(payment_request_id)
+                updated_rows = await self.data.close_paid_payment_request_async(paymentrequest_id)
             except DatabaseUpdateError:
-                self.logger.exception("Transaction did not close payment request %s",
-                    payment_request_id)
+                self.logger.debug("Payment request %s partial payment", paymentrequest_id)
             else:
-                all_transaction_description_update_rows.extend(transaction_description_update_rows)
+                closed_payment_request_ids.append(paymentrequest_id)
+                all_updated_rows.extend(updated_rows)
 
         # Notify dependent systems including the GUI that these payment requests have been updated.
         self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, closed_payment_request_ids)
-        if len(all_transaction_description_update_rows):
-            self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
-                all_transaction_description_update_rows)
-
-    def have_transaction(self, transaction_hash: bytes) -> bool:
-        return self.data.get_transaction_flags(transaction_hash) is not None
+        if len(all_updated_rows):
+            # TODO(nocheckin) Payments. These should be payment not tx labels.
+            self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE, all_updated_rows)
 
     def get_transaction(self, transaction_hash: bytes) -> Transaction|None:
         lock = self._obtain_transaction_lock(transaction_hash)
@@ -5988,12 +5968,17 @@ class Wallet:
 
     async def obtain_transactions_async(self, account_id: int,
             missing_transaction_entries: list[MissingTransactionMetadata],
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> set[bytes]:
+            import_flags: ImportTransactionFlag=ImportTransactionFlag.UNSET) -> set[bytes]:
         """
         Update the registry of transactions we do not have or are in the process of getting.
 
-        Return the hashes out of `tx_hashes` that do not already exist and will attempt to be
-        acquired.
+        Used by:
+        - Account restoration calls out of existing payment context. We have to ensure that these
+          are just put into their own payment as we do not have context at this time.
+        - Tip filter matches received for monitor the blockchain payment requests. A payment will
+          exist for the payment request to link these to.
+
+        Returns the `tx_hashes` that are not present and we will attempt to acquire.
         """
         async with self._obtain_transactions_async_lock:
             missing_transaction_hashes: set[bytes] = set()
@@ -6018,8 +6003,8 @@ class Wallet:
             self.logger.debug("Registering %d missing transactions",
                 len(missing_transaction_hashes))
             # Prompt the missing transaction logic to try again if the user is re-registering
-            # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
-            if len(missing_transaction_hashes) or import_flags & TransactionImportFlag.PROMPTED:
+            # already missing transactions (the `ImportTransactionFlag.PROMPTED` check).
+            if len(missing_transaction_hashes) or import_flags & ImportTransactionFlag.PROMPTED:
                 self._check_missing_transactions_event.set()
             return missing_transaction_hashes
 
@@ -6061,6 +6046,16 @@ class Wallet:
                 # The request gets billed to the first account to request a transaction.
                 account_id = entry.account_ids[0]
                 account = self._accounts[account_id]
+
+                def create_import_context(entry: MissingTransactionEntry, tx: Transaction) \
+                        -> TransactionImportContext:
+                    transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {}
+                    if entry.match_metadatas is not None:
+                        transaction_output_key_usage = map_transaction_output_key_usage(tx,
+                            entry.match_metadatas)
+                    return TransactionImportContext(payment_id=entry.payment_id,
+                        account_ids=entry.account_ids,
+                        output_key_usage=transaction_output_key_usage)
 
                 if entry.with_proof:
                     try:
@@ -6108,8 +6103,9 @@ class Wallet:
                         assert tsc_proof.block_hash is not None
 
                         tx = Transaction.from_bytes(tx_bytes)
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                            BlockHeight.MEMPOOL, key_usage_metadatas=entry.match_metadatas)
+                        await self.import_transaction_async(tx_hash, tx, TxFlag.STATE_CLEARED,
+                            BlockHeight.MEMPOOL, None, None,
+                            create_import_context(entry, tx), None)
 
                         proof_row = MerkleProofRow(tsc_proof.block_hash,
                             tsc_proof.transaction_index, -1, tsc_proof.to_bytes(), tx_hash)
@@ -6146,24 +6142,25 @@ class Wallet:
 
                     block_height = cast(int, header.height)
                     if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
+                        await self.import_transaction_async(tx_hash, tx, TxFlag.STATE_SETTLED,
                             block_height, tsc_proof.block_hash, tsc_proof.transaction_index,
-                            proof_row=proof_row, key_usage_metadatas=entry.match_metadatas)
+                            create_import_context(entry, tx), proof_row)
                     else:
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                            block_height, key_usage_metadatas=entry.match_metadatas)
+                        await self.import_transaction_async(tx_hash, tx, TxFlag.STATE_CLEARED,
+                            block_height, None, None,
+                            create_import_context(entry, tx), None)
                         await self.data.create_merkle_proofs_async([ proof_row ])
 
                     assert tx_hash not in self._missing_transactions
                 else:
                     tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
                     tx = Transaction.from_bytes(tx_bytes)
-                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                        BlockHeight.MEMPOOL, key_usage_metadatas=entry.match_metadatas)
+                    await self.import_transaction_async(tx_hash, tx, TxFlag.STATE_CLEARED,
+                        BlockHeight.MEMPOOL, None, None, create_import_context(entry, tx), None)
                     assert tx_hash not in self._missing_transactions
 
-                if entry.import_flags & TransactionImportFlag.TIP_FILTER_MATCH:
-                    await self._close_payment_request_for_transaction_async(tx_hash)
+                if entry.import_flags & ImportTransactionFlag.TIP_FILTER_MATCH:
+                    await self._check_if_transaction_closes_payment_request(tx_hash)
 
     async def _obtain_merkle_proofs_worker_async(self) -> None:
         """
@@ -6276,13 +6273,13 @@ class Wallet:
                     # This proof is valid for the wallet's view of the blockchain.
                     date_updated = int(time.time())
                     tx_update_row = TransactionProofUpdateRow(tsc_proof.block_hash, block_height,
-                        tsc_proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        tsc_proof.transaction_index, TxFlag.STATE_SETTLED, date_updated,
                         tx_hash)
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
                         tx_hash)
                     await self.data.update_transaction_proof_async([ tx_update_row ],
-                        [ proof_row ], [], [], [], { TxFlags.STATE_SETTLED })
+                        [ proof_row ], [], [], [], { TxFlag.STATE_SETTLED })
 
                     self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                         tsc_proof)
@@ -6390,7 +6387,7 @@ class Wallet:
                 if verified:
                     block_height = cast(int, header.height)
                     transaction_proof_updates.append(TransactionProofUpdateRow(proof_block_hash,
-                        block_height, proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        block_height, proof.transaction_index, TxFlag.STATE_SETTLED, date_updated,
                         proof.transaction_hash))
                     verified_proof_entries.append(process_entry)
                     proof_updates.append(MerkleProofUpdateRow(block_height, proof_block_hash,
@@ -6405,13 +6402,13 @@ class Wallet:
                     # it should not be necessary to update the UI as the transaction should not have
                     # changed state and we do not display "pending verification" proofs.
                     transaction_proof_updates.append(TransactionProofUpdateRow(None,
-                        BlockHeight.MEMPOOL, None, TxFlags.STATE_CLEARED, date_updated,
+                        BlockHeight.MEMPOOL, None, TxFlag.STATE_CLEARED, date_updated,
                         proof.transaction_hash))
 
             self.logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
                 len(transaction_proof_updates))
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
-                proof_updates, [], [], { TxFlags.STATE_CLEARED, TxFlags.STATE_SETTLED })
+                proof_updates, [], [], { TxFlag.STATE_CLEARED, TxFlag.STATE_SETTLED })
 
             for header, (proof, _proof_row) in verified_proof_entries:
                 assert proof.transaction_hash is not None

@@ -539,7 +539,7 @@ class Transaction(Tx): # type: ignore[misc]
             self.outputs[index].script_length = output.script_length
 
     def is_complete(self) -> bool:
-        '''Return true if this input has all signatures present.'''
+        '''Return true if all inputs have all the signatures they need.'''
         return all(txin.is_complete() for txin in self.inputs)
 
     def update_signatures(self, signatures: list[bytes]) -> None:

@@ -22,13 +22,15 @@ except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3
+import time
 from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, \
     TypedDict, Union
 
 from bitcoinx import bip32_build_chain_string
+
 from electrumsv_database.sqlite import DatabaseContext, replace_db_context_with_connection
-from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, MasterKeyFlags, \
-    PaymentFlag, ScriptType
+from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, MasterKeyFlag, \
+    PaymentRequestFlag, ScriptType
 from ..types import MasterKeyDataBIP32, \
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MultiSignatureMasterKeyDataTypes, \
     MasterKeyDataTypes
@@ -119,7 +121,7 @@ class MasterKeyRow_22(NamedTuple):
 class PaymentRequestRow_22(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
-    state: PaymentFlag
+    state: PaymentRequestFlag
     value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
@@ -512,5 +514,5 @@ MasterKeyRow_27 = MasterKeyRow
 def upgrade_masterkey_22(row: MasterKeyRow_22) -> MasterKeyRow_27:
     return MasterKeyRow_27(masterkey_id=row.masterkey_id,
         parent_masterkey_id=row.parent_masterkey_id, derivation_type=row.derivation_type,
-        derivation_data=row.derivation_data, flags=MasterKeyFlags.NONE)
-
+        derivation_data=row.derivation_data, flags=MasterKeyFlag.NONE,
+        date_created=int(time.time()), date_updated=int(time.time()))

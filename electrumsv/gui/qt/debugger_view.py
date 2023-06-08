@@ -126,7 +126,7 @@ class Columns(IntEnum):
     COLUMN_COUNT = 3
 
 
-class LineFlags(IntFlag):
+class LineFlag(IntFlag):
     NONE = 0
 
     IS_EDITABLE = 1 << 9
@@ -152,7 +152,7 @@ class RunStates(IntEnum):
 @dataclasses.dataclass
 class TableLine:
     text: str
-    flags: LineFlags
+    flags: LineFlag
     number: int = -1
     match: Optional[ScriptMatch] = dataclasses.field(default=None)
 
@@ -170,7 +170,7 @@ class TableModel(QAbstractItemModel):
         self._breakpoint_icon = read_QIcon("icons8-pause-button-96-material-red.png")
 
     def _can_edit_line(self, line: TableLine) -> bool:
-        return self._view._widget.editing_enabled and line.flags & LineFlags.IS_EDITABLE != 0
+        return self._view._widget.editing_enabled and line.flags & LineFlag.IS_EDITABLE != 0
 
     def get_line(self, row_index: int) -> TableLine:
         if row_index < 0:
@@ -182,7 +182,7 @@ class TableModel(QAbstractItemModel):
         # preceding line numbers being correct.
         line_number = self._first_line_number
         for line in data:
-            if line.flags & LineFlags.HAS_NUMBER:
+            if line.flags & LineFlag.HAS_NUMBER:
                 line.number = line_number
                 line_number += 1
 
@@ -199,7 +199,7 @@ class TableModel(QAbstractItemModel):
 
     def _append_line(self, line: TableLine) -> int:
         insert_row = len(self._data)
-        if line.flags & LineFlags.HAS_NUMBER:
+        if line.flags & LineFlag.HAS_NUMBER:
             line.number = self._get_current_line_number(insert_row)
 
         # Signal the insertion of the new row.
@@ -259,7 +259,7 @@ class TableModel(QAbstractItemModel):
                 if column == Columns.ICON:
                     if row == self._view._widget.current_row:
                         return self._marker_icon
-                    elif line.flags & LineFlags.HAS_BREAKPOINT:
+                    elif line.flags & LineFlag.HAS_BREAKPOINT:
                         return self._breakpoint_icon
 
             elif role == Qt.ItemDataRole.DisplayRole:
@@ -267,28 +267,28 @@ class TableModel(QAbstractItemModel):
                     if line.number != -1:
                         return str(line.number)
                 elif column == Columns.TEXT:
-                    if line.flags & LineFlags.IS_PLACEHOLDER:
+                    if line.flags & LineFlag.IS_PLACEHOLDER:
                         return PLACEHOLDER_TEXT
                     return line.text
             elif role == Qt.ItemDataRole.FontRole:
-                if line.flags & LineFlags.IS_LITERAL_VALUE:
+                if line.flags & LineFlag.IS_LITERAL_VALUE:
                     return self._view._monospace_font
 
             elif role == Qt.ItemDataRole.ForegroundRole:
-                if line.flags & LineFlags.IS_TITLE:
+                if line.flags & LineFlag.IS_TITLE:
                     return self._view._title_fg_brush
 
             elif role == Qt.ItemDataRole.BackgroundRole:
-                if line.flags & LineFlags.IS_TITLE:
+                if line.flags & LineFlag.IS_TITLE:
                     return self._view._title_bg_brush
-                elif line.flags & LineFlags.HAS_ERROR:
+                elif line.flags & LineFlag.HAS_ERROR:
                     return self._view._error_bg_brush
                 elif row == self._view._widget.current_row:
                     return self._view._active_bg_brush
 
             elif role == Qt.ItemDataRole.TextAlignmentRole:
                 if column == Columns.TEXT:
-                    if line.flags & (LineFlags.IS_TITLE | LineFlags.IS_PLACEHOLDER) == 0:
+                    if line.flags & (LineFlag.IS_TITLE | LineFlag.IS_PLACEHOLDER) == 0:
                         return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 return Qt.AlignmentFlag.AlignCenter
 
@@ -334,12 +334,12 @@ class TableModel(QAbstractItemModel):
 
                 updated_line = dataclasses.replace(existing_line, text=text)
                 if text == "":
-                    updated_line.flags |= LineFlags.IS_PLACEHOLDER
-                    updated_line.flags &= ~LineFlags.HAS_NUMBER
+                    updated_line.flags |= LineFlag.IS_PLACEHOLDER
+                    updated_line.flags &= ~LineFlag.HAS_NUMBER
                     updated_line.number = -1
                 else:
-                    updated_line.flags &= ~LineFlags.IS_PLACEHOLDER
-                    updated_line.flags |= LineFlags.HAS_NUMBER
+                    updated_line.flags &= ~LineFlag.IS_PLACEHOLDER
+                    updated_line.flags |= LineFlag.HAS_NUMBER
 
                 assert isinstance(self._view._widget, ScriptView)
                 if not self._view._widget.process_line_edit(row, existing_line, updated_line):
@@ -351,20 +351,20 @@ class TableModel(QAbstractItemModel):
 
                 # Update the line number on the current line.
                 next_line_number = existing_line.number
-                if updated_line.flags & LineFlags.HAS_NUMBER:
+                if updated_line.flags & LineFlag.HAS_NUMBER:
                     updated_line.number = self._get_current_line_number(row)
                     next_line_number = updated_line.number + 1
 
                     if row == len(self._data)-1:
                         self.append_line(TableLine("",
-                            LineFlags.IS_PLACEHOLDER | LineFlags.IS_EDITABLE |
-                                (updated_line.flags & LineFlags.SECTION_MASK)))
+                            LineFlag.IS_PLACEHOLDER | LineFlag.IS_EDITABLE |
+                                (updated_line.flags & LineFlag.SECTION_MASK)))
 
                 # Update the line numbers on any following line.
                 line_index = row + 1
                 while line_index < len(self._data):
                     following_line = self._data[line_index]
-                    if following_line.flags & LineFlags.HAS_NUMBER:
+                    if following_line.flags & LineFlag.HAS_NUMBER:
                         following_line.number = next_line_number
                         next_line_number += 1
                     line_index += 1
@@ -380,7 +380,7 @@ class TableModel(QAbstractItemModel):
         while focus_row > -1:
             if focus_row != len(self._data):
                 line = self._data[focus_row]
-                if line.flags & LineFlags.HAS_NUMBER:
+                if line.flags & LineFlag.HAS_NUMBER:
                     if row == focus_row:
                         if line.number != -1:
                             return line.number
@@ -390,7 +390,7 @@ class TableModel(QAbstractItemModel):
 
         return self._first_line_number
 
-    def get_next_row(self, start_row: int, mask: LineFlags) -> int:
+    def get_next_row(self, start_row: int, mask: LineFlag) -> int:
         current_row = start_row + 1
         while current_row < len(self._data):
             line = self._data[current_row]
@@ -521,7 +521,7 @@ class ScriptView(BaseTableWidget):
         super().__init__(lines, self.FIRST_LINE_NUMBER)
 
         self._section_scripts: List[Script] = []
-        self._active_section = LineFlags.NONE
+        self._active_section = LineFlag.NONE
         self._active_script: Optional[Script] = None
 
         title_label = QLabel(_("Scripts"))
@@ -540,13 +540,13 @@ class ScriptView(BaseTableWidget):
 
     def setup_standalone_script(self, script: Optional[Script]) -> None:
         lines: List[TableLine] = []
-        lines.append(TableLine(_("Script scratchpad"), LineFlags.IS_TITLE | LineFlags.SECTION1))
+        lines.append(TableLine(_("Script scratchpad"), LineFlag.IS_TITLE | LineFlag.SECTION1))
 
         if script is not None:
-            self._extend_lines_from_script(lines, script, LineFlags.SECTION1)
+            self._extend_lines_from_script(lines, script, LineFlag.SECTION1)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.IS_EDITABLE |
-                LineFlags.SECTION1))
+            lines.append(TableLine("", LineFlag.IS_PLACEHOLDER | LineFlag.IS_EDITABLE |
+                LineFlag.SECTION1))
 
         self._table_view.set_lines(lines)
 
@@ -571,21 +571,21 @@ class ScriptView(BaseTableWidget):
         self._section_scripts = []
 
         lines: List[TableLine] = []
-        lines.append(TableLine(_("Unlocking script"), LineFlags.IS_TITLE | LineFlags.SECTION1))
+        lines.append(TableLine(_("Unlocking script"), LineFlag.IS_TITLE | LineFlag.SECTION1))
         if unlocking_script is not None:
-            self._extend_lines_from_script(lines, unlocking_script, LineFlags.SECTION1)
+            self._extend_lines_from_script(lines, unlocking_script, LineFlag.SECTION1)
             self._section_scripts.append(unlocking_script)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.SECTION1))
+            lines.append(TableLine("", LineFlag.IS_PLACEHOLDER | LineFlag.SECTION1))
             # TODO(empty-script) There's something to be done here to update this if the user edits.
             self._section_scripts.append(Script())
 
-        lines.append(TableLine(_("Locking script"), LineFlags.IS_TITLE | LineFlags.SECTION2))
+        lines.append(TableLine(_("Locking script"), LineFlag.IS_TITLE | LineFlag.SECTION2))
         if locking_script is not None:
-            self._extend_lines_from_script(lines, locking_script, LineFlags.SECTION2)
+            self._extend_lines_from_script(lines, locking_script, LineFlag.SECTION2)
             self._section_scripts.append(locking_script)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.SECTION2))
+            lines.append(TableLine("", LineFlag.IS_PLACEHOLDER | LineFlag.SECTION2))
             # TODO(empty-script) There's something to be done here to update this if the user edits.
             self._section_scripts.append(Script())
 
@@ -593,9 +593,9 @@ class ScriptView(BaseTableWidget):
         if locking_script is not None and unlocking_script is not None:
             if isinstance(classify_output_script(locking_script, Net.COIN), P2SH_Address):
                 lines.append(TableLine(_("Locking script (P2SH)"),
-                    LineFlags.IS_TITLE | LineFlags.SECTION3))
+                    LineFlag.IS_TITLE | LineFlag.SECTION3))
                 p2sh_locking_script = self._get_p2sh_script_from_script(unlocking_script)
-                self._extend_lines_from_script(lines, p2sh_locking_script, LineFlags.SECTION3)
+                self._extend_lines_from_script(lines, p2sh_locking_script, LineFlag.SECTION3)
 
         self._table_view.set_lines(lines)
 
@@ -612,13 +612,13 @@ class ScriptView(BaseTableWidget):
 
     def _get_p2sh_script_from_script(self, script: Script) -> Script:
         lines: List[TableLine] = []
-        self._extend_lines_from_script(lines, script, LineFlags.NONE)
+        self._extend_lines_from_script(lines, script, LineFlag.NONE)
         match = lines[-1].match
         assert match is not None and match.data is not None
         return Script(match.data)
 
     def _extend_lines_from_script(self, lines: List[TableLine], script: Script,
-            flags: LineFlags) -> None:
+            flags: LineFlag) -> None:
         try:
             for match in generate_matches(bytes(script)):
                 value = match.data
@@ -629,7 +629,7 @@ class ScriptView(BaseTableWidget):
                     text = value[:16].hex()
                     if len(value) > 4:
                         text += "..."
-                lines.append(TableLine(text, LineFlags.HAS_NUMBER | LineFlags.IS_EDITABLE | flags,
+                lines.append(TableLine(text, LineFlag.HAS_NUMBER | LineFlag.IS_EDITABLE | flags,
                     match=match))
         except TruncatedScriptError:
             pass
@@ -639,7 +639,7 @@ class ScriptView(BaseTableWidget):
         self._interpreter = UIInterpreterState(limits, input_context)
 
         next_row = self._table_view._model.get_next_row(-1,
-            LineFlags.HAS_NUMBER | LineFlags.IS_PLACEHOLDER)
+            LineFlag.HAS_NUMBER | LineFlag.IS_PLACEHOLDER)
         if next_row != -1:
             self.current_row = next_row
             self._table_view._model.invalidate_row(self.current_row)
@@ -658,11 +658,11 @@ class ScriptView(BaseTableWidget):
         current_row = self.current_row
         current_line = self._table_view.get_line(current_row)
         next_row = self._table_view._model.get_next_row(current_row,
-            LineFlags.HAS_NUMBER | LineFlags.IS_PLACEHOLDER)
-        current_section = current_line.flags & LineFlags.SECTION_MASK
+            LineFlag.HAS_NUMBER | LineFlag.IS_PLACEHOLDER)
+        current_section = current_line.flags & LineFlag.SECTION_MASK
         assert current_section
 
-        if current_line.flags & LineFlags.IS_PLACEHOLDER:
+        if current_line.flags & LineFlag.IS_PLACEHOLDER:
             self.block_state_change_signal.emit(True)
             return True
 
@@ -678,12 +678,12 @@ class ScriptView(BaseTableWidget):
                 assert self._active_script == current_script
 
         evaluation_incomplete = True
-        if current_line.flags & LineFlags.HAS_NUMBER:
+        if current_line.flags & LineFlag.HAS_NUMBER:
             assert current_line.match is not None
             try:
                 evaluation_incomplete = self._interpreter.step_evaluate_script(current_line.match)
             except Exception:
-                current_line.flags |= LineFlags.HAS_ERROR
+                current_line.flags |= LineFlag.HAS_ERROR
                 self._table_view.refresh_row(current_row)
                 raise
 
@@ -695,16 +695,16 @@ class ScriptView(BaseTableWidget):
             end_of_section = True
         else:
             next_line = self._table_view.get_line(next_row)
-            next_section = next_line.flags & LineFlags.SECTION_MASK
+            next_section = next_line.flags & LineFlag.SECTION_MASK
             end_of_section = next_section != self._active_section
             self._table_view.refresh_row(next_row)
 
-            if next_line.flags & LineFlags.IS_PLACEHOLDER:
+            if next_line.flags & LineFlag.IS_PLACEHOLDER:
                 self.block_state_change_signal.emit(True)
 
         if not evaluation_incomplete or end_of_section:
             self._active_script = None
-            self._active_section = LineFlags.NONE
+            self._active_section = LineFlag.NONE
 
             self._interpreter.end_evaluate_script()
 
@@ -714,20 +714,20 @@ class ScriptView(BaseTableWidget):
         if self.current_row == -1:
             return False
         current_line = self._table_view.get_line(self.current_row)
-        return current_line.flags & LineFlags.HAS_BREAKPOINT != 0
+        return current_line.flags & LineFlag.HAS_BREAKPOINT != 0
 
     def is_blocked(self) -> bool:
         if self.current_row == -1:
             return False
         current_line = self._table_view.get_line(self.current_row)
-        return current_line.flags & LineFlags.IS_PLACEHOLDER != 0
+        return current_line.flags & LineFlag.IS_PLACEHOLDER != 0
 
     def get_script_for_line(self, line: TableLine) -> Script:
-        if line.flags & LineFlags.SECTION1:
+        if line.flags & LineFlag.SECTION1:
             return self._section_scripts[0]
-        elif line.flags & LineFlags.SECTION2:
+        elif line.flags & LineFlag.SECTION2:
             return self._section_scripts[1]
-        elif line.flags & LineFlags.SECTION3:
+        elif line.flags & LineFlag.SECTION3:
             return self._section_scripts[2]
         raise NotImplementedError(f"line has not detectable section {line}")
 
@@ -739,10 +739,10 @@ class ScriptView(BaseTableWidget):
 
         current_line = self._table_view.get_line(self.current_row)
         add_separator = False
-        if current_line.flags & LineFlags.IS_EDITABLE:
+        if current_line.flags & LineFlag.IS_EDITABLE:
             menu.addAction(_("Edit"), partial(self._toggle_breakpoint, row))
             add_separator = True
-        if current_line.flags & LineFlags.HAS_NUMBER:
+        if current_line.flags & LineFlag.HAS_NUMBER:
             if add_separator:
                 menu.addSeparator()
             menu.addAction(_("Toggle breakpoint"), partial(self._toggle_breakpoint, row))
@@ -764,12 +764,12 @@ class ScriptView(BaseTableWidget):
 
     def _toggle_breakpoint(self, row: int) -> None:
         line = self._table_view.get_line(row)
-        if line.flags & LineFlags.HAS_NUMBER:
-            line.flags ^= LineFlags.HAS_BREAKPOINT
+        if line.flags & LineFlag.HAS_NUMBER:
+            line.flags ^= LineFlag.HAS_BREAKPOINT
             self._table_view.refresh_row(row)
 
     def process_line_edit(self, row: int, old_line: TableLine, new_line: TableLine) -> bool:
-        if new_line.flags & LineFlags.HAS_NUMBER:
+        if new_line.flags & LineFlag.HAS_NUMBER:
             text_value = new_line.text
             upper_text = text_value.upper()
             if upper_text.startswith("OP_"):
@@ -801,12 +801,12 @@ class ScriptView(BaseTableWidget):
                 new_line.match = ScriptMatch(op, bytes_value, None, None, 0)
 
         is_block_state_change = row == self.current_row and \
-            ((old_line.flags & LineFlags.IS_PLACEHOLDER) +
-                (new_line.flags & LineFlags.IS_PLACEHOLDER)) == LineFlags.IS_PLACEHOLDER
+            ((old_line.flags & LineFlag.IS_PLACEHOLDER) +
+                (new_line.flags & LineFlag.IS_PLACEHOLDER)) == LineFlag.IS_PLACEHOLDER
 
         if is_block_state_change:
             self.block_state_change_signal.emit(
-                (new_line.flags & LineFlags.IS_PLACEHOLDER) == LineFlags.IS_PLACEHOLDER)
+                (new_line.flags & LineFlag.IS_PLACEHOLDER) == LineFlag.IS_PLACEHOLDER)
 
         return True
 
@@ -840,7 +840,7 @@ class StackView(BaseTableWidget):
 
     def _on_stack_append(self, item: Any) -> None:
         text = self._item_repr(item)
-        line = TableLine(text, LineFlags.HAS_NUMBER)
+        line = TableLine(text, LineFlag.HAS_NUMBER)
         self.append_lines([ line ])
 
     def _on_stack_replace(self, new_item: Any, index: int) -> None:
@@ -860,7 +860,7 @@ class StackView(BaseTableWidget):
         lines: List[TableLine] = []
         for item in items:
             text = self._item_repr(item)
-            lines.append(TableLine(text, LineFlags.HAS_NUMBER))
+            lines.append(TableLine(text, LineFlag.HAS_NUMBER))
         self._table_view.set_lines(lines)
 
 

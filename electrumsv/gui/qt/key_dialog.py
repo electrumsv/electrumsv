@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Optional, Sequence
+from typing import Sequence
 
 from bitcoinx import Header
 
@@ -113,7 +113,8 @@ class KeyDialog(WindowModalDialog):
         self._history_list = history_list.HistoryList(self._main_window, self._main_window)
         self._history_list._on_account_change(self._account_id, self._account, False)
         # NOTE(typing) I have no idea why we are suddenly getting "Cannot assign to a method"
-        self._history_list.get_domain = self.get_domain # type: ignore[method-assign]
+        self._history_list.get_filter_keyinstance_ids = ( # type: ignore[method-assign]
+            self.get_filter_keyinstance_ids)
         vbox.addWidget(self._history_list)
 
         vbox.addLayout(Buttons(CloseButton(self)))
@@ -154,7 +155,7 @@ class KeyDialog(WindowModalDialog):
             self._key_data.derivation_type, self._key_data.derivation_data2)
         self._script_edit.setText(script_template.to_script_bytes().hex())
 
-    def get_domain(self) -> Optional[Sequence[int]]:
+    def get_filter_keyinstance_ids(self) -> Sequence[int]|None:
         """
         This filters the history list for whatever key instances are returned below.
         """

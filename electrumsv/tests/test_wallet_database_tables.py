@@ -19,15 +19,15 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore[no-redef]
 
-from electrumsv.constants import (AccountFlags, AccountTxFlags, BlockHeight, DerivationType,
-    KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType,
-    PaymentFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionInputFlag,
-    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+from electrumsv.constants import (AccountFlag, AccountPaymentFlag, BlockHeight, DerivationType,
+    KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag, NetworkServerFlag, NetworkServerType,
+    PaymentRequestFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionInputFlag,
+    TransactionOutputFlag, TxFlag, WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
-from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, ContactAddRow,
+from electrumsv.wallet_database.types import (AccountRow, AccountPaymentRow, ContactAddRow,
     ContactRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
@@ -120,15 +120,15 @@ def test_table_masterkeys_CRUD(db_context: DatabaseContext) -> None:
     assert len(masterkey_rows) == 2
     wallet_row = [ row for row in masterkey_rows if row.parent_masterkey_id is None ][0]
     petty_cash_row = [ row for row in masterkey_rows if row.parent_masterkey_id is not None ][0]
-    assert wallet_row.flags == MasterKeyFlags.WALLET_SEED | MasterKeyFlags.ELECTRUM_SEED
-    assert petty_cash_row.flags == MasterKeyFlags.NONE
+    assert wallet_row.flags == MasterKeyFlag.WALLET_SEED | MasterKeyFlag.ELECTRUM_SEED
+    assert petty_cash_row.flags == MasterKeyFlag.NONE
     assert petty_cash_row.parent_masterkey_id == wallet_row.masterkey_id
 
     line1 = MasterKeyRow(3, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     # Ensure that all fields persist.
     line2 = MasterKeyRow(4, None, DerivationType.BIP32_SUBPATH, b'222',
-        MasterKeyFlags.ELECTRUM_SEED)
+        MasterKeyFlag.ELECTRUM_SEED, 1, 1)
 
     future = db_functions.create_master_keys(db_context, [ line1 ])
     future.result(timeout=5)
@@ -159,15 +159,15 @@ def test_table_masterkeys_CRUD(db_context: DatabaseContext) -> None:
 def test_table_accounts_CRUD(db_context: DatabaseContext) -> None:
     rows = db_functions.read_accounts(db_context)
     assert len(rows) == 1
-    assert rows[0].flags == AccountFlags.IS_PETTY_CASH
+    assert rows[0].flags == AccountFlag.IS_PETTY_CASH
 
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
 
     line1 = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     line2 = AccountRow(ACCOUNT_ID+2, MASTERKEY_ID+1, ScriptType.P2PK, 'name2',
-        AccountFlags(1 << 20), None, None)
+        AccountFlag(1 << 20), None, None, 1, 1)
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -176,7 +176,7 @@ def test_table_accounts_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     mk_row1 = MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     future = db_functions.create_master_keys(db_context, [ mk_row1 ])
     future.result(timeout=5)
 
@@ -215,26 +215,28 @@ def test_table_accounts_CRUD(db_context: DatabaseContext) -> None:
 
 
 
-def test_account_transactions(db_context: DatabaseContext) -> None:
+def test_account_payments(db_context: DatabaseContext) -> None:
     ACCOUNT_ID_1 = 10
     ACCOUNT_ID_2 = 11
     MASTERKEY_ID_1 = 20
     MASTERKEY_ID_2 = 21
+    PAYMENT_ID_1 = 1
+    PAYMENT_ID_2 = 2
 
     # Create master keys.
     masterkey1 = MasterKeyRow(MASTERKEY_ID_1, None, DerivationType.BIP32, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     masterkey2 = MasterKeyRow(MASTERKEY_ID_2, None, DerivationType.BIP32, b'222',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
 
     future = db_functions.create_master_keys(db_context, [ masterkey1, masterkey2 ])
     future.result(timeout=5)
 
     # Create the accounts.
     account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
 
     future = db_functions.create_accounts(db_context, [ account1, account2 ])
     future.result()
@@ -251,33 +253,47 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     future = db_functions.create_keyinstances(db_context, [ key1, key2 ])
     future.result(timeout=5)
 
+    ap_entries = [
+        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+    ]
+    future = db_functions.create_account_payments_UNITTEST(db_context,
+        ap_entries)
+    # No effect: The payment foreign key constraint will fail as the payment does not exist.
+    with pytest.raises(sqlite3.IntegrityError):
+        future.result()
+
+    future = db_functions.create_payments_UNITTEST(db_context,
+        [ (PAYMENT_ID_1, 1, 1), (PAYMENT_ID_2, 1, 1) ])
+    future.result()
+
+    ap_entries = [
+        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID_2, PAYMENT_ID_2, AccountPaymentFlag.NONE, None, 1, 1),
+    ]
+    future = db_functions.create_account_payments_UNITTEST(db_context,
+        ap_entries)
+    future.result()
+
     # Create the transaction.
     TX_BYTES_1 = os.urandom(10)
     TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
     tx1 = TransactionRow(
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
-        block_position=1, fee_value=250,
-        description=None, version=None, locktime=None, date_created=1, date_updated=2)
+        flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
+        block_position=1, fee_value=250, description=None, version=None, locktime=None,
+        payment_id=PAYMENT_ID_1, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
     TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
     tx2 = TransactionRow(
         tx_hash=TX_HASH_2,
         tx_bytes=TX_BYTES_2,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
+        flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
         block_position=1, fee_value=250,
-        description=None, version=None, locktime=None, date_created=1, date_updated=2)
+        description=None, version=None, locktime=None, payment_id=PAYMENT_ID_2, date_created=1,
+        date_updated=2)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
     future.result(timeout=5)
-
-    account_transaction_entries = [
-        AccountTransactionRow(ACCOUNT_ID_1, TX_HASH_1, AccountTxFlags.NONE, None, 1, 1),
-        AccountTransactionRow(ACCOUNT_ID_2, TX_HASH_2, AccountTxFlags.NONE, None, 1, 1),
-    ]
-    future = db_functions.create_account_transactions_UNITTEST(db_context,
-        account_transaction_entries)
-    future.result()
 
     ## Test `read_transaction_hashes`.
     # Both tx should be matched.
@@ -299,13 +315,13 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx_hashes_3 = db_functions.read_transaction_hashes(db_context, -1)
     assert 0 == len(tx_hashes_3)
 
-    account_ids = db_functions.read_account_ids_for_transaction(db_context, b"fake hash")
+    account_ids = db_functions.UNITTEST_read_account_ids_for_transaction(db_context, b"fake hash")
     assert account_ids == []
 
-    account_ids = db_functions.read_account_ids_for_transaction(db_context, TX_HASH_1)
+    account_ids = db_functions.UNITTEST_read_account_ids_for_transaction(db_context, TX_HASH_1)
     assert account_ids == [ ACCOUNT_ID_1 ]
 
-    account_ids = db_functions.read_account_ids_for_transaction(db_context, TX_HASH_2)
+    account_ids = db_functions.UNITTEST_read_account_ids_for_transaction(db_context, TX_HASH_2)
     assert account_ids == [ ACCOUNT_ID_2 ]
 
 
@@ -332,7 +348,7 @@ def test_table_keyinstances_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context,
         [ MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
+            MasterKeyFlag.NONE, 1, 1) ])
     future.result(timeout=5)
 
     # No effect: The account foreign key constraint will fail as the account does not exist.
@@ -342,7 +358,7 @@ def test_table_keyinstances_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -467,7 +483,7 @@ class TestTransactionTable:
         transaction_bytes_1 = os.urandom(10)
         transaction_hash = bitcoinx.double_sha256(transaction_bytes_1)
         transaction_row = TransactionRow(tx_hash=transaction_hash, tx_bytes=transaction_bytes_1,
-            flags=TxFlags.STATE_DISPATCHED,
+            flags=TxFlag.STATE_DISPATCHED, payment_id=None,
             block_hash=b'11', block_height=BlockHeight.LOCAL, block_position=None, fee_value=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions_UNITTEST(self.db_context, [ transaction_row ])
@@ -476,7 +492,7 @@ class TestTransactionTable:
         # Check the state is correct, all states should be the same code path.
         read_flags = db_functions.read_transaction_flags(self.db_context, transaction_hash)
         assert read_flags is not None
-        assert TxFlags.STATE_DISPATCHED == read_flags & TxFlags.MASK_STATE
+        assert TxFlag.STATE_DISPATCHED == read_flags & TxFlag.MASK_STATE
 
         transaction_read_row = db_functions.read_transaction(self.db_context, transaction_hash)
         assert transaction_read_row is not None
@@ -494,10 +510,11 @@ class TestTransactionTable:
             tx_bytes = os.urandom(10)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             to_add.append(
-                TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
+                TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlag.UNSET,
                     block_hash=b'11', block_height=BlockHeight.LOCAL,
                     block_position=None, fee_value=2, description=None,
-                    version=None, locktime=None, date_created=1, date_updated=1))
+                    version=None, locktime=None, date_created=1, date_updated=1,
+                    payment_id=None))
         future = db_functions.create_transactions_UNITTEST(self.db_context, to_add)
         future.result(timeout=5)
 
@@ -512,9 +529,10 @@ class TestTransactionTable:
         for tx_hex in (tx_hex_1, tx_hex_2):
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
-            tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
+            tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlag.UNSET,
                 block_hash=b'11', block_position=None, fee_value=2, block_height=BlockHeight.LOCAL,
-                description=None, version=None, locktime=None, date_created=1, date_updated=1)
+                description=None, version=None, locktime=None, date_created=1, date_updated=1,
+                payment_id=None)
             future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
             future.result(timeout=5)
             get_tx_hashes.add(tx_hash)
@@ -556,13 +574,15 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         PROOF_DATA_4, tx_hash_2)
 
     tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=tx_bytes_1,
-        flags=TxFlags.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
+        flags=TxFlag.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
         block_hash=BLOCK_HASH_1, block_position=None, fee_value=None,
-        description=None, version=None, locktime=None, date_created=1, date_updated=1)
+        description=None, version=None, locktime=None, date_created=1, date_updated=1,
+        payment_id=None)
     tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=tx_bytes_2,
-        flags=TxFlags.STATE_SIGNED, block_height=BlockHeight.LOCAL,
+        flags=TxFlag.STATE_SIGNED, block_height=BlockHeight.LOCAL,
         block_hash=None, block_position=None, fee_value=None,
-        description=None, version=None, locktime=None, date_created=1, date_updated=1)
+        description=None, version=None, locktime=None, date_created=1, date_updated=1,
+        payment_id=None)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx_row_1, tx_row_2 ])
     future.result(timeout=5)
 
@@ -601,7 +621,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         assert len(proof_datas) == 0
         proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [ tx_hash_1 ])
         assert len(proof_datas) == 1
-        assert proof_datas[0].flags == TxFlags.STATE_CLEARED
+        assert proof_datas[0].flags == TxFlag.STATE_CLEARED
         assert proof_datas[0].block_hash == BLOCK_HASH_1
         assert proof_datas[0].proof_bytes == PROOF_DATA_1
         assert proof_datas[0].tx_block_height == BlockHeight.MEMPOOL
@@ -620,7 +640,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # - Does it get linked against the right proof?
         tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_3.block_hash,
             merkle_proof_row_3.block_height, merkle_proof_row_3.block_position,
-            TxFlags.STATE_SETTLED, 1, merkle_proof_row_3.tx_hash)
+            TxFlag.STATE_SETTLED, 1, merkle_proof_row_3.tx_hash)
         # This updates the block_height on merkle proof 1 (for transaction 1) to BLOCK_HEIGHT_1b.
         proof_update_row = MerkleProofUpdateRow(BLOCK_HEIGHT_1b, BLOCK_HASH_1, tx_hash_1)
         db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
@@ -635,7 +655,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # Confirm that proof 3 is associated with tx 2.
         proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [ tx_hash_2 ])
         assert len(proof_datas) == 1
-        assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED
+        assert TxFlag(proof_datas[0].flags) == TxFlag.STATE_SETTLED
         assert proof_datas[0].block_hash == BLOCK_HASH_3
         assert proof_datas[0].proof_bytes == PROOF_DATA_3
         assert proof_datas[0].tx_block_height == BLOCK_HEIGHT_3
@@ -649,8 +669,8 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # - Does it get linked against the right proof?
         tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_4.block_hash,
             merkle_proof_row_4.block_height, merkle_proof_row_4.block_position,
-            TxFlags.STATE_SETTLED, 1, tx_hash_2)
-        flag_update_entry = (TxFlags(~TxFlags.PAYS_INVOICE), TxFlags.PAYS_INVOICE, tx_hash_2)
+            TxFlag.STATE_SETTLED, 1, tx_hash_2)
+        flag_update_entry = (TxFlag(~TxFlag.PAYS_INVOICE), TxFlag.PAYS_INVOICE, tx_hash_2)
         db_functions.update_transaction_proof_and_flag_write([ tx_proof_update_row ],
             [ flag_update_entry ], db_connection)
 
@@ -663,7 +683,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         assert proof_datas[0].tx_block_position == BLOCK_POSITION_4
         assert proof_datas[0].proof_block_height == BLOCK_HEIGHT_4
         assert proof_datas[0].proof_block_position == BLOCK_POSITION_4
-        assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED|TxFlags.PAYS_INVOICE
+        assert TxFlag(proof_datas[0].flags) == TxFlag.STATE_SETTLED|TxFlag.PAYS_INVOICE
     finally:
         db_context.release_connection(db_connection)
 
@@ -699,6 +719,7 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     DERIVATION_DATA3 = b'333'
     BLOCK_HASH=b'bab'
     BLOCK_HEIGHT=200
+    PAYMENT_ID_1 = 1
 
     funded_tx_1_txi_row_1 = TransactionInputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_1,
         SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 0xFFFFFFFF, TXIN_FLAGS, 0, 0, 20221213, 20221213)
@@ -715,34 +736,30 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the transaction foreign key constraint by creating the transaction.
     transaction_rows = [
         TransactionRow(tx_hash=FUNDED_TX_1_HASH, tx_bytes=FUNDED_TX_1_BYTES,
-            flags=TxFlags.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
+            flags=TxFlag.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
             block_hash=None, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1),
+            version=None, locktime=None, date_created=1, date_updated=1, payment_id=PAYMENT_ID_1),
         TransactionRow(tx_hash=SPENT_TX_1_HASH, tx_bytes=SPENT_TX_1_BYTES,
-            flags=TxFlags.STATE_SETTLED, block_height=BLOCK_HEIGHT, block_hash=BLOCK_HASH,
+            flags=TxFlag.STATE_SETTLED, block_height=BLOCK_HEIGHT, block_hash=BLOCK_HASH,
             block_position=None, fee_value=2, description=None, version=None, locktime=None,
-            date_created=1, date_updated=1)
+            date_created=1, date_updated=1, payment_id=PAYMENT_ID_1)
     ]
-    future = db_functions.create_transactions_UNITTEST(db_context, transaction_rows)
-    future.result(timeout=5)
+    db_functions.create_transactions_UNITTEST(db_context, transaction_rows).result(timeout=5)
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [
+    db_functions.create_master_keys(db_context, [
         MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
-    future.result(timeout=5)
+            MasterKeyFlag.NONE, 1, 1) ]).result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE, None, None)
-    future = db_functions.create_accounts(db_context, [ account_row ])
-    future.result()
+        AccountFlag.NONE, None, None, 1, 1)
+    db_functions.create_accounts(db_context, [ account_row ]).result()
 
-    future = db_functions.create_account_transactions_UNITTEST(db_context, [
-        AccountTransactionRow(ACCOUNT_ID, FUNDED_TX_1_HASH, AccountTxFlags.NONE, None, 1, 1),
-        AccountTransactionRow(ACCOUNT_ID, SPENT_TX_1_HASH, AccountTxFlags.NONE, None, 1, 1),
-    ])
-    future.result(timeout=5)
+    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
+    db_functions.create_account_payments_UNITTEST(db_context, [
+        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+    ]).result(timeout=5)
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     keyinstance_rows = [
@@ -753,8 +770,7 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
         KeyInstanceRow(KEYINSTANCE_ID_3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
             DERIVATION_DATA3, DERIVATION_DATA3, KeyInstanceFlag.NONE, None),
     ]
-    future = db_functions.create_keyinstances(db_context, keyinstance_rows)
-    future.result(timeout=5)
+    db_functions.create_keyinstances(db_context, keyinstance_rows).result(timeout=5)
 
     row1 = TransactionOutputAddRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
         KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
@@ -764,19 +780,17 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
         KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
 
     # Create some UTXOs for the funded transaction.
-    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ])
-    future.result(timeout=5)
+    db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ]) \
+        .result(timeout=5)
 
     # Insert our funding TXI for the funded transaction.
-    future = db_functions.UNITTEST_create_transaction_inputs(db_context, [ funded_tx_1_txi_row_1,
-        other_tx_1_txi_row_1 ])
-    future.result(timeout=5)
+    db_functions.UNITTEST_create_transaction_inputs(db_context, [ funded_tx_1_txi_row_1,
+        other_tx_1_txi_row_1 ]).result(timeout=5)
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.UNITTEST_create_transaction_inputs(db_context,
-            [ funded_tx_1_txi_row_1, other_tx_1_txi_row_1 ])
-        future.result(timeout=5)
+        db_functions.UNITTEST_create_transaction_inputs(db_context,
+            [ funded_tx_1_txi_row_1, other_tx_1_txi_row_1 ]).result(timeout=5)
 
     # List the funding output rows for the given transaction.
     results = db_functions.read_parent_transaction_outputs_with_key_data(db_context,
@@ -847,6 +861,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     DERIVATION_DATA3 = b'333'
     BLOCK_HASH=b'bab'
     BLOCK_HEIGHT=200
+    PAYMENT_ID_1 = 1
 
     COINBASE_SCRIPT_LENGTH = len(COINBASE_OUTPUT_DATA)
     SCRIPT_OFFSET1 = TX_BYTES_COINBASE.index(COINBASE_OUTPUT_DATA)
@@ -872,33 +887,30 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the transaction foreign key constraint by creating the transaction.
     tx_rows = [
         TransactionRow(tx_hash=TX_HASH_COINBASE, tx_bytes=TX_BYTES_COINBASE,
-            flags=TxFlags.STATE_SETTLED, block_height=BLOCK_HEIGHT,
+            flags=TxFlag.STATE_SETTLED, block_height=BLOCK_HEIGHT,
             block_hash=BLOCK_HASH, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1),
-        TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.STATE_CLEARED,
+            version=None, locktime=None, date_created=1, date_updated=1,  payment_id=PAYMENT_ID_1),
+        TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlag.STATE_CLEARED,
             block_height=BlockHeight.MEMPOOL, block_hash=None, block_position=None, fee_value=2,
-            description=None, version=None, locktime=None, date_created=1, date_updated=1)
+            description=None, version=None, locktime=None, date_created=1, date_updated=1,
+            payment_id=PAYMENT_ID_1)
     ]
-    future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
-    future.result(timeout=5)
+    db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [
+    db_functions.create_master_keys(db_context, [
         MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
-    future.result(timeout=5)
+            MasterKeyFlag.NONE, 1, 1) ]).result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE, None, None)
-    future = db_functions.create_accounts(db_context, [ account_row ])
-    future.result()
+        AccountFlag.NONE, None, None, 1, 1)
+    db_functions.create_accounts(db_context, [ account_row ]).result()
 
-    future = db_functions.create_account_transactions_UNITTEST(db_context, [
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None, 1, 1),
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH_COINBASE, AccountTxFlags.NONE, None, 1, 1),
-    ])
-    future.result(timeout=5)
+    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
+    db_functions.create_account_payments_UNITTEST(db_context, [
+        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+    ]).result(timeout=5)
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     key_rows = [
@@ -909,17 +921,15 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
         KeyInstanceRow(KEYINSTANCE_ID_3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
             DERIVATION_DATA3, DERIVATION_DATA3, KeyInstanceFlag.NONE, None),
     ]
-    future = db_functions.create_keyinstances(db_context, key_rows)
-    future.result(timeout=5)
+    db_functions.create_keyinstances(db_context, key_rows).result(timeout=5)
 
     # Create the first and second row.
-    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ])
-    future.result(timeout=5)
+    db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ]) \
+        .result(timeout=5)
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row2 ])
-        future.result(timeout=5)
+        db_functions.UNITTEST_create_transaction_outputs(db_context, [ row2 ]).result(timeout=5)
 
     ## Test `read_transaction_outputs_with_key_data` for the `derivation_data2` path.
     # Test invalid values.
@@ -1208,6 +1218,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     TX_DESC2 = "desc2"
     TX_BYTES2 = os.urandom(10)
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
+    PAYMENT_ID_1 = 1
 
     rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert len(rows) == 0
@@ -1226,12 +1237,13 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
-    create_request1_row = PaymentRequestRow(1, PaymentFlag.STATE_PAID,
+    create_request1_row = PaymentRequestRow(1, None, PaymentRequestFlag.STATE_PAID,
         None, expiration, TX_DESC1, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
         dummy_encrypted_secure_key, date_created, date_created)
     create_request1_output_row = PaymentRequestOutputRow(1, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created, date_created)
-    create_request2_row = PaymentRequestRow(2, PaymentFlag.STATE_UNPAID| PaymentFlag.TYPE_MONITORED,
+    create_request2_row = PaymentRequestRow(2, None,
+        PaymentRequestFlag.STATE_UNPAID| PaymentRequestFlag.TYPE_MONITORED,
         100, expiration, TX_DESC2, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
         dummy_encrypted_secure_key, date_created, date_created)
     create_request2_output_row = PaymentRequestOutputRow(2, 0, 0, ScriptType.P2PKH, b"SCRIPT",
@@ -1244,18 +1256,18 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
     with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
         future = db_context.post_to_thread(db_functions.create_payment_request_write,
-            create_request1_row, [ create_request1_output_row ])
+            ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
         MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
+            MasterKeyFlag.NONE, 1, 1) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1271,31 +1283,31 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     future = db_context.post_to_thread(db_functions.create_payment_request_write,
-        create_request1_row, [ create_request1_output_row ])
+        ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
     future.result()
 
     future = db_context.post_to_thread(db_functions.create_payment_request_write,
-        create_request2_row, [ create_request2_output_row ])
+        ACCOUNT_ID, None, create_request2_row, [ create_request2_output_row ])
     future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
         future = db_context.post_to_thread(db_functions.create_payment_request_write,
-            create_request1_row, [ create_request1_output_row ])
+            ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
         future.result()
 
     # Test state update.
     future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
-        2, PaymentFlag.STATE_PREPARING, PaymentFlag.CLEARED_MASK_STATE)
+        2, PaymentRequestFlag.STATE_PREPARING, PaymentRequestFlag.CLEARED_MASK_STATE)
     future.result()
 
     db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context, 2)
     assert db_request_row is not None
-    assert db_request_row.request_flags == PaymentFlag.STATE_PREPARING | PaymentFlag.TYPE_MONITORED
+    assert db_request_row.request_flags == PaymentRequestFlag.STATE_PREPARING | PaymentRequestFlag.TYPE_MONITORED
 
     # Restore to match the creation row for comparison below.
     future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
-        2, PaymentFlag.STATE_UNPAID, PaymentFlag.CLEARED_MASK_STATE)
+        2, PaymentRequestFlag.STATE_UNPAID, PaymentRequestFlag.CLEARED_MASK_STATE)
     future.result()
 
     def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestRow) -> None:
@@ -1317,33 +1329,33 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     # Read all PAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        mask=PaymentFlag.STATE_PAID)
+        mask=PaymentRequestFlag.STATE_PAID)
     assert 1 == len(db_request_rows)
     assert create_request1_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
-    db_request_output_rows = db_functions.read_payment_request_outputs(db_context, [ 1 ])
+    db_request_output_rows = db_functions.UNITTEST_read_payment_request_outputs(db_context, [ 1 ])
     assert len(db_request_output_rows) == 1
     assert db_request_output_rows[0].keyinstance_id == KEYINSTANCE_ID
 
     # Read all UNPAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        mask=PaymentFlag.STATE_UNPAID)
+        mask=PaymentRequestFlag.STATE_UNPAID)
     assert 1 == len(db_request_rows)
     assert create_request2_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
-    db_request_output_rows = db_functions.read_payment_request_outputs(db_context,
+    db_request_output_rows = db_functions.UNITTEST_read_payment_request_outputs(db_context,
         [ create_request2_row.paymentrequest_id ])
     assert len(db_request_output_rows) == 1
     assert db_request_output_rows[0].keyinstance_id == KEYINSTANCE_ID+1
 
     # Require ARCHIVED flag.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        mask=PaymentFlag.ARCHIVED)
+        mask=PaymentRequestFlag.ARCHIVED)
     assert 0 == len(db_request_rows)
 
     # Require no ARCHIVED flag.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+        flags=PaymentRequestFlag.NONE, mask=PaymentRequestFlag.ARCHIVED)
     assert 2 == len(db_request_rows)
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context, request_id=1)
@@ -1356,24 +1368,20 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     ## Pay the payment request.
     # Create the transaction and outputs.
-    tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.UNSET,
-        block_height=BlockHeight.LOCAL,
+    tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlag.UNSET,
+        block_height=BlockHeight.LOCAL, payment_id=PAYMENT_ID_1,
         block_hash=b'11', block_position=None, fee_value=2, description=None,
         version=None, locktime=None, date_created=1, date_updated=1) ]
-    future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
-    future.result(timeout=5)
+    db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
 
     txo_row1 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1,
         ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+    db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ]).result(timeout=5)
 
-    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ])
-    future.result(timeout=5)
-
-    account_transaction_entries = [
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None, 1, 1),
+    ap_entries = [
+        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
     ]
-    future = db_functions.create_account_transactions_UNITTEST(db_context,
-        account_transaction_entries)
+    future = db_functions.create_account_payments_UNITTEST(db_context, ap_entries)
     future.result()
 
     assert create_request2_row.paymentrequest_id is not None
@@ -1383,14 +1391,13 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
             db_functions.close_paid_payment_request(create_request2_row.paymentrequest_id, db)
     finally:
         db_context.release_connection(db)
-    assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, TX_HASH) ]
+    assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, PAYMENT_ID_1) ]
 
     ## Continue.
     assert create_request2_row.paymentrequest_id is not None
-    future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
-        PaymentRequestUpdateRow(PaymentFlag.STATE_PAID, 20, 999, "newdesc", "newmerchantref",
-        dpp_ack_json, create_request2_row.paymentrequest_id) ])
-    future.result()
+    db_context.post_to_thread(db_functions.update_payment_requests_write, [
+        PaymentRequestUpdateRow(PaymentRequestFlag.STATE_PAID, 20, 999, "newdesc", "newmerchantref",
+        dpp_ack_json, create_request2_row.paymentrequest_id) ]).result()
 
     # Ensure we find both payment requests associated with this account including the new one.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
@@ -1398,7 +1405,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_line2 = [ db_line for db_line in db_request_rows
         if db_line.paymentrequest_id == create_request2_row.paymentrequest_id ][0]
     assert db_line2.requested_value == 20
-    assert db_line2.request_flags == PaymentFlag.STATE_PAID
+    assert db_line2.request_flags == PaymentRequestFlag.STATE_PAID
     assert db_line2.description == "newdesc"
     assert db_line2.date_expires == 999
 
@@ -1409,7 +1416,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     # Delete the first payment request associated with the account.
     assert create_request1_row.paymentrequest_id is not None
     future3 = db_context.post_to_thread(db_functions._delete_payment_request_write,
-        create_request1_row.paymentrequest_id, PaymentFlag.DELETED)
+        create_request1_row.paymentrequest_id, PaymentRequestFlag.DELETED)
     keyinstance_ids_by_account_id = future3.result()
     assert { ACCOUNT_ID: [ KEYINSTANCE_ID ] } == keyinstance_ids_by_account_id
 
@@ -1418,9 +1425,9 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         key=lambda db_request_row: db_request_row.paymentrequest_id)
     assert 2 == len(db_request_rows)
     assert db_request_rows[0].paymentrequest_id == create_request1_row.paymentrequest_id
-    assert db_request_rows[0].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.DELETED
+    assert db_request_rows[0].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.DELETED
     assert db_request_rows[1].paymentrequest_id == create_request2_row.paymentrequest_id
-    assert db_request_rows[1].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.NONE
+    assert db_request_rows[1].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.NONE
 
     # Check that we get no matches for a transaction that does not exist.
     payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, b'12')
@@ -1449,12 +1456,12 @@ def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context,
         [ MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
+            MasterKeyFlag.NONE, 1, 1) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1485,9 +1492,9 @@ def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet_database.functions.get_posix_timestamp')
-async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
-    mock_get_posix_timestamp.side_effect = lambda: 111
+@unittest.mock.patch('electrumsv.wallet_database.functions.time')
+async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> None:
+    mock_time.time.side_effect = lambda: 111
 
     db_lines = db_functions.read_invoices_for_account(db_context, 1)
     assert len(db_lines) == 0
@@ -1509,11 +1516,11 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
 
     # LINE_COUNT = 3
-    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentFlag.STATE_UNPAID,
+    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentRequestFlag.STATE_UNPAID,
         1, b'{}', None, 111)
-    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentFlag.STATE_PAID,
+    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentRequestFlag.STATE_PAID,
         2, b'{}', 10, 111)
-    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentFlag.STATE_UNPAID,
+    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentRequestFlag.STATE_UNPAID,
         3, b'{}', None, 111)
 
     # No effect: The transactionoutput foreign key constraint will fail as the account
@@ -1525,22 +1532,23 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
         MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE) ])
+            MasterKeyFlag.NONE, 1, 1) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
     txs = []
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
-        tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.STATE_SETTLED,
+        tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlag.STATE_SETTLED,
             block_height=10, block_hash=b'11', block_position=1, fee_value=250,
-            description=None, version=None, locktime=None, date_created=1, date_updated=2)
+            description=None, version=None, locktime=None, date_created=1, date_updated=2,
+            payment_id=None)
         txs.append(tx)
     future = db_functions.create_transactions_UNITTEST(db_context, txs)
     future.result(timeout=5)
@@ -1576,24 +1584,24 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
 
     # Read all PAID rows in the table for the first account.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        mask=PaymentFlag.STATE_PAID)
+        mask=PaymentRequestFlag.STATE_PAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].invoice_id
 
     # Read all UNPAID rows in the table for the first account.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        mask=PaymentFlag.STATE_UNPAID)
+        mask=PaymentRequestFlag.STATE_UNPAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].invoice_id
 
     # Require ARCHIVED flag.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        mask=PaymentFlag.ARCHIVED)
+        mask=PaymentRequestFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+        flags=PaymentRequestFlag.NONE, mask=PaymentRequestFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
     # Non-existent account.
@@ -1638,16 +1646,16 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     assert row.description == "newdesc3.2"
 
     await db_context.run_in_thread_async(db_functions.update_invoice_flags,
-        [ (PaymentFlag.NOT_ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ])
+        [ (PaymentRequestFlag.NOT_ARCHIVED, PaymentRequestFlag.ARCHIVED, line3_2.invoice_id), ])
 
     # Verify the invoice now has the new description.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
     assert row is not None
-    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.STATE_UNPAID
+    assert row.flags == PaymentRequestFlag.ARCHIVED | PaymentRequestFlag.STATE_UNPAID
 
-    duplicate_row1 = db_functions.read_invoice_duplicate(db_context, 111, "ddd")
+    duplicate_row1 = db_functions.read_invoice(db_context, payment_uri="ddd")
     assert duplicate_row1 is None
-    duplicate_row2 = db_functions.read_invoice_duplicate(db_context, row.value, row.payment_uri)
+    duplicate_row2 = db_functions.read_invoice(db_context, payment_uri=row.payment_uri)
     assert duplicate_row2 == row
 
     future = db_functions.delete_invoices(db_context, [ line2_1.invoice_id ])
@@ -1801,25 +1809,32 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     MASTERKEY1_ID = 20
     MASTERKEY2_ID = 21
     MASTERKEY3_ID = 22
+    PAYMENT_ID_1 = 1
+    PAYMENT_ID_2 = 2
+    PAYMENT_ID_3 = 3
 
     # Do the preparation so we can create accounts / satisfy the related foreign keys.
     mk_row1 = MasterKeyRow(MASTERKEY1_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     mk_row2 = MasterKeyRow(MASTERKEY2_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     mk_row3 = MasterKeyRow(MASTERKEY3_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-        MasterKeyFlags.NONE)
+        MasterKeyFlag.NONE, 1, 1)
     future = db_functions.create_master_keys(db_context, [ mk_row1, mk_row2, mk_row3 ])
     future.result(timeout=5)
 
     account_row1 = AccountRow(ACCOUNT1_ID, MASTERKEY1_ID, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row2 = AccountRow(ACCOUNT2_ID, MASTERKEY2_ID, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row3 = AccountRow(ACCOUNT3_ID, MASTERKEY3_ID, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2, account_row3 ])
     future.result()
+
+    future = db_functions.create_payments_UNITTEST(db_context,
+        [ (PAYMENT_ID_1, 1, 1), (PAYMENT_ID_2, 1, 1), (PAYMENT_ID_3, 1, 1) ])
+    future.result(timeout=5)
 
     # Create the transactions.
     tx_rows: list[TransactionRow] = []
@@ -1828,47 +1843,47 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     tx_settled_match1 = TransactionRow(
         tx_hash=TX_HASH_SETTLED_MATCH1,
         tx_bytes=TX_BYTES_SETTLED_MATCH1,
-        flags=TxFlags.STATE_SETTLED, block_hash=None, block_height=10,
-        block_position=None, fee_value=None,
+        flags=TxFlag.STATE_SETTLED, block_hash=None, block_height=10,
+        block_position=None, fee_value=None, payment_id=PAYMENT_ID_2,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_SETTLED_MATCH2 = os.urandom(10)
     TX_HASH_SETTLED_MATCH2 = bitcoinx.double_sha256(TX_BYTES_SETTLED_MATCH2)
     tx_settled_match2 = TransactionRow(
         tx_hash=TX_HASH_SETTLED_MATCH2,
         tx_bytes=TX_BYTES_SETTLED_MATCH2,
-        flags=TxFlags.STATE_SETTLED, block_hash=None, block_height=10,
-        block_position=None, fee_value=None,
+        flags=TxFlag.STATE_SETTLED, block_hash=None, block_height=10,
+        block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_SETTLED_IGNORED = os.urandom(10)
     TX_HASH_SETTLED_IGNORED = bitcoinx.double_sha256(TX_BYTES_SETTLED_IGNORED)
     tx_settled_ignored = TransactionRow(
         tx_hash=TX_HASH_SETTLED_IGNORED,
         tx_bytes=TX_BYTES_SETTLED_IGNORED,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'ddddd', block_height=10,
-        block_position=None, fee_value=None,
+        flags=TxFlag.STATE_SETTLED, block_hash=b'ddddd', block_height=10,
+        block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_IGNORED = os.urandom(10)
     TX_HASH_CLEARED_IGNORED = bitcoinx.double_sha256(TX_BYTES_CLEARED_IGNORED)
     tx_cleared_ignored = TransactionRow(
         tx_hash=TX_HASH_CLEARED_IGNORED,
         tx_bytes=TX_BYTES_CLEARED_IGNORED,
-        flags=TxFlags.STATE_CLEARED, block_hash=None, block_height=BlockHeight.MEMPOOL,
-        block_position=None, fee_value=None,
+        flags=TxFlag.STATE_CLEARED, block_hash=None, block_height=BlockHeight.MEMPOOL,
+        block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_MATCH1 = os.urandom(10)
     TX_HASH_CLEARED_MATCH1 = bitcoinx.double_sha256(TX_BYTES_CLEARED_MATCH1)
     tx_cleared_match1 = TransactionRow(
         tx_hash=TX_HASH_CLEARED_MATCH1,
         tx_bytes=TX_BYTES_CLEARED_MATCH1,
-        flags=TxFlags.STATE_CLEARED, block_hash=b'fake block hash',
+        flags=TxFlag.STATE_CLEARED, block_hash=b'fake block hash',
         block_height=BlockHeight.MEMPOOL,
-        block_position=None, fee_value=None,
+        block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
 
     tx_nonmatches: List[TransactionRow] = []
     tx_nonmatches_orphans: List[TransactionRow] = []
-    for tx_state in (TxFlags.UNSET, TxFlags.STATE_CLEARED, TxFlags.STATE_RECEIVED,
-            TxFlags.STATE_SETTLED):
+    for tx_state in (TxFlag.UNSET, TxFlag.STATE_CLEARED, TxFlag.STATE_RECEIVED,
+            TxFlag.STATE_SETTLED):
         for is_orphan in (True, False):
             TX_BYTES_NONMATCH = f"nonmatch is_orphan={is_orphan} flags={tx_state!r}".encode()
             TX_HASH_NONMATCH = TX_BYTES_NONMATCH
@@ -1876,9 +1891,9 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
             block_hash: Optional[bytes] = None
             block_position: Optional[int] = None
             block_height = BlockHeight.LOCAL
-            if tx_state == TxFlags.STATE_CLEARED:
+            if tx_state == TxFlag.STATE_CLEARED:
                 block_height = BlockHeight.MEMPOOL
-            elif tx_state == TxFlags.STATE_SETTLED:
+            elif tx_state == TxFlag.STATE_SETTLED:
                 block_position = 111
                 block_hash = b'ignored block hash'
                 block_height = 10
@@ -1887,7 +1902,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
                 tx_hash=TX_HASH_NONMATCH,
                 tx_bytes=TX_BYTES_NONMATCH,
                 flags=tx_state, block_hash=block_hash, block_height=block_height,
-                block_position=block_position, fee_value=None,
+                block_position=block_position, fee_value=None, payment_id=PAYMENT_ID_1,
                 description=None, version=None, locktime=None, date_created=2, date_updated=2)
             if is_orphan:
                 tx_nonmatches_orphans.append(tx_nonmatch)
@@ -1902,34 +1917,12 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Link the first transaction to both accounts.
-    tx1a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
-        20, 20)
-    tx1a2 = AccountTransactionRow(ACCOUNT2_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
-        10, 10)
-    tx1a3 = AccountTransactionRow(ACCOUNT3_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
-        30, 30)
-    tx2a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_MATCH2, AccountTxFlags.NONE, None,
-        5, 5)
-    atx_settled_ignored = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_IGNORED,
-        AccountTxFlags.NONE, None, 1, 1)
-    atx_cleared_ignored = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_CLEARED_IGNORED,
-        AccountTxFlags.NONE, None, 1, 1)
-    atx_nonmatches: list[AccountTransactionRow]= []
-    for tx_nonmatch in tx_nonmatches:
-        atx_nonmatch = AccountTransactionRow(ACCOUNT1_ID, tx_nonmatch.tx_hash,
-            AccountTxFlags.NONE, None, 1, 1)
-        atx_nonmatches.append(atx_nonmatch)
-    atx_cleared_match1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_CLEARED_MATCH1,
-        AccountTxFlags.NONE, None, 1, 1)
-    atx_rows: list[AccountTransactionRow] = [ tx1a1, tx1a2, tx1a3,
-        tx2a1, atx_settled_ignored, atx_cleared_ignored, atx_cleared_match1 ]
-    atx_rows.extend(atx_nonmatches)
-    future = db_functions.create_account_transactions_UNITTEST(db_context, atx_rows)
+    p1a1 = AccountPaymentRow(ACCOUNT1_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 20, 20)
+    p1a2 = AccountPaymentRow(ACCOUNT2_ID, PAYMENT_ID_2, AccountPaymentFlag.NONE, None, 10, 10)
+    p1a3 = AccountPaymentRow(ACCOUNT3_ID, PAYMENT_ID_3, AccountPaymentFlag.NONE, None, 30, 30)
+    future = db_functions.create_account_payments_UNITTEST(db_context, [ p1a1, p1a2, p1a3 ])
     future.result(timeout=5)
 
-    # tx1 is linked to accounts 2, 3, 1 in that order, so should be associated with 2.
-    # tx2 is linked to account 1 only, so should be associated with 1.
-    # Others are not linked to any account, so should be not be matched.
     rows = db_functions.read_proofless_transactions(db_context)
     expected_tx_hashes: dict[bytes, int] = {
         TX_HASH_SETTLED_MATCH1: ACCOUNT2_ID,
@@ -1937,7 +1930,6 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
     }
     remaining_tx_hashes = dict(expected_tx_hashes)
-    print(rows)
     for pltx_row in rows:
         assert pltx_row.tx_hash in remaining_tx_hashes
         assert pltx_row.account_id == remaining_tx_hashes[pltx_row.tx_hash]
@@ -2008,12 +2000,12 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
         # Satisfy the masterkey foreign key constraint by creating the masterkey.
         mk_row1 = MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
-            MasterKeyFlags.NONE)
+            MasterKeyFlag.NONE, 1, 1)
         masterkey_future = db_functions.create_master_keys(db_context, [ mk_row1 ])
         masterkey_future.result(timeout=5)
 
         line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-            AccountFlags.NONE, None, None)
+            AccountFlag.NONE, None, None, 1, 1)
         account_future = db_functions.create_accounts(db_context, [ line1 ])
         account_future.result(timeout=5)
 
@@ -2170,8 +2162,8 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         tx1 = TransactionRow(
             tx_hash=TX_HASH_1,
             tx_bytes=TX_BYTES_1,
-            flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
-            block_position=1, fee_value=250,
+            flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
+            block_position=1, fee_value=250, payment_id=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
 
         TX_BYTES_2 = os.urandom(10)
@@ -2179,8 +2171,8 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         tx2 = TransactionRow(
             tx_hash=TX_HASH_2,
             tx_bytes=TX_BYTES_2,
-            flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
-            block_position=1, fee_value=250,
+            flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
+            block_position=1, fee_value=250, payment_id=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
 
         future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])

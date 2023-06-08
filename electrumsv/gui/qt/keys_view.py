@@ -30,7 +30,7 @@ import enum
 from functools import partial
 import threading
 import time
-from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING, Union
+from typing import Any, cast, Iterable, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -83,7 +83,7 @@ BALANCE_COLUMN = 5
 FIAT_BALANCE_COLUMN = 6
 
 
-class EventFlags(enum.IntFlag):
+class EventFlag(enum.IntFlag):
     UNSET = 0 << 0
     KEY_ADDED = 1 << 0
     KEY_UPDATED = 1 << 1
@@ -99,7 +99,7 @@ class ListActions(enum.IntEnum):
     RESET_FIAT_BALANCES = 3
 
 
-class KeyFlags(enum.IntFlag):
+class KeyFlag(enum.IntFlag):
     UNSET = 0
     # State related.
     FROZEN = 1 << 16
@@ -124,30 +124,30 @@ def data_row_key(row: KeyListRow) -> int:
 
 
 class _ItemModel(QAbstractItemModel):
-    def __init__(self, parent: Any, column_names: List[str]) -> None:
+    def __init__(self, parent: Any, column_names: list[str]) -> None:
         super().__init__(parent)
 
         self._view = cast(KeyView, parent)
         self._logger = self._view._logger
 
         self._column_names = column_names
-        self._account_id: Optional[int] = None
+        self._account_id: int|None = None
 
         self._frozen_icon = read_QIcon("icons8-winter-96-win10")
 
-    def set_column_names(self, column_names: List[str]) -> None:
+    def set_column_names(self, column_names: list[str]) -> None:
         self._column_names = column_names[:]
 
     def set_column_name(self, column_index: int, column_name: str) -> None:
         self._column_names[column_index] = column_name
 
-    def set_data(self, account_id: Optional[int], data: List[KeyLine]) -> None:
+    def set_data(self, account_id: int|None, data: list[KeyLine]) -> None:
         self.beginResetModel()
         self._account_id = account_id
         self._data = data
         self.endResetModel()
 
-    def _get_data_line(self, key_id: int) -> Optional[int]:
+    def _get_data_line(self, key_id: int) -> int|None:
         # Get the offset of the line with the given transaction hash.
         for data_index, line in enumerate(self._data):
             if line.keyinstance_id == key_id:
@@ -380,7 +380,7 @@ class _ItemModel(QAbstractItemModel):
             line = self._data[row]
             if model_index.column() == LABEL_COLUMN:
                 assert self._view._account is not None
-                label_value = cast(Optional[str], value)
+                label_value = cast(str|None, value)
                 # Update the database (we do not wait on the future as we update the model data).
                 self._view._account.set_keyinstance_label(line.keyinstance_id, value)
                 # Update the model data.
@@ -401,13 +401,13 @@ class MatchType(enum.IntEnum):
 
 class _SortFilterProxyModel(QSortFilterProxyModel):
     _filter_type: MatchType = MatchType.UNKNOWN
-    _filter_match: Optional[Union[str, Address]] = None
-    _account: Optional[AbstractAccount] = None
+    _filter_match: str|Address|None = None
+    _account: AbstractAccount|None = None
 
     def set_account(self, account: AbstractAccount) -> None:
         self._account = account
 
-    def set_filter_match(self, text: Optional[str]) -> None:
+    def set_filter_match(self, text: str|None) -> None:
         self._filter_type = MatchType.UNKNOWN
 
         if text is not None:
@@ -467,8 +467,8 @@ class KeyView(QTableView):
         self._logger = logs.get_logger("key-view")
 
         self._main_window = cast(ElectrumWindow, weakref.proxy(main_window))
-        self._account: Optional[AbstractAccount] = None
-        self._account_id: Optional[int] = None
+        self._account: AbstractAccount|None = None
+        self._account_id: int|None = None
 
         self._update_lock = threading.Lock()
 
@@ -479,7 +479,7 @@ class KeyView(QTableView):
 
         self._frozen_brush = QBrush(QColor("powderblue"))
 
-        self._pending_state: Dict[int, EventFlags] = {}
+        self._pending_state: dict[int, EventFlag] = {}
         self._pending_actions = { ListActions.RESET }
         self._main_window.keys_created_signal.connect(self._on_keys_created)
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
@@ -560,10 +560,10 @@ class KeyView(QTableView):
     def clean_up(self) -> None:
         self._timer.stop()
 
-    def filter(self, text: Optional[str]) -> None:
+    def filter(self, text: str|None) -> None:
         self._proxy_model.set_filter_match(text)
 
-    def update_top_button_layout(self, button_layout: Optional[TableTopButtonLayout]) -> None:
+    def update_top_button_layout(self, button_layout: TableTopButtonLayout|None) -> None:
         if button_layout is None:
             return
         # TODO(key-tab-addition) Need to support adding keys.
@@ -599,7 +599,7 @@ class KeyView(QTableView):
                 self._timer.start()
             self._proxy_model.set_account(self._account)
 
-    def _on_transaction_added(self, tx_hash: bytes, tx: "Transaction", account_ids: Set[int]) \
+    def _on_transaction_added(self, tx_hash: bytes, tx: "Transaction", account_ids: set[int]) \
             -> None:
         if self._account_id not in account_ids:
             return
@@ -649,8 +649,8 @@ class KeyView(QTableView):
     def _have_pending_updates(self) -> bool:
         return bool(len(self._pending_actions) or len(self._pending_state))
 
-    # def _dispatch_updates(self, pending_actions: Set[ListActions],
-    #         pending_state: Dict[int, Tuple[KeyInstanceRow, EventFlags]]) -> None:
+    # def _dispatch_updates(self, pending_actions: set[ListActions],
+    #         pending_state: dict[int, tuple[KeyInstanceRow, EventFlags]]) -> None:
     #     import cProfile, pstats, io
     #     from pstats import SortKey
     #     pr = cProfile.Profile()
@@ -664,8 +664,8 @@ class KeyView(QTableView):
     #     print(s.getvalue())
 
     @profiler
-    def _dispatch_updates(self, pending_actions: Set[ListActions],
-            pending_state: Dict[int, EventFlags]) -> None:
+    def _dispatch_updates(self, pending_actions: set[ListActions],
+            pending_state: dict[int, EventFlag]) -> None:
         account_id = self._account_id
         assert account_id is not None
         account = self._main_window._wallet.get_account(account_id)
@@ -684,11 +684,11 @@ class KeyView(QTableView):
         updates = []
         removals = []
         for key_id, flags in pending_state.items():
-            if flags & EventFlags.KEY_ADDED:
+            if flags & EventFlag.KEY_ADDED:
                 additions.append(key_id)
-            elif flags & EventFlags.KEY_UPDATED:
+            elif flags & EventFlag.KEY_UPDATED:
                 updates.append(key_id)
-            elif flags & EventFlags.KEY_REMOVED:
+            elif flags & EventFlag.KEY_REMOVED:
                 removals.append(key_id)
 
         # self._logger.debug("_on_update_check actions=%s adds=%d updates=%d removals=%d",
@@ -725,7 +725,7 @@ class KeyView(QTableView):
         if not self._validate_account_event(account_id):
             return
 
-        flags = EventFlags.KEY_ADDED
+        flags = EventFlag.KEY_ADDED
         for keyinstance_id in keyinstance_ids:
             self._pending_state[keyinstance_id] = flags
 
@@ -733,13 +733,13 @@ class KeyView(QTableView):
         if not self._validate_account_event(account_id):
             return
 
-        new_flags = EventFlags.KEY_UPDATED
+        new_flags = EventFlag.KEY_UPDATED
         for keyinstance_id in keyinstance_ids:
-            flags = self._pending_state.get(keyinstance_id, EventFlags.UNSET)
+            flags = self._pending_state.get(keyinstance_id, EventFlag.UNSET)
             self._pending_state[keyinstance_id] = flags | new_flags
 
-    def _add_keys(self, account: AbstractAccount, key_ids: List[int],
-            state: Dict[int, EventFlags]) -> None:
+    def _add_keys(self, account: AbstractAccount, key_ids: list[int],
+            state: dict[int, EventFlag]) -> None:
         self._logger.debug("_add_keys %r", key_ids)
         if not len(key_ids):
             return
@@ -747,7 +747,7 @@ class KeyView(QTableView):
         for line in account.get_key_list(key_ids):
             self._base_model.add_line(line)
 
-    def select_rows_by_keyinstance_id(self, keyinstance_ids: Set[int]) -> int:
+    def select_rows_by_keyinstance_id(self, keyinstance_ids: set[int]) -> int:
         # Keep in mind that we have a sorting proxy model not the base model as the view's model,
         # so we need to select rows based on their index in the sorting proxy not the source
         # data in the base model. This means the easiest way to identify the rows we need to select
@@ -762,8 +762,8 @@ class KeyView(QTableView):
                 found += 1
         return found
 
-    def _update_keys(self, account: AbstractAccount, update_key_ids: List[int],
-            _state: Dict[int, EventFlags]) -> None:
+    def _update_keys(self, account: AbstractAccount, update_key_ids: list[int],
+            _state: dict[int, EventFlag]) -> None:
         self._logger.debug("_update_keys %r", update_key_ids)
 
         matched_key_ids = set()
@@ -789,7 +789,7 @@ class KeyView(QTableView):
         if unmatched_key_ids:
             self._logger.debug("_update_keys missing entries %r", unmatched_key_ids)
 
-    def _remove_keys(self, remove_key_ids: List[int]) -> None:
+    def _remove_keys(self, remove_key_ids: list[int]) -> None:
         self._logger.debug("_remove_keys %r", remove_key_ids)
 
         matched_key_ids = set()
@@ -806,32 +806,32 @@ class KeyView(QTableView):
             self._logger.debug("_remove_keys missing entries %r", unmatched_key_ids)
 
     # Called by the wallet window.
-    def update_keys(self, keys: List[KeyInstanceRow]) -> None:
+    def update_keys(self, keys: list[KeyInstanceRow]) -> None:
         with self._update_lock:
             for key in keys:
-                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
-                self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_UPDATED
+                flags = self._pending_state.get(key.keyinstance_id, EventFlag.UNSET)
+                self._pending_state[key.keyinstance_id] = flags | EventFlag.KEY_UPDATED
 
     # Called by the wallet window.
-    def remove_keys(self, keys: List[KeyInstanceRow]) -> None:
+    def remove_keys(self, keys: list[KeyInstanceRow]) -> None:
         with self._update_lock:
             for key in keys:
-                flags = self._pending_state.get(key.keyinstance_id, EventFlags.UNSET)
-                self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_REMOVED
+                flags = self._pending_state.get(key.keyinstance_id, EventFlag.UNSET)
+                self._pending_state[key.keyinstance_id] = flags | EventFlag.KEY_REMOVED
 
    # Called by the wallet window.
-    def update_frozen_transaction_outputs(self, txo_keys: List[Outpoint], freeze: bool) -> None:
+    def update_frozen_transaction_outputs(self, txo_keys: list[Outpoint], freeze: bool) -> None:
         # NOTE We get the full row, but only use one column.
         keyinstance_ids = [
             txo.keyinstance_id
             for txo in self._main_window._wallet.data.read_transaction_outputs(txo_keys)
         ]
         with self._update_lock:
-            new_flags = EventFlags.KEY_UPDATED | EventFlags.FREEZE_UPDATE
+            new_flags = EventFlag.KEY_UPDATED | EventFlag.FREEZE_UPDATE
             for keyinstance_id in keyinstance_ids:
                 if keyinstance_id is None:
                     continue
-                flags = self._pending_state.get(keyinstance_id, EventFlags.UNSET)
+                flags = self._pending_state.get(keyinstance_id, EventFlag.UNSET)
                 self._pending_state[keyinstance_id] = new_flags
 
     # The user has toggled the preferences setting.
@@ -845,19 +845,19 @@ class KeyView(QTableView):
             self._pending_actions.add(ListActions.RESET_FIAT_BALANCES)
 
     # The user has edited a label either here, or in some other wallet location.
-    def update_labels(self, wallet_path: str, account_id: int, key_updates: Set[int]) -> None:
+    def update_labels(self, wallet_path: str, account_id: int, key_updates: set[int]) -> None:
         if not self._validate_application_event(wallet_path, account_id):
             return
 
         with self._update_lock:
-            new_flags = EventFlags.KEY_UPDATED | EventFlags.LABEL_UPDATE
+            new_flags = EventFlag.KEY_UPDATED | EventFlag.LABEL_UPDATE
 
             for line in self._data:
                 if line.keyinstance_id in key_updates:
-                    flags = self._pending_state.get(line.keyinstance_id, EventFlags.UNSET)
+                    flags = self._pending_state.get(line.keyinstance_id, EventFlag.UNSET)
                     self._pending_state[line.keyinstance_id] = flags | new_flags
 
-    def _match_key_ids(self, key_ids: List[int]) -> List[Tuple[int, KeyLine]]:
+    def _match_key_ids(self, key_ids: list[int]) -> list[tuple[int, KeyLine]]:
         matches = []
         for row_index, line in enumerate(self._data):
             if line.keyinstance_id in key_ids:
@@ -876,7 +876,7 @@ class KeyView(QTableView):
 
         self.setColumnHidden(FIAT_BALANCE_COLUMN, not flag)
 
-    def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
+    def _set_user_active(self, keyinstance_ids: set[int], enable: bool) -> None:
         assert self._account is not None
         self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
@@ -885,7 +885,7 @@ class KeyView(QTableView):
         mask = KeyInstanceFlag(~KeyInstanceFlag.USER_SET_ACTIVE)
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
 
-    def _set_key_frozen(self, keyinstance_ids: Set[int], enable: bool) -> None:
+    def _set_key_frozen(self, keyinstance_ids: set[int], enable: bool) -> None:
         assert self._account is not None
         self._logger.debug("_set_key_frozen %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.FROZEN if enable else KeyInstanceFlag.NONE
@@ -914,7 +914,7 @@ class KeyView(QTableView):
         menu_source_index = get_source_index(menu_index, _ItemModel)
         menu_column = menu_source_index.column()
 
-        column_title: Optional[str] = None
+        column_title: str|None = None
         if menu_source_index.row() != -1:
             menu_line = self._data[menu_source_index.row()]
             column_title = self._headers[menu_column]
@@ -931,7 +931,7 @@ class KeyView(QTableView):
         selected_indexes = self.selectedIndexes()
         if len(selected_indexes):
             # This is an index on the sort/filter model, translate it to the base model.
-            selected: List[Tuple[int, int, KeyListRow, QModelIndex, QModelIndex]] = []
+            selected: list[tuple[int, int, KeyListRow, QModelIndex, QModelIndex]] = []
             for selected_index in selected_indexes:
                 base_index = get_source_index(selected_index, _ItemModel)
 
@@ -1014,10 +1014,10 @@ class KeyView(QTableView):
                     menu.addAction(_("Encrypt/decrypt message"),
                         lambda: self._main_window.encrypt_message(self._account, line))
 
-            user_active_keyinstance_ids: Set[int] = set()
-            non_user_active_keyinstance_ids: Set[int] = set()
-            frozen_keyinstance_ids: Set[int] = set()
-            non_frozen_keyinstance_ids: Set[int] = set()
+            user_active_keyinstance_ids: set[int] = set()
+            non_user_active_keyinstance_ids: set[int] = set()
+            frozen_keyinstance_ids: set[int] = set()
+            non_frozen_keyinstance_ids: set[int] = set()
             for _row, _column, line, _selected_index, _base_index in selected:
                 if (line.flags & KeyInstanceFlag.USER_SET_ACTIVE) == 0:
                     non_user_active_keyinstance_ids.add(line.keyinstance_id)

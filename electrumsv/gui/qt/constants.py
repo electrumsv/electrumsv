@@ -1,6 +1,6 @@
 from enum import IntEnum
 
-from ...constants import PaymentFlag
+from ...constants import PaymentRequestFlag
 from ...i18n import _
 
 
@@ -8,15 +8,15 @@ ICON_NAME_INVOICE_PAYMENT = "seal"
 
 
 pr_icons = {
-    PaymentFlag.STATE_UNPAID: "unpaid.png",
-    PaymentFlag.STATE_PAID: "icons8-checkmark-green-52.png",
-    PaymentFlag.STATE_EXPIRED: "expired.png"
+    PaymentRequestFlag.STATE_UNPAID: "unpaid.png",
+    PaymentRequestFlag.STATE_PAID: "icons8-checkmark-green-52.png",
+    PaymentRequestFlag.STATE_EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
-    PaymentFlag.STATE_UNPAID:_('Unpaid'),
-    PaymentFlag.STATE_PAID:_('Paid'),
-    PaymentFlag.STATE_EXPIRED:_('Expired'),
+    PaymentRequestFlag.STATE_UNPAID:_('Unpaid'),
+    PaymentRequestFlag.STATE_PAID:_('Paid'),
+    PaymentRequestFlag.STATE_EXPIRED:_('Expired'),
 }
 
 

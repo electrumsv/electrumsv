@@ -4,8 +4,8 @@ import unittest.mock
 
 import pytest
 
-from electrumsv.constants import (AccountFlags, CHANGE_SUBPATH, KeyInstanceFlag, KeystoreTextType,
-    PaymentFlag, RECEIVING_SUBPATH, ScriptType, ServerConnectionFlag)
+from electrumsv.constants import (AccountFlag, CHANGE_SUBPATH, KeyInstanceFlag, KeystoreTextType,
+    PaymentRequestFlag, RECEIVING_SUBPATH, ScriptType, ServerConnectionFlag)
 from electrumsv.exceptions import NoViableServersError, ServiceUnavailableError
 from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text
 from electrumsv.network_support.types import TipFilterRegistrationJob, \
@@ -47,7 +47,7 @@ async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -115,7 +115,7 @@ async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -179,25 +179,25 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlags.NONE, None, None)
+        AccountFlag.NONE, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
     # Ensure there is an expiry date passed.
     with pytest.raises(AssertionError):
-        await account.create_monitored_blockchain_payment_async(None, None, None, None)
+        await account.create_monitored_blockchain_payment_async(None, None, None, None, None)
 
     expiry_date = 100
     wallet.get_connection_state_for_usage = lambda *args: None
     with pytest.raises(NoViableServersError):
-        await account.create_monitored_blockchain_payment_async(None, None, None, expiry_date)
+        await account.create_monitored_blockchain_payment_async(None, None, None, None, expiry_date)
 
     server_state = unittest.mock.Mock(spec=ServerConnectionState)
     server_state.connection_flags = ServerConnectionFlag.NONE
     wallet.get_connection_state_for_usage = lambda *args: server_state
     with pytest.raises(ServiceUnavailableError):
-        await account.create_monitored_blockchain_payment_async(None, None, None, expiry_date)
+        await account.create_monitored_blockchain_payment_async(None, None, None, None, expiry_date)
 
     # We mock out the queued server registration.
     our_job_output = TipFilterRegistrationJobOutput()
@@ -213,12 +213,13 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
     server_state.connection_flags = ServerConnectionFlag.TIP_FILTER_READY
     create_tip_filter_registration_async.side_effect = fake_create_tip_filter_registration_async
     paymentrequest_row1, paymentrequest_output_rows1, their_job_output = \
-        await account.create_monitored_blockchain_payment_async(10000, None, None, expiry_date)
+        await account.create_monitored_blockchain_payment_async(None, 10000, None, None,
+            expiry_date)
     assert their_job_output.date_registered == 11111
     assert their_job_output.failure_reason is None
     assert paymentrequest_row1 is not None
-    assert paymentrequest_row1.request_flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_UNPAID
-    assert paymentrequest_row1.request_flags & PaymentFlag.MASK_TYPE == PaymentFlag.TYPE_MONITORED
+    assert paymentrequest_row1.request_flags & PaymentRequestFlag.MASK_STATE == PaymentRequestFlag.STATE_UNPAID
+    assert paymentrequest_row1.request_flags & PaymentRequestFlag.MASK_TYPE == PaymentRequestFlag.TYPE_MONITORED
     assert len(paymentrequest_output_rows1) == 1
 
     # TEST: Unsuccessful result.
@@ -226,7 +227,8 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
     our_job_output.failure_reason = "would be error text"
     create_tip_filter_registration_async.side_effect = fake_create_tip_filter_registration_async
     paymentrequest_row2, paymentrequest_output_rows2, their_job_output = \
-        await account.create_monitored_blockchain_payment_async(10000, None, None, expiry_date)
+        await account.create_monitored_blockchain_payment_async(None, 10000, None, None,
+            expiry_date)
     assert their_job_output.date_registered is None
     assert their_job_output.failure_reason == "would be error text"
     assert paymentrequest_row2 is None
@@ -237,6 +239,6 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
         key=lambda read_request_row: read_request_row.paymentrequest_id)
     assert len(read_request_rows) == 2
     assert read_request_rows[0].paymentrequest_id == paymentrequest_row1.paymentrequest_id
-    assert read_request_rows[0].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.NONE
+    assert read_request_rows[0].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.NONE
     assert read_request_rows[1].paymentrequest_id == paymentrequest_row1.paymentrequest_id+1
-    assert read_request_rows[1].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.DELETED
+    assert read_request_rows[1].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.DELETED

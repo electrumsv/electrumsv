@@ -3,7 +3,7 @@ import asyncio
 import dataclasses
 import struct
 from types import TracebackType
-from typing import Callable, Literal, NamedTuple, Protocol, Type, TYPE_CHECKING
+from typing import Any, Callable, Literal, NamedTuple, Protocol, Type, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 import uuid
 
@@ -11,7 +11,8 @@ from bitcoinx import Chain, hash_to_hex_str, Header
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationPath, \
-    DerivationType, NetworkServerType, NO_BLOCK_HASH, ScriptType, unpack_derivation_path
+    DerivationType, NetworkServerType, NO_BLOCK_HASH, ScriptType, ImportTransactionFlag, \
+    unpack_derivation_path
 
 
 if TYPE_CHECKING:
@@ -19,7 +20,9 @@ if TYPE_CHECKING:
     from .network_support.api_server import NewServer
     from .standards.mapi import MAPIBroadcastResponse
     from .standards.tsc_merkle_proof import TSCMerkleProof
-    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, MerkleProofRow
+    from .wallet_database.types import AccountRow, AccountPaymentRow, \
+        AccountTransactionOutputSpendableRow, KeyDataProtocol, MasterKeyRow, \
+        MerkleProofRow, NetworkServerRow, TransactionInputSnapshotRow, TransactionRow
 
 
 @dataclasses.dataclass
@@ -66,16 +69,21 @@ class DatabaseKeyDerivationData:
             keyinstance_id=row.keyinstance_id, source=source)
 
 
-class TransactionKeyUsageMetadata(NamedTuple):
+class RestorationTransactionKeyUsage(NamedTuple):
     pushdata_hash: bytes
+    # This will only be `None` before restoration result generation completes.
     keyinstance_id: int | None
     script_type: ScriptType
     derivation_path: DerivationPath | None = None
 
+class ImportTransactionKeyUsage(NamedTuple):
+    pushdata_hash: bytes
+    keyinstance_id: int
+    script_type: ScriptType
 
 class MissingTransactionMetadata(NamedTuple):
     transaction_hash: bytes
-    match_metadatas: set[TransactionKeyUsageMetadata]
+    match_metadatas: set[ImportTransactionKeyUsage]
     with_proof: bool
 
 
@@ -279,6 +287,24 @@ class FeeQuoteTypeEntry(TypedDict):
 
 
 @dataclasses.dataclass
+class TransactionImportContext:
+    # If a specified payment is not provided will be created and updated by the database import.
+    payment_id: int|None = None
+    # If a specified payment is not provided the created one will be linked to these accounts.
+    # After import this will be the list of all accounts the transaction's payment is associated
+    # with.
+    account_ids: list[int]|None = None
+    # Modifies the imported transaction outputs and links them to existing allocated keyinstances.
+    output_key_usage: dict[int, tuple[int, ScriptType]] = dataclasses.field(default_factory=dict)
+    # If the other transactions we spend from are already spent from, do we rollback the import
+    # completely or do we leave it imported and unlinked but mark it as CONFLICTING.
+    rollback_on_spend_conflict: bool = False
+    flags: ImportTransactionFlag = ImportTransactionFlag.UNSET
+    # Updated by the database import and returned to the caller.
+    has_spend_conflicts: bool = False
+
+
+@dataclasses.dataclass
 class TransactionBroadcastContext:
     server_id: int
     credential_id: int | None
@@ -334,3 +360,91 @@ class DaemonStatusDict(TypedDict):
     path: str
     version: str
     wallets: dict[str, WalletStatusDict]
+
+
+class BackupMasterKeyEntry(TypedDict):
+    "Represents the creation of a masterkey in the wallet."
+    type: Literal["masterkey"]
+    masterkey_id: int
+    derivation: str|None
+    subtype: Literal["fingerprint"]
+    pubkey: str
+    date_created: int
+
+class BackupAccountEntry(TypedDict):
+    "Represents the creation of an account in the wallet."
+    type: Literal["account"]
+    account_id: int
+    account_name: NotRequired[str]
+    masterkey_id: int|None
+    date_created: int
+
+class BackupTransactionEntry(TypedDict):
+    "Represents the data for a transaction that is linked into the wallet."
+    type: Literal["transaction"]
+    transaction_id: str
+    transaction_data: str
+
+class BackupAccountPaymentEntry(TypedDict):
+    "Represents the linkage between an account and a payment."
+    type: Literal["account-payment"]
+    account_id: int
+    payment_id: int
+    description: NotRequired[str|None]
+    date_created: int
+
+class BackupPaymentTransactionEntry(TypedDict):
+    "Represents a transaction that makes up part of a payment."
+    type: Literal["payment-transaction"]
+    transaction_id: str
+    transaction_inputs: list[BackupTransactionInputEntry]
+    transaction_outputs: list[BackupTransactionOutputEntry]
+
+class BackupTransactionInputEntry(TypedDict):
+    input_index: int
+    spent_transaction_id: str
+    spent_output_index: int
+    # flags: int
+
+class BackupTransactionOutputEntry(TypedDict):
+    output_index: int
+    script_template: str
+    key_usage: BackupKeyUsageEntry
+
+class BackupKeyUsageEntry(TypedDict):
+    type: Literal["key-usage"]
+    # NOTE(technical-debt) Payments. It is very likely that not every key usage will be linked
+    #     to masterkeys, and this is likely the case for serialised imported private keys. This
+    #     field will likely be `NotRequired` and the subtype will determine which fields need to
+    #     be populated. For now we defer it.
+    masterkey_id: int
+    subtype: Literal["derivation??"]
+    # TODO(nocheckin) This needs to be fleshed out.
+
+class BackupPaymentEntry(TypedDict):
+    "Represents.."
+    type: Literal["payment"]
+    subtype: Literal["blockchain", "invoice"]
+    transactions: list[BackupPaymentTransactionEntry]
+    date_created: int
+
+
+class BackupWritingProtocol(Protocol):
+    def translate_masterkey(self, row: MasterKeyRow) -> BackupMasterKeyEntry:
+        ...
+    def translate_account(self, row: AccountRow) -> BackupAccountEntry:
+        ...
+    def translate_transaction(self, row: TransactionRow) -> BackupTransactionEntry:
+        ...
+    def translate_account_payment(self, row: AccountPaymentRow) -> BackupAccountPaymentEntry:
+        ...
+    def translate_payment(self, transaction_rows: list[TransactionRow],
+            input_rows: dict[bytes, list[TransactionInputSnapshotRow]],
+            output_rows: dict[bytes, list[AccountTransactionOutputSpendableRow]]) \
+                -> BackupPaymentEntry:
+        ...
+    def convert_script_type_to_template_name(self, script_type: ScriptType) -> str:
+        ...
+    def convert_entries_to_bytes(self, value: Any) -> bytes:
+        ...
+

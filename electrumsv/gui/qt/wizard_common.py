@@ -45,7 +45,7 @@ from .types import WizardPageProtocol
 from .util import FormSectionWidget
 
 
-class WizardFlags(IntFlag):
+class WizardFlag(IntFlag):
     NONE = 0
 
     # The wizard should offer all standard account creation options.
@@ -61,7 +61,7 @@ class WizardFlags(IntFlag):
     RESULT_MASK = METADATA_RESULT | ACCOUNT_RESULT
 
 
-DEFAULT_WIZARD_FLAGS = WizardFlags.STANDARD_MODE | WizardFlags.ACCOUNT_RESULT
+DEFAULT_WIZARD_FLAGS = WizardFlag.STANDARD_MODE | WizardFlag.ACCOUNT_RESULT
 
 
 class HelpContext(NamedTuple):

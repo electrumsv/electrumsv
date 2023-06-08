@@ -41,7 +41,7 @@ from enum import IntEnum
 from functools import partial
 import json
 import time
-from typing import Any, cast, Iterable, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
@@ -55,15 +55,17 @@ from ...account_restorer import AdvancedSettings, DEFAULT_GAP_LIMITS, AccountRes
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, DerivationType, EMPTY_HASH, \
-    NetworkServerFlag, RECEIVING_SUBPATH, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
-    unpack_derivation_path, WalletEvent
+    NetworkServerFlag, RECEIVING_SUBPATH, ServerConnectionFlag, ImportTransactionFlag, \
+    TxFlag, unpack_derivation_path, WalletEvent
 from ...exceptions import ServerConnectionError
 from ...i18n import _
 from ...logs import logs
 from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
-from ...types import MissingTransactionMetadata, TransactionKeyUsageMetadata
+from ...types import ImportTransactionKeyUsage, MissingTransactionMetadata, \
+    RestorationTransactionKeyUsage, TransactionImportContext
 from ...wallet import Wallet
-from ...wallet_database.types import TransactionLinkState, TransactionRow
+from ...wallet_database.types import TransactionRow
+from ...wallet_support.keys import map_transaction_output_key_usage
 from ...web import BE_URL
 
 from .constants import RestorationDialogRole
@@ -71,6 +73,7 @@ from . import server_required_dialog
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
+    from ...transaction import Transaction
     from ...wallet_database.types import KeyInstanceRow
 
     from .main_window import ElectrumWindow
@@ -181,7 +184,7 @@ class ScanErrorKind(IntEnum):
 @dataclass(repr=False)
 class TransactionScanState:
     tx_hash: bytes
-    match_metadatas: set[TransactionKeyUsageMetadata]
+    match_metadatas: set[RestorationTransactionKeyUsage]
     is_missing = True
     already_imported = False
     already_conflicting = False
@@ -218,7 +221,7 @@ class AccountRestorationDialog(WindowModalDialog):
     _import_start_time: int = -1
     _import_end_time: int = -1
 
-    import_step_signal = pyqtSignal(TransactionRow, TransactionLinkState)
+    import_step_signal = pyqtSignal(TransactionRow, TransactionImportContext)
 
     _pushdata_handler: PushDataHashHandler | None = None
 
@@ -242,7 +245,7 @@ class AccountRestorationDialog(WindowModalDialog):
         self._import_fetch_steps = 0
         self._import_fetch_hashes: set[bytes] = set()
         self._import_link_steps = 0
-        self._import_link_hashes: set[bytes] = set()
+        self._import_link_entries: dict[bytes, set[RestorationTransactionKeyUsage]] = {}
         self._import_tx_count = 0
         self._import_state: dict[bytes, TransactionScanState] = {}
 
@@ -471,7 +474,7 @@ class AccountRestorationDialog(WindowModalDialog):
 
             # Gather the related import state for the scanned transactions.
             obtain_tx_keys: list[MissingTransactionMetadata] = []
-            link_tx_hashes: set[bytes] = set()
+            link_tx_entries: dict[bytes, set[RestorationTransactionKeyUsage]] = {}
             for tx_hash, import_entry in self._import_state.items():
                 if import_entry.already_imported or import_entry.already_conflicting:
                     continue
@@ -479,15 +482,18 @@ class AccountRestorationDialog(WindowModalDialog):
                     # We have no idea if this is in a block. We're going to try and get the proof
                     # because we have no idea if this is in a block. The wallet can sort it out.
                     obtain_tx_keys.append(
-                        MissingTransactionMetadata(tx_hash, import_entry.match_metadatas, True))
+                        MissingTransactionMetadata(tx_hash, { ImportTransactionKeyUsage(
+                            t.pushdata_hash, cast(int, t.keyinstance_id), t.script_type)
+                            for t in import_entry.match_metadatas },
+                        True))
                 else:
-                    link_tx_hashes.add(tx_hash)
+                    link_tx_entries[tx_hash] = import_entry.match_metadatas
 
-            if len(obtain_tx_keys) or len(link_tx_hashes):
+            if len(obtain_tx_keys) or len(link_tx_entries):
                 self._wallet.events.register_callback(self._on_wallet_event,
                     [ WalletEvent.TRANSACTION_OBTAINED ])
 
-            self._on_scanner_range_extended(len(obtain_tx_keys) + len(link_tx_hashes))
+            self._on_scanner_range_extended(len(obtain_tx_keys) + len(link_tx_entries))
 
             if len(obtain_tx_keys):
                 # This will start the process of obtaining the missing transactions. The future
@@ -495,66 +501,73 @@ class AccountRestorationDialog(WindowModalDialog):
                 # user use the cancel UI. We could extend the wallet to attempt this, but it is not
                 # within the scope of the intitial feature set.
                 future = app_state.app.run_coro(self._wallet.obtain_transactions_async(
-                    self._account_id, obtain_tx_keys, TransactionImportFlag.PROMPTED))
+                    self._account_id, obtain_tx_keys,
+                    ImportTransactionFlag.PROMPTED | ImportTransactionFlag.RESTORATION_MATCH))
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
-            if len(link_tx_hashes):
+            if len(link_tx_entries):
                 # We store these to track what we are waiting for.
-                self._import_link_hashes = link_tx_hashes
+                self._import_link_entries = link_tx_entries
                 app_state.async_.spawn(self._import_immediately_linkable_transactions(
-                    link_tx_hashes))
+                    link_tx_entries))
 
-    async def _import_immediately_linkable_transactions(self, link_tx_hashes: set[bytes]) -> None:
+    async def _import_immediately_linkable_transactions(self,
+            link_tx_entries: dict[bytes, set[RestorationTransactionKeyUsage]]) -> None:
         """
         Worker task to link each transaction that is already present in the wallet.
         """
         # Cannot hurt to verify that our action is still viable.
-        if link_tx_hashes != self._import_link_hashes:
+        if link_tx_entries != self._import_link_entries:
             return
 
-        for transaction_hash in list(link_tx_hashes):
-            link_state = await self._wallet.data.link_transaction_async(transaction_hash)
-            transaction_row = self._wallet.data.read_transaction(transaction_hash)
-            self._import_link_hashes.remove(transaction_hash)
-            self.import_step_signal.emit(transaction_row, link_state)
+        for transaction_hash, link_entries in link_tx_entries.items():
+            tx = self._wallet.get_transaction(transaction_hash)
+            assert tx is not None
+            import_entries = { ImportTransactionKeyUsage(t.pushdata_hash,
+                cast(int, t.keyinstance_id), t.script_type) for t in link_entries }
+            import_context = TransactionImportContext(account_ids=[self._account_id],
+                output_key_usage=map_transaction_output_key_usage(tx, import_entries))
+            await self._wallet.data.link_transaction_async(transaction_hash, import_context)
 
-    def _on_wallet_event(self, event: WalletEvent, *args: Iterable[Any]) -> None:
+            transaction_row = self._wallet.data.read_transaction(transaction_hash)
+            del self._import_link_entries[transaction_hash]
+            self.import_step_signal.emit(transaction_row, import_context)
+
+    def _on_wallet_event(self, event: WalletEvent, tx_row: TransactionRow, tx: Transaction,
+            import_context: TransactionImportContext) -> None:
         """
         The general wallet callback event handler.
 
         This event is triggered by the wallet and is only received for events this object
         registers for and we have explicit handling for each.
         """
-        tx_row: TransactionRow
-        link_state: TransactionLinkState
-        if event == WalletEvent.TRANSACTION_OBTAINED:
-            # NOTE(typing) Either we cast each argument, do unions and tuples or this.
-            tx_row, _tx, link_state = args # type: ignore
+        assert event == WalletEvent.TRANSACTION_OBTAINED
 
-            # Perhaps we received events from other systems or before the import started.
-            if tx_row.tx_hash not in self._import_fetch_hashes:
-                return
-            self._import_fetch_hashes.remove(tx_row.tx_hash)
-            self.import_step_signal.emit(tx_row, link_state)
+        # Perhaps we received events from other systems or before the import started.
+        if tx_row.tx_hash not in self._import_fetch_hashes:
+            return
+        self._import_fetch_hashes.remove(tx_row.tx_hash)
+        self.import_step_signal.emit(tx_row, import_context)
 
-    def _update_for_import_step(self, tx_row: TransactionRow, link_state: TransactionLinkState) \
-            -> None:
+    def _update_for_import_step(self, tx_row: TransactionRow,
+            import_context: TransactionImportContext) -> None:
         tree_item_index = self._scan_tree_indexes[tx_row.tx_hash]
         tree_item = self._scan_detail_tree.topLevelItem(tree_item_index)
         import_entry = cast(TransactionScanState, tree_item.data(Columns.STATUS, ImportRoles.ENTRY))
-        if link_state.has_spend_conflicts:
-            import_entry.found_spend_conflicts = link_state.has_spend_conflicts
+        if import_context.has_spend_conflicts:
+            import_entry.found_spend_conflicts = import_context.has_spend_conflicts
             tree_item.setIcon(Columns.STATUS, self._conflicted_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("An attempt to import this transaction "
                 "encountered a conflict where another imported transaction had already spent "
                 "the given coins."))
         else:
-            assert link_state.account_ids is not None, "expected account ids for non conflicted tx"
-            import_entry.linked_account_ids = link_state.account_ids
+            assert import_context.account_ids is not None, \
+                "expected account ids for non conflicted tx"
+            import_entry.linked_account_ids = set(import_context.account_ids)
             tree_item.setIcon(Columns.STATUS, self._imported_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
 
-        if tx_row.flags & TxFlags.STATE_SETTLED:
+        if tx_row.flags & TxFlag.STATE_SETTLED:
             assert tx_row.block_hash is not None
             lookup_result = self._wallet.lookup_header_for_hash(tx_row.block_hash)
             if lookup_result is not None:
@@ -578,7 +591,7 @@ class AccountRestorationDialog(WindowModalDialog):
 
     def _get_import_work_units(self) -> tuple[int, int]:
         total_work_units = self._import_fetch_steps + self._import_link_steps
-        remaining_work_units = len(self._import_fetch_hashes) + len(self._import_link_hashes)
+        remaining_work_units = len(self._import_fetch_hashes) + len(self._import_link_entries)
         return total_work_units, remaining_work_units
 
     def _on_import_obtain_transactions_started(self,
@@ -752,9 +765,9 @@ class AccountRestorationDialog(WindowModalDialog):
                     assert key_subpath_index > -1
                     furthest_subpath_indexes[key_subpath] = key_subpath_index
 
-            transaction_key_usage = TransactionKeyUsageMetadata(
+            transaction_key_usage = RestorationTransactionKeyUsage(
                 push_data_match.filter_result.push_data_hash,
-                # This will be set for static keys but not for BIP32 key derivations.
+                # This is set for static keys but not BIP32 key derivations. We set those below.
                 push_data_match.search_entry.keyinstance_id,
                 push_data_match.search_entry.script_type,
                 key_derivation_path)
@@ -817,7 +830,7 @@ class AccountRestorationDialog(WindowModalDialog):
 
             state = self._import_state[tx_row.tx_hash]
             state.already_imported = tx_row.account_id is not None
-            state.already_conflicting = (tx_row.flags & TxFlags.CONFLICTING) != 0
+            state.already_conflicting = (tx_row.flags & TxFlag.CONFLICTING) != 0
             state.is_missing = False
 
             conflicts_were_found = conflicts_were_found or state.already_conflicting

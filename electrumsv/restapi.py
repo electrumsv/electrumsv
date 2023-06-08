@@ -139,6 +139,8 @@ class AiohttpServer(BaseAiohttpServer):
         super().__init__(host=host, port=port)
         self.username = username
         self.password = password
+        print("USERNAME", username)
+        print("PASSWORD", password)
         self.network = get_network_type()
         self.app.middlewares.extend([web.normalize_path_middleware(append_slash=False,
             remove_slash=True), self.authenticate, self.check_network])

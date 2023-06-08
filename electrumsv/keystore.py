@@ -24,6 +24,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import time
 from typing import Any, cast, Sequence, TYPE_CHECKING
 
 from bitcoinx import (
@@ -36,7 +37,7 @@ from bitcoinx import (
 from .i18n import _
 from .app_state import app_state
 from .constants import DerivationType, DerivationPath, KeystoreTextType, KeystoreType, \
-    MasterKeyFlags
+    MasterKeyFlag
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
@@ -371,7 +372,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def __init__(self, data: MasterKeyDataBIP32, row: MasterKeyRow | None=None,
             parent_keystore: KeyStore | None=None,
-            masterkey_flags: MasterKeyFlags | None=None) -> None:
+            masterkey_flags: MasterKeyFlag | None=None) -> None:
         Xpub.__init__(self)
         Deterministic_KeyStore.__init__(self, row)
         self._parent_keystore = parent_keystore
@@ -381,7 +382,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         elif masterkey_flags is not None:
             self._masterkey_flags = masterkey_flags
         else:
-            self._masterkey_flags = MasterKeyFlags.NONE
+            self._masterkey_flags = MasterKeyFlag.NONE
 
         # Either BIP39 or Electrum seed words.
         self.seed: str | None = data.get('seed')
@@ -411,7 +412,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def get_parent_keystore(self) -> KeyStore | None:
         return self._parent_keystore
 
-    def get_masterkey_flags(self) -> MasterKeyFlags:
+    def get_masterkey_flags(self) -> MasterKeyFlag:
         return self._masterkey_flags
 
     def get_fingerprint(self) -> bytes:
@@ -433,7 +434,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         parent_masterkey_id = self._parent_keystore.get_id() if self._parent_keystore is not None \
             else None
         return MasterKeyRow(-1, parent_masterkey_id, DerivationType.BIP32, derivation_data,
-            self._masterkey_flags)
+            self._masterkey_flags, int(time.time()), int(time.time()))
 
     def get_master_public_key(self) -> str | None:
         return Xpub.get_master_public_key(self)
@@ -554,7 +555,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
         return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump,
-            MasterKeyFlags.NONE)
+            MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def get_seed(self, password: str | None) -> str:
         """
@@ -713,7 +714,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
         return MasterKeyRow(-1, None, DerivationType.HARDWARE, derivation_lump,
-            MasterKeyFlags.NONE)
+            MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def unpaired(self) -> None:
         '''A device paired with the wallet was diconnected.  This can be
@@ -789,7 +790,7 @@ class Multisig_KeyStore(KeyStore):
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
         return MasterKeyRow(-1, None, DerivationType.ELECTRUM_MULTISIG, derivation_lump,
-            MasterKeyFlags.NONE)
+            MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def is_watching_only(self) -> bool:
         return all(k.is_watching_only() for k in self.get_cosigner_keystores())
@@ -860,7 +861,7 @@ def _public_key_from_private_key_text(text: str) -> PublicKey:
 
 def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTypes,
         parent_keystore: KeyStore | None=None, row: MasterKeyRow | None=None,
-        masterkey_flags: MasterKeyFlags | None=None) -> KeyStore:
+        masterkey_flags: MasterKeyFlag | None=None) -> KeyStore:
     keystore: KeyStore
     if derivation_type == DerivationType.BIP32:
         keystore = BIP32_KeyStore(cast(MasterKeyDataBIP32, data),
@@ -940,7 +941,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         data = bip32_master_key_data_from_seed(text_match, passphrase, bip32_seed, derivation_text,
             password)
         return instantiate_keystore(derivation_type, data,
-            masterkey_flags=MasterKeyFlags.BIP39_SEED)
+            masterkey_flags=MasterKeyFlag.BIP39_SEED)
     elif text_type == KeystoreTextType.ELECTRUM_SEED_WORDS:
         derivation_type = DerivationType.BIP32
         assert not derivation_text
@@ -951,7 +952,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         data = bip32_master_key_data_from_seed(text_match, passphrase, bip32_seed, derivation_text,
             password)
         return instantiate_keystore(derivation_type, data,
-            masterkey_flags=MasterKeyFlags.ELECTRUM_SEED)
+            masterkey_flags=MasterKeyFlag.ELECTRUM_SEED)
     elif text_type == KeystoreTextType.ELECTRUM_OLD_SEED_WORDS:
         derivation_type = DerivationType.ELECTRUM_OLD
         assert isinstance(text_match, str)

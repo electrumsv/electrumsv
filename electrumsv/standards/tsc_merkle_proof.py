@@ -11,29 +11,29 @@ from bitcoinx import double_sha256, hex_str_to_hash, pack_varint, read_varint, u
 
 # See: https://tsc.bitcoinassociation.net/standards/merkle-proof-standardised-format/
 
-class ProofTransactionFlags(IntFlag):
+class ProofTransactionFlag(IntFlag):
     TRANSACTION_HASH    = 0
     FULL_TRANSACTION    = 1 << 0
     MASK                = TRANSACTION_HASH | FULL_TRANSACTION
 
-class ProofTargetFlags(IntFlag):
+class ProofTargetFlag(IntFlag):
     BLOCK_HASH          = 0
     BLOCK_HEADER        = 1 << 1
     MERKLE_ROOT         = 1 << 2
     MASK                = BLOCK_HASH | BLOCK_HEADER | MERKLE_ROOT
 
-class ProofTypeFlags(IntFlag):
+class ProofTypeFlag(IntFlag):
     MERKLE_BRANCH       = 0
     MERKLE_TREE         = 1 << 3
     MASK                = MERKLE_BRANCH | MERKLE_TREE
 
-class ProofCountFlags(IntFlag):
+class ProofCountFlag(IntFlag):
     SINGLE              = 0
     MULTIPLE            = 1 << 4
     MASK                = SINGLE | MULTIPLE
 
-FLAG_MASK = ProofTransactionFlags.MASK | ProofTargetFlags.MASK | ProofTypeFlags.MASK | \
-    ProofCountFlags.MASK
+FLAG_MASK = ProofTransactionFlag.MASK | ProofTargetFlag.MASK | ProofTypeFlag.MASK | \
+    ProofCountFlag.MASK
 
 
 @dataclass
@@ -59,10 +59,10 @@ def validate_proof_flags(flags: int) -> None:
     if invalid_flags:
         raise TSCMerkleProofError(f"Unexpected flags {invalid_flags:x}")
 
-    if flags & ProofCountFlags.MASK != ProofCountFlags.SINGLE:
+    if flags & ProofCountFlag.MASK != ProofCountFlag.SINGLE:
         raise TSCMerkleProofError("Proofs can currently only be singular")
 
-    if flags & ProofTypeFlags.MASK != ProofTypeFlags.MERKLE_BRANCH:
+    if flags & ProofTypeFlag.MASK != ProofTypeFlag.MERKLE_BRANCH:
         raise TSCMerkleProofError("Proofs can currently only be merkle branches")
 
 
@@ -71,7 +71,7 @@ def verify_proof(proof: TSCMerkleProof, expected_merkle_root_bytes: bytes | None
     if transaction_hash is None:
         transaction_hash = double_sha256(proof.transaction_bytes)
 
-    if proof.flags & ProofTargetFlags.MASK == ProofTargetFlags.BLOCK_HEADER:
+    if proof.flags & ProofTargetFlag.MASK == ProofTargetFlag.BLOCK_HEADER:
         assert expected_merkle_root_bytes is None
         assert proof.block_header_bytes is not None
         try:
@@ -79,7 +79,7 @@ def verify_proof(proof: TSCMerkleProof, expected_merkle_root_bytes: bytes | None
                 unpack_header(proof.block_header_bytes)
         except ValueError:
             raise TSCMerkleProofError("Invalid block header")
-    elif proof.flags & ProofTargetFlags.MASK == ProofTargetFlags.MERKLE_ROOT:
+    elif proof.flags & ProofTargetFlag.MASK == ProofTargetFlag.MERKLE_ROOT:
         assert expected_merkle_root_bytes is None
         expected_merkle_root_bytes = proof.merkle_root_bytes
     else:
@@ -237,7 +237,7 @@ class TSCMerkleProof:
         block_header_bytes: bytes | None = None
         merkle_root_bytes: bytes | None = None
 
-        if flags & ProofTransactionFlags.MASK == ProofTransactionFlags.TRANSACTION_HASH:
+        if flags & ProofTransactionFlag.MASK == ProofTransactionFlag.TRANSACTION_HASH:
             # The serialised form is the transaction id (which is the reversed hash).
             transaction_hash = stream.read(32)
             if len(transaction_hash) != 32:
@@ -252,11 +252,11 @@ class TSCMerkleProof:
             if len(transaction_bytes) != transaction_length:
                 raise TSCMerkleProofError("Proof is clipped and missing data")
 
-        if flags & ProofTargetFlags.MASK == ProofTargetFlags.BLOCK_HEADER:
+        if flags & ProofTargetFlag.MASK == ProofTargetFlag.BLOCK_HEADER:
             block_header_bytes = stream.read(80)
             if len(block_header_bytes) != 80:
                 raise TSCMerkleProofError("Proof is clipped and missing data")
-        elif flags & ProofTargetFlags.MASK == ProofTargetFlags.MERKLE_ROOT:
+        elif flags & ProofTargetFlag.MASK == ProofTargetFlag.MERKLE_ROOT:
             merkle_root_bytes = stream.read(32)
             if len(merkle_root_bytes) != 32:
                 raise TSCMerkleProofError("Proof is clipped and missing data")
@@ -296,7 +296,7 @@ class TSCMerkleProof:
         stream.write(self.flags.to_bytes(1, 'little'))
         stream.write(pack_varint(self.transaction_index))
 
-        if self.flags & ProofTransactionFlags.MASK == ProofTransactionFlags.FULL_TRANSACTION:
+        if self.flags & ProofTransactionFlag.MASK == ProofTransactionFlag.FULL_TRANSACTION:
             if self.transaction_bytes is None:
                 raise TSCMerkleProofError("No transaction bytes for embedded transaction")
             stream.write(pack_varint(len(self.transaction_bytes)))
@@ -306,11 +306,11 @@ class TSCMerkleProof:
                 raise TSCMerkleProofError("Expected transaction hash, was not set")
             stream.write(self.transaction_hash)
 
-        if self.flags & ProofTargetFlags.MASK == ProofTargetFlags.BLOCK_HEADER:
+        if self.flags & ProofTargetFlag.MASK == ProofTargetFlag.BLOCK_HEADER:
             if self.block_header_bytes is None:
                 raise TSCMerkleProofError("Expected block header bytes, was not set")
             stream.write(self.block_header_bytes)
-        elif self.flags & ProofTargetFlags.MASK == ProofTargetFlags.MERKLE_ROOT:
+        elif self.flags & ProofTargetFlag.MASK == ProofTargetFlag.MERKLE_ROOT:
             if self.merkle_root_bytes is None:
                 raise TSCMerkleProofError("Expected merkle root bytes, was not set")
             stream.write(self.merkle_root_bytes)
@@ -341,8 +341,8 @@ def separate_proof_and_embedded_transaction(proof: TSCMerkleProof,
     assert expected_transaction_hash == transaction_hash
     proof.transaction_bytes = None
     proof.transaction_hash = transaction_hash
-    proof.flags &= ~ProofTransactionFlags.MASK
-    proof.flags |= ProofTransactionFlags.TRANSACTION_HASH
+    proof.flags &= ~ProofTransactionFlag.MASK
+    proof.flags |= ProofTransactionFlag.TRANSACTION_HASH
     return transaction_bytes, proof
 
 def separate_proof_and_embedded_transaction_from_bytes(proof_bytes: bytes,

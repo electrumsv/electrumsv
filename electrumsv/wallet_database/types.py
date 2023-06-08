@@ -1,13 +1,12 @@
 import json
-import dataclasses
 from datetime import datetime, timezone
 from typing import Any, NamedTuple, Protocol
 
-from ..constants import (AccountFlags, AccountTxFlags, DerivationType, DPPMessageType,
-    KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType,
-    PaymentFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataMatchFlag,
-    PushDataHashRegistrationFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag,
-    TxFlags, WalletEventFlag, WalletEventType)
+from ..constants import (AccountFlag, AccountPaymentFlag, BackupMessageFlag, DerivationType,
+    DPPMessageType, KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag, NetworkServerFlag,
+    NetworkServerType, PaymentFlag, PaymentRequestFlag, PeerChannelAccessTokenFlag,
+    PeerChannelMessageFlag, PushDataMatchFlag, PushDataHashRegistrationFlag, ScriptType,
+    ServerPeerChannelFlag, TransactionOutputFlag, TxFlag, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
 
@@ -16,9 +15,11 @@ class AccountRow(NamedTuple):
     default_masterkey_id: int | None
     default_script_type: ScriptType
     account_name: str
-    flags: AccountFlags
+    flags: AccountFlag
     blockchain_server_id: int | None
     peer_channel_server_id: int | None
+    date_created: int
+    date_updated: int
 
 class AccountHistoryOutputRow(NamedTuple):
     tx_hash: bytes
@@ -32,16 +33,16 @@ class AccountHistoryOutputRow(NamedTuple):
     block_position: int|None
     date_created: int
 
-class AccountTransactionDescriptionRow(NamedTuple):
+class AccountPaymentDescriptionRow(NamedTuple):
     account_id: int
-    tx_hash: bytes
+    payment_id: int
     description: str | None
 
 
-class AccountTransactionRow(NamedTuple):
+class AccountPaymentRow(NamedTuple):
     account_id: int
-    tx_hash: bytes
-    flags: AccountTxFlags
+    payment_id: int
+    flags: AccountPaymentFlag
     description: str | None
     date_created: int
     date_updated: int
@@ -53,25 +54,23 @@ class SpentOutputRow(NamedTuple):
     spending_tx_hash: bytes
     spending_txi_index: int
     block_hash: bytes | None
-    flags: TxFlags
+    flags: TxFlag
 
 
 class HistoryListRow(NamedTuple):
-    tx_hash: bytes
-    tx_flags: TxFlags
-    block_hash: bytes | None
-    block_height: int
-    block_position: int | None
+    payment_id: int
+    contact_id: int
+    flags: PaymentFlag
     description: str | None
     value_delta: int
-    date_created: int
+    date_relevant: int
 
 
 class InvoiceAccountRow(NamedTuple):
     invoice_id: int
     payment_uri: str
     description: str | None
-    flags: PaymentFlag
+    flags: PaymentRequestFlag
     value: int
     date_expires: int | None
     date_created: int
@@ -83,7 +82,7 @@ class InvoiceRow(NamedTuple):
     tx_hash: bytes | None
     payment_uri: str
     description: str | None
-    flags: PaymentFlag
+    flags: PaymentRequestFlag
     value: int
     invoice_data: bytes
     date_expires: int | None
@@ -160,8 +159,9 @@ class MasterKeyRow(NamedTuple):
     parent_masterkey_id: int | None
     derivation_type: DerivationType
     derivation_data: bytes
-    flags: MasterKeyFlags
-
+    flags: MasterKeyFlag
+    date_created: int
+    date_updated: int
 
 # WARNING The order of the fields in this data structure are implicitly linked to the query.
 class NetworkServerRow(NamedTuple):
@@ -197,8 +197,8 @@ class PushDataRegistrationRow(NamedTuple):
 class PaymentRequestRow(NamedTuple):
     # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
     paymentrequest_id: int | None
-    # This is badly named, should be `request_flags`.
-    request_flags: PaymentFlag
+    payment_id: int | None
+    request_flags: PaymentRequestFlag
     requested_value: int | None
     date_expires: int | None
     # The local label we apply to transactions (seen in the history tab) received.
@@ -214,7 +214,7 @@ class PaymentRequestRow(NamedTuple):
 
 
 class PaymentRequestUpdateRow(NamedTuple):
-    state: PaymentFlag
+    state: PaymentRequestFlag
     value: int | None
     date_expires: int | None
     description: str | None
@@ -254,7 +254,7 @@ class TransactionDescriptionResult(NamedTuple):
 
 class TransactionExistsRow(NamedTuple):
     tx_hash: bytes
-    flags: TxFlags
+    flags: TxFlag
     account_id: int | None
 
 
@@ -270,14 +270,11 @@ class TransactionInputAddRow(NamedTuple):
     date_created: int
     date_updated: int
 
-
-@dataclasses.dataclass
-class TransactionLinkState:
-    # Parameters.
-    rollback_on_spend_conflict: bool = False
-    # Results.
-    has_spend_conflicts: bool = False
-    account_ids: set[int] | None = None
+class TransactionInputSnapshotRow(NamedTuple):
+    spending_tx_hash: bytes
+    spending_txi_index: int
+    spent_tx_hash: bytes
+    spent_txo_index: int
 
 
 class TransactionOutputCommonProtocol(Protocol):
@@ -344,7 +341,7 @@ class AccountTransactionOutputSpendableRow(NamedTuple):
     flags: TransactionOutputFlag
     # KeyInstance fields.
     account_id: int                             # Spendable type field.
-    masterkey_id: int | None                 # Spendable type field.
+    masterkey_id: int | None                    # Spendable type field.
     derivation_type: DerivationType             # Spendable type field.
     derivation_data2: bytes | None              # Spendable type field.
 
@@ -363,7 +360,8 @@ class AccountTransactionOutputSpendableRowExtended(NamedTuple):
     derivation_type: DerivationType             # Spendable type field.
     derivation_data2: bytes | None              # Spendable type field.
     # Extension fields for this type.
-    tx_flags: TxFlags
+    payment_id: int
+    tx_flags: TxFlag
     block_hash: bytes | None
     script_bytes: bytes
 
@@ -472,7 +470,7 @@ class TransactionOutputSpendableProtocol(Protocol):
 class TransactionRow(NamedTuple):
     tx_hash: bytes
     tx_bytes: bytes | None
-    flags: TxFlags
+    flags: TxFlag
     block_hash: bytes | None
     block_height: int
     block_position: int | None
@@ -480,8 +478,9 @@ class TransactionRow(NamedTuple):
     description: str | None
     version: int | None
     locktime: int | None
-    date_created: int               = -1
-    date_updated: int               = -1
+    payment_id: int | None
+    date_created: int
+    date_updated: int
 
 
 class MerkleProofRow(NamedTuple):
@@ -502,7 +501,7 @@ class TransactionProofUpdateRow(NamedTuple):
     block_hash: bytes | None
     block_height: int
     block_position: int | None
-    tx_flags: TxFlags
+    tx_flags: TxFlag
     date_updated: int
     tx_hash: bytes
 
@@ -515,15 +514,15 @@ class TransactionProoflessRow(NamedTuple):
 class TransactionValueRow(NamedTuple):
     tx_hash: bytes
     value: int
-    flags: TxFlags
+    flags: TxFlag
     block_hash: bytes | None
     date_created: int
     date_updated: int
 
 
-class TxProofData(NamedTuple):
+class UNITTEST_TxProofData(NamedTuple):
     tx_hash: bytes
-    flags: TxFlags
+    flags: TxFlag
     block_hash: bytes | None
     proof_bytes: bytes | None
     tx_block_height: int
@@ -704,10 +703,13 @@ class PushDataMatchMetadataRow(NamedTuple):
     block_hash: bytes | None
 
 
-class PaymentRequestTransactionHashRow(NamedTuple):
-    paymentrequest_id: int
-    transaction_hash: bytes
-
-
 class PeerChannelIds(NamedTuple):
     peer_channel_id: int
+
+
+class BackupMessageRow(NamedTuple):
+    local_sequence: int|None
+    local_flags: BackupMessageFlag
+    message_data: bytes
+    date_created: int
+

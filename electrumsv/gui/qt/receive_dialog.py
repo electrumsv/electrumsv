@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QL
 from ... import web
 from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
-from ...constants import PaymentFlag, PushDataHashRegistrationFlag
+from ...constants import PaymentRequestFlag, PushDataHashRegistrationFlag
 from ...exceptions import NoViableServersError, ServerConnectionError, ServiceUnavailableError, \
     UserCancelled
 from ...i18n import _
@@ -73,8 +73,8 @@ MONITORING_EXPIRED_STATUS_TEXT = "<b>"+ _("Expired") +"</b><br/>"+ \
     _("This is no longer being monitored.")
 
 
-CREATE_REQUEST_TYPES = { PaymentFlag.TYPE_IMPORTED, PaymentFlag.TYPE_MONITORED,
-    PaymentFlag.TYPE_INVOICE }
+CREATE_REQUEST_TYPES = { PaymentRequestFlag.TYPE_IMPORTED, PaymentRequestFlag.TYPE_MONITORED,
+    PaymentRequestFlag.TYPE_INVOICE }
 
 class ReceiveDialog(QDialog):
     """
@@ -90,8 +90,8 @@ class ReceiveDialog(QDialog):
     _timer: QTimer | None = None
 
     def __init__(self, main_window: ElectrumWindow, view: ReceiveView, account_id: int,
-            request_id: int | None, request_type: PaymentFlag,
-            request_state: PaymentFlag=PaymentFlag.STATE_PREPARING) -> None:
+            request_id: int | None, request_type: PaymentRequestFlag,
+            request_state: PaymentRequestFlag=PaymentRequestFlag.STATE_PREPARING) -> None:
         super().__init__(main_window)
 
         # NOTE(PyQt6) @ModalDialogLeakage
@@ -118,22 +118,22 @@ class ReceiveDialog(QDialog):
         if request_id is not None:
             # We are going to read the database entry for this payment request anyway, so the
             # convention is that the request type must be `NONE` if a request id is provided.
-            assert request_type == PaymentFlag.NONE
+            assert request_type == PaymentRequestFlag.NONE
             self._read_request_data_from_database()
             assert self._request_row is not None
-            request_type = self._request_row.request_flags & PaymentFlag.MASK_TYPE
+            request_type = self._request_row.request_flags & PaymentRequestFlag.MASK_TYPE
             self._request_type = request_type
         else:
             assert request_type in CREATE_REQUEST_TYPES
 
         title_text = _("Expected payment")
-        if request_type == PaymentFlag.TYPE_MONITORED:
+        if request_type == PaymentRequestFlag.TYPE_MONITORED:
             title_text += " - "+ _("Legacy Bitcoin payment")
-        elif request_type == PaymentFlag.TYPE_IMPORTED:
+        elif request_type == PaymentRequestFlag.TYPE_IMPORTED:
             title_text += " - "+ _("Transaction import")
-        elif request_type == PaymentFlag.TYPE_INVOICE:
+        elif request_type == PaymentRequestFlag.TYPE_INVOICE:
             title_text += " - "+ _("Payment request (DPP)")
-        elif request_type == PaymentFlag.TYPE_LEGACY:
+        elif request_type == PaymentRequestFlag.TYPE_LEGACY:
             title_text += " - "+ _("Legacy payment request")
         self.setWindowTitle(title_text)
 
@@ -206,11 +206,11 @@ class ReceiveDialog(QDialog):
         self._request_output_rows = request_output_rows
         if request_row is None:
             self._request_id = None
-            self._request_state = PaymentFlag.NONE
+            self._request_state = PaymentRequestFlag.NONE
         else:
             assert request_row.paymentrequest_id is not None
             self._request_id = request_row.paymentrequest_id
-            self._request_state = request_row.request_flags & PaymentFlag.MASK_STATE
+            self._request_state = request_row.request_flags & PaymentRequestFlag.MASK_STATE
 
     def get_paymentrequest_id(self) -> int | None:
         return self._request_id
@@ -255,9 +255,9 @@ class ReceiveDialog(QDialog):
 
         request_type = self._request_type
         if self._request_row is not None:
-            request_type = self._request_row.request_flags & PaymentFlag.MASK_TYPE
-        assert request_type in { PaymentFlag.TYPE_MONITORED, PaymentFlag.TYPE_IMPORTED,
-            PaymentFlag.TYPE_INVOICE }
+            request_type = self._request_row.request_flags & PaymentRequestFlag.MASK_TYPE
+        assert request_type in { PaymentRequestFlag.TYPE_MONITORED,
+            PaymentRequestFlag.TYPE_IMPORTED, PaymentRequestFlag.TYPE_INVOICE }
 
         self._status_label = QLabel()
         self._status_label.setWordWrap(True)
@@ -331,7 +331,8 @@ class ReceiveDialog(QDialog):
         self._import_button = EnterButton(_("&Import"), self._on_button_clicked_import)
         self._import_button.setMenu(import_menu)
         self._import_button.setEnabled(False)
-        if request_type not in { PaymentFlag.TYPE_IMPORTED, PaymentFlag.TYPE_MONITORED }:
+        if request_type not in { PaymentRequestFlag.TYPE_IMPORTED,
+                PaymentRequestFlag.TYPE_MONITORED }:
             self._import_button.hide()
 
         self._save_button = EnterButton(_('Update'), self._on_button_clicked_save)
@@ -393,7 +394,7 @@ class ReceiveDialog(QDialog):
         Visual update of the destination-related fields.
         """
         self._payment_url = ""
-        if self._request_type == PaymentFlag.TYPE_INVOICE:
+        if self._request_type == PaymentRequestFlag.TYPE_INVOICE:
             if self._request_row is not None:
                 assert self._request_row is not None
                 assert self._request_row.server_id is not None
@@ -403,7 +404,8 @@ class ReceiveDialog(QDialog):
                 server_url = wallet.get_dpp_server_url(self._request_row.server_id)
                 self._payment_url = f"pay:?r={server_url}api/v1/payment/" \
                     f"{self._request_row.dpp_invoice_id}"
-        elif self._request_type in { PaymentFlag.TYPE_MONITORED, PaymentFlag.TYPE_IMPORTED }:
+        elif self._request_type in { PaymentRequestFlag.TYPE_MONITORED,
+                PaymentRequestFlag.TYPE_IMPORTED }:
             if self._request_row is not None:
                 assert len(self._request_output_rows) == 1
                 output_script = Script(self._request_output_rows[0].output_script_bytes)
@@ -426,7 +428,7 @@ class ReceiveDialog(QDialog):
         if self._request_row is None:
             return
 
-        if self._request_type == PaymentFlag.TYPE_INVOICE:
+        if self._request_type == PaymentRequestFlag.TYPE_INVOICE:
             assert self._request_row.server_id is not None
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
@@ -436,7 +438,8 @@ class ReceiveDialog(QDialog):
             self._receive_qr.setData(payment_url)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._payment_url, amount, message, payment_url)
-        elif self._request_type in { PaymentFlag.TYPE_MONITORED, PaymentFlag.TYPE_IMPORTED }:
+        elif self._request_type in { PaymentRequestFlag.TYPE_MONITORED,
+                PaymentRequestFlag.TYPE_IMPORTED }:
             assert len(self._request_output_rows) == 1
             output_script = Script(self._request_output_rows[0].output_script_bytes)
             script_type, threshold, script_template = classify_transaction_output_script(
@@ -478,7 +481,7 @@ class ReceiveDialog(QDialog):
         2. The mid-creation locked down version of the pre-creation form.
         3. The post-creation/edit form.
         """
-        if self._request_id is None or self._request_state == PaymentFlag.STATE_PREPARING:
+        if self._request_id is None or self._request_state == PaymentRequestFlag.STATE_PREPARING:
             # Create mode.
             self._save_button.setText(_("Create"))
             self._copy_link_button.setEnabled(False)
@@ -494,7 +497,7 @@ class ReceiveDialog(QDialog):
 
         assert self._request_row is not None
         expiry_timestamp: int | None = None
-        if self._request_type == PaymentFlag.TYPE_MONITORED:
+        if self._request_type == PaymentRequestFlag.TYPE_MONITORED:
             wallet = self._main_window_proxy._wallet
             monitored_row = wallet.data.read_registered_tip_filter_pushdata_for_request(
                 self._request_id)
@@ -503,17 +506,18 @@ class ReceiveDialog(QDialog):
                 if monitored_row.pushdata_flags == PushDataHashRegistrationFlag.NONE:
                     expiry_timestamp = monitored_row.date_created+monitored_row.duration_seconds
                 # We allow imports for successfully registered unpaid invoices.
-                enable_import = (self._request_row.request_flags & PaymentFlag.MASK_STATE) \
-                    != PaymentFlag.STATE_PAID
-        elif self._request_type == PaymentFlag.TYPE_IMPORTED:
+                enable_import = (self._request_row.request_flags & PaymentRequestFlag.MASK_STATE) \
+                    != PaymentRequestFlag.STATE_PAID
+        elif self._request_type == PaymentRequestFlag.TYPE_IMPORTED:
             # We allow imports at any time as long as it has not already been paid. The user
             # is in control of this type of invoice, who knows how they are getting this
             # transaction or why they delayed in importing it.
-            enable_import = (self._request_row.request_flags & PaymentFlag.MASK_STATE) \
-                != PaymentFlag.STATE_PAID
+            enable_import = (self._request_row.request_flags & PaymentRequestFlag.MASK_STATE) \
+                != PaymentRequestFlag.STATE_PAID
             if self._request_row.date_expires:
                 expiry_timestamp = self._request_row.date_expires
-        elif self._request_type in { PaymentFlag.TYPE_INVOICE, PaymentFlag.TYPE_LEGACY }:
+        elif self._request_type in { PaymentRequestFlag.TYPE_INVOICE,
+                PaymentRequestFlag.TYPE_LEGACY }:
             pass
         else:
             raise NotImplementedError(f"Unknown request type {self._request_type}")
@@ -566,6 +570,8 @@ class ReceiveDialog(QDialog):
 
     def _on_create_button_clicked(self, amount: int, your_text: str, their_text: str | None) \
             -> None:
+        # TODO(nocheckin) Payments. contact_id should trickle down.
+        contact_id: int|None = None
         expires_index = self._expires_combo.currentIndex()
         duration_seconds = EXPIRATION_VALUES[expires_index][1]
 
@@ -573,7 +579,7 @@ class ReceiveDialog(QDialog):
         if duration_seconds is not None:
             date_expires = int(time.time()) + duration_seconds
 
-        if self._request_type == PaymentFlag.TYPE_INVOICE:
+        if self._request_type == PaymentRequestFlag.TYPE_INVOICE:
             def ui_callback(future: Future[HostedInvoiceCreationResult]) -> None:
                 """ `run_coro` ensures that our `on_done` callback happens in the UI thread. """
                 if future.cancelled():
@@ -599,17 +605,17 @@ class ReceiveDialog(QDialog):
                     self._refresh_after_create()
 
             assert date_expires is not None
-            app_state.app.run_coro(self._account.create_hosted_invoice_async(amount,
+            app_state.app.run_coro(self._account.create_hosted_invoice_async(contact_id, amount,
                 date_expires, your_text, their_text), on_done=ui_callback)
-        elif self._request_type == PaymentFlag.TYPE_MONITORED:
+        elif self._request_type == PaymentRequestFlag.TYPE_MONITORED:
             async def legacy_request_creation_process_async() -> None:
                 """
                 WARNING: This is running in the async thread. Qt calls should be done in the GUI
                     thread and otherwise signals used to trigger those calls from other threads.
                 """
                 future = app_state.async_.spawn(
-                    self._account.create_monitored_blockchain_payment_async(amount, your_text,
-                        merchant_reference=their_text, date_expires=date_expires))
+                    self._account.create_monitored_blockchain_payment_async(contact_id, amount,
+                        your_text, merchant_reference=their_text, date_expires=date_expires))
                 self._logger.debug("Waiting for tip filter registration completion")
                 try:
                     request_row, request_output_rows, job_output = await asyncio.wrap_future(future)
@@ -634,12 +640,12 @@ class ReceiveDialog(QDialog):
                 self.refresh_after_create_signal.emit()
 
             app_state.app.run_coro(legacy_request_creation_process_async())
-        elif self._request_type == PaymentFlag.TYPE_IMPORTED:
+        elif self._request_type == PaymentRequestFlag.TYPE_IMPORTED:
             async def imported_request_creation_process_async() -> None:
                 request_row, request_output_rows = \
-                    await self._account.create_payment_request_async(amount, your_text,
+                    await self._account.create_payment_request_async(contact_id, amount, your_text,
                         merchant_reference=their_text, date_expires=date_expires,
-                        flags=PaymentFlag.TYPE_IMPORTED)
+                        flags=PaymentRequestFlag.TYPE_IMPORTED)
                 self._set_request_rows(request_row, request_output_rows)
                 self.refresh_after_create_signal.emit()
 

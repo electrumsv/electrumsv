@@ -64,8 +64,17 @@ class UserQuit(Exception):
     pass
 
 
-class Bip270Exception(Exception):
+class DPPException(Exception):
     pass
+
+class DPPLocalException(DPPException):
+    """Something problematic to show the wallet owner?"""
+    pass
+
+class DPPRemoteException(DPPException):
+    """A problem for the party we are in contact with, not the wallet owner?"""
+    pass
+
 
 class OverloadedMultisigKeystore(Exception):
     pass

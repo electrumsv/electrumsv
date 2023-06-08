@@ -34,10 +34,10 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QHeaderView, QTreeWidgetItem, QMenu
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentFlag
+from electrumsv.constants import PaymentRequestFlag
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.dpp_messages import PaymentTerms
+from electrumsv.dpp_messages import PaymentTermsMessage
 from electrumsv.platform import platform
 from electrumsv.util import format_posix_timestamp, get_posix_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
@@ -110,8 +110,8 @@ class InvoiceList(MyTreeWidget):
 
         current_id = None
         current_item: Optional[QTreeWidgetItem] = None
-        if self._send_view._payment_request is not None:
-            current_id = self._send_view._payment_request.get_id()
+        if self._send_view._payment_terms is not None:
+            current_id = self._send_view._payment_terms.get_id()
         if current_id is None:
             current_item = self.currentItem()
             current_id = current_item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole) \
@@ -128,14 +128,14 @@ class InvoiceList(MyTreeWidget):
         assert self._send_view._account is not None
         wallet = self._send_view._account.get_wallet()
         invoice_rows = wallet.data.read_invoices_for_account(self._send_view._account.get_id(),
-            PaymentFlag.NONE, PaymentFlag.ARCHIVED)
+            PaymentRequestFlag.NONE, PaymentRequestFlag.ARCHIVED)
 
         for row in invoice_rows:
-            invoice_state = row.flags & PaymentFlag.MASK_STATE
-            if invoice_state == PaymentFlag.STATE_UNPAID and row.date_expires:
+            invoice_state = row.flags & PaymentRequestFlag.MASK_STATE
+            if invoice_state == PaymentRequestFlag.STATE_UNPAID and row.date_expires:
                 if current_time + 5 > row.date_expires:
                     # `EXPIRED` is never stored and solely used for extra visual state.
-                    invoice_state = PaymentFlag.STATE_EXPIRED
+                    invoice_state = PaymentRequestFlag.STATE_EXPIRED
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, row.date_expires)
 
@@ -213,17 +213,18 @@ class InvoiceList(MyTreeWidget):
         row = self._send_view._account._wallet.data.read_invoice(invoice_id=invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 
-        flags = row.flags & PaymentFlag.MASK_STATE
-        if flags == PaymentFlag.STATE_UNPAID and row.date_expires:
+        flags = row.flags & PaymentRequestFlag.MASK_STATE
+        if flags == PaymentRequestFlag.STATE_UNPAID and row.date_expires:
             if time.time() + 5 > row.date_expires:
                 # `EXPIRED` is never stored and solely used for extra visual state.
-                flags = (row.flags & PaymentFlag.CLEARED_MASK_STATE) | PaymentFlag.STATE_EXPIRED
+                flags = (row.flags & PaymentRequestFlag.CLEARED_MASK_STATE) | \
+                    PaymentRequestFlag.STATE_EXPIRED
 
         if column_data:
             menu.addAction(_("Copy {}").format(column_title),
                 lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), partial(self._show_invoice_window, row))
-        if flags == PaymentFlag.STATE_UNPAID:
+        if flags == PaymentRequestFlag.STATE_UNPAID:
             menu.addAction(_("Pay Now"), partial(self.pay_invoice, row.invoice_id))
         menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
         menu.exec(self.viewport().mapToGlobal(position))
@@ -238,14 +239,14 @@ class InvoiceList(MyTreeWidget):
         if row is None:
             return
 
-        pr = PaymentTerms.from_json(row.invoice_data)
-        if pr.has_expired():
+        payment_terms = PaymentTermsMessage.from_json(row.invoice_data.decode("utf-8"))
+        if payment_terms.has_expired():
             self._main_window.show_error(_("This invoice cannot be paid as it has expired."))
             return
 
         self._main_window.show_send_tab()
-        pr.set_id(row.invoice_id)
-        self._send_view.pay_for_payment_request(pr)
+        payment_terms.set_id(row.invoice_id)
+        self._send_view.pay_for_payment_request(payment_terms)
 
     def _delete_invoice(self, invoice_id: int) -> None:
         assert self._send_view._account is not None

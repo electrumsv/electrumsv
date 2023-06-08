@@ -11,7 +11,7 @@ from typing import Any, cast, NamedTuple
 from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey, sha256
 
 from ...bitcoin import scripthash_bytes
-from ...constants import AccountTxFlags, BlockHeight, CHANGE_SUBPATH, DerivationType, \
+from ...constants import BlockHeight, CHANGE_SUBPATH, DerivationType, \
     DerivationPath, KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType, \
     TransactionInputFlag, TransactionOutputFlag
 from ...exceptions import DatabaseMigrationError
@@ -466,8 +466,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     conn.execute(
         "INSERT INTO AccountTransactions2 (tx_hash, account_id, description, flags, "
             "date_created, date_updated) "
-        "SELECT AT.tx_hash, AT.account_id, T.description, "
-            f"T.flags & {AccountTxFlags.PAYS_INVOICE}, T.date_created, T.date_updated "
+        "SELECT AT.tx_hash, AT.account_id, T.description, 0, T.date_created, T.date_updated "
         "FROM AccountTransactions AS AT "
         "INNER JOIN Transactions AS T ON AT.tx_hash = T.tx_hash")
 

@@ -13,7 +13,7 @@ from aiohttp import web
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
 from electrumsv.constants import (CHANGE_SUBPATH, CredentialPolicyFlag, DATABASE_EXT,
-    TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletSettings)
+    TransactionOutputFlag, TxFlag, unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
 
 # TODO(1.4.0) RESTAPI. Decide what to do with these imports
@@ -417,7 +417,7 @@ class ExtendedHandlerUtils:
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
         return utxos_as_dicts
 
-    def _history_dto(self, account: AbstractAccount, tx_flags: Optional[TxFlags]=None) \
+    def _history_dto(self, account: AbstractAccount, tx_flags: Optional[TxFlag]=None) \
             -> List[Dict[str, Any]]:
         result: List[Dict[str, Any]] = []
         entries = account.get_transaction_value_entries(mask=tx_flags)
@@ -456,9 +456,9 @@ class ExtendedHandlerUtils:
                 if coin.block_height + COINBASE_MATURITY > account._wallet.get_local_height():
                     unmatured_coins.append(coin)
                     continue
-            if coin.tx_flags & TxFlags.STATE_SETTLED:
+            if coin.tx_flags & TxFlag.STATE_SETTLED:
                 settled_coins.append(coin)
-            elif coin.tx_flags & TxFlags.STATE_CLEARED:
+            elif coin.tx_flags & TxFlag.STATE_CLEARED:
                 cleared_coins.append(coin)
 
         return {"cleared_coins": len(cleared_coins),
@@ -507,21 +507,10 @@ class ExtendedHandlerUtils:
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
-        await account._wallet.data.set_transaction_state_async(tx_hash, TxFlags.STATE_CLEARED,
-            TxFlags.MASK_STATE_BROADCAST)
+        await account._wallet.data.set_transaction_state_async(tx_hash, TxFlag.STATE_CLEARED,
+            TxFlag.MASK_STATE_BROADCAST)
         self.logger.debug("successful broadcast for %s", result)
         return result
-
-    def remove_transaction(self, tx_hash: bytes, account: AbstractAccount) -> None:
-        # removal of txs that are not in the STATE_SIGNED tx state is disabled for now as it may
-        # cause issues with expunging utxos inadvertently.
-        tx_flags = account._wallet.data.get_transaction_flags(tx_hash)
-        assert tx_flags is not None
-        is_signed_state = (tx_flags & TxFlags.STATE_SIGNED) == TxFlags.STATE_SIGNED
-        # Todo - perhaps remove restriction to STATE_SIGNED only later (if safe for utxos state)
-        if not is_signed_state:
-            raise web.HTTPBadRequest(reason="Disabled feature")
-        account._wallet.remove_transaction(tx_hash)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
             account: AbstractAccount,
@@ -592,11 +581,6 @@ class ExtendedHandlerUtils:
             raise InsufficientCoinsError
 
         return inputs, outputs, attempted_split
-
-    def cleanup_tx(self, tx: Transaction, account: AbstractAccount) -> None:
-        """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
-        utxos thus making freezing redundant."""
-        self.remove_transaction(tx.hash(), account)
 
     def batch_response(self, response: Dict[str, Any]) -> web.Response:
         # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152

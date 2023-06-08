@@ -1,10 +1,11 @@
+from __future__ import annotations
 import concurrent.futures
 from functools import partial
 import os
 import random
 import threading
 import time
-from typing import Any, Callable, cast, NamedTuple, Optional
+from typing import Callable, cast, NamedTuple
 import weakref
 
 from bitcoinx import Ops, P2PKH_Address, pack_byte, push_item, Script
@@ -23,7 +24,7 @@ from ...logs import logs
 from ...networks import Net
 from ...standards.script_templates import classify_transaction_output_script
 from ...transaction import Transaction, XTxOutput
-from ...types import TransactionFeeContext
+from ...types import TransactionFeeContext, TransactionImportContext
 from ...wallet import AbstractAccount, TransactionCreationContext
 
 from .main_window import ElectrumWindow
@@ -58,7 +59,7 @@ class AllocatedKeyState(NamedTuple):
 
 
 class CoinSplittingTab(TabWidget):
-    _allocated_key_state: Optional[AllocatedKeyState] = None
+    _allocated_key_state: AllocatedKeyState|None = None
     unfrozen_balance = None
     frozen_balance = None
     split_stage = STAGE_INACTIVE
@@ -69,7 +70,7 @@ class CoinSplittingTab(TabWidget):
     unsplittable_balance_label = None
     splittable_unit_label = None
     unsplittable_unit_label = None
-    waiting_dialog: Optional["SplitWaitingDialog"] = None
+    waiting_dialog: SplitWaitingDialog|None = None
 
     _direct_splitting_enabled = False
     _direct_splitting = False
@@ -86,15 +87,15 @@ class CoinSplittingTab(TabWidget):
         self._main_window.account_change_signal.connect(self._on_account_change)
         self._wallet = main_window._wallet
 
-        self._account: Optional[AbstractAccount] = None
-        self._account_id: Optional[int] = None
+        self._account: AbstractAccount|None = None
+        self._account_id: int|None = None
 
         self._fee_quotes_finished.connect(self._on_ui_thread_fee_quotes_finished)
         self._transaction_creation_context = TransactionCreationContext()
         self._transaction_creation_context.callbacks.append(self._fee_quotes_finished.emit)
 
-    def _on_account_change(self, new_account_id: Optional[int],
-            new_account: Optional[AbstractAccount], startup: bool) -> None:
+    def _on_account_change(self, new_account_id: int|None,
+            new_account: AbstractAccount|None, startup: bool) -> None:
         self._account_id = new_account_id
         self._account = new_account
 
@@ -246,7 +247,7 @@ class CoinSplittingTab(TabWidget):
         date_expires = int(time.time()) + 5 * 60
         try:
             result = app_state.async_.spawn_and_wait(
-                self._account.create_hosted_invoice_async(1000000000, date_expires,
+                self._account.create_hosted_invoice_async(None, 1000000000, date_expires,
                 _("Receive faucet dust for coin-splitting."),
                 _("Please give me faucet coins")))
         except (NoViableServersError, UserCancelled):
@@ -401,22 +402,24 @@ class CoinSplittingTab(TabWidget):
             self._faucet_splitting = False
         self._update_action_buttons()
 
-    def _on_wallet_event(self, event: WalletEvent, *args: Any) -> None:
+    def _on_wallet_event(self, event: WalletEvent, tx_hash: bytes, tx: Transaction,
+            import_context: TransactionImportContext) -> None:
         if event == WalletEvent.TRANSACTION_ADD:
             if self._allocated_key_state is None:
                 return
 
-            if self._account_id not in args[2].account_ids:
+            # Should have been set by the importer.
+            assert import_context.account_ids is not None
+            if self._account_id not in import_context.account_ids:
                 return
             assert self._account is not None
 
             our_script = self._allocated_key_state.script_template.to_script_bytes()
-            # args = (tx_hash, tx, involved_account_ids, import_flags)
-            tx: Transaction = args[1]
+            # args = (tx_hash, tx, import_context)
             for tx_output in tx.outputs:
                 if tx_output.script_pubkey == our_script:
                     extra_text = _("Dust from BSV faucet")
-                    self._account.set_transaction_label(tx.hash(),
+                    self._account.set_payment_label(tx.hash(),
                         f"{TX_DESC_PREFIX}: {extra_text}")
                     # Notify the progress dialog task thread.
                     with self.new_transaction_cv:

@@ -11,7 +11,7 @@ from ..constants import DerivationType, KeystoreType, ScriptType, MULTI_SIGNER_S
 from ..exceptions import UnsupportedScriptTypeError
 from ..networks import Net
 from ..script import AccumulatorMultiSigOutput
-from ..types import TransactionKeyUsageMetadata
+from ..types import ImportTransactionKeyUsage
 from ..wallet_database.types import KeyDataProtocol
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ def get_pushdata_hash_for_keystore_key_data(keystore: KeyStore, key_data: KeyDat
 
 
 def map_transaction_output_key_usage(transaction: Transaction,
-        key_metadatas: Collection[TransactionKeyUsageMetadata]) \
+        key_metadatas: Collection[ImportTransactionKeyUsage]) \
             -> dict[int, tuple[int, ScriptType]]:
     """
     This takes the matched pushdata hashes for a transaction and works out what outputs use

@@ -37,7 +37,7 @@ async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_
         }
     request.json = request_json_async
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.load_wallet_async(cast(web.Request, request))
+        await local_endpoints._load_wallet_async(cast(web.Request, request))
     assert "Wallet file does not exist 'wallet_file_name'" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
@@ -74,7 +74,7 @@ async def test_load_wallet_async_daemon_success(app_state_restapi: AppStateProxy
             "password": "123456",
         }
     request.json = request_json_async
-    response = await local_endpoints.load_wallet_async(cast(web.Request, request))
+    response = await local_endpoints._load_wallet_async(cast(web.Request, request))
     wallet_data = json.loads(cast(bytes, response.body))
     assert wallet_data["ephemeral_wallet_id"] == wallet.get_id()
     assert wallet_data["wallet_path"] == canonical_wallet_path
@@ -97,7 +97,7 @@ async def test_create_wallet_async_invalid_body(mock_app_state: AppStateProxy, t
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_wallet_async(cast(web.Request, request))
+        await local_endpoints._create_wallet_async(cast(web.Request, request))
     assert "Invalid request body" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
@@ -118,7 +118,7 @@ async def test_create_wallet_async_invalid_file_name(mock_app_state: AppStatePro
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_wallet_async(cast(web.Request, request))
+        await local_endpoints._create_wallet_async(cast(web.Request, request))
     assert "Invalid request body 'file_name'" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
@@ -139,7 +139,7 @@ async def test_create_wallet_async_invalid_password(mock_app_state: AppStateProx
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_wallet_async(cast(web.Request, request))
+        await local_endpoints._create_wallet_async(cast(web.Request, request))
     assert "Invalid request body 'password'" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
@@ -169,7 +169,7 @@ async def test_create_wallet_async_success_no_seed(app_state_restapi: AppStatePr
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
 
     local_endpoints = LocalEndpoints()
-    response = await local_endpoints.create_wallet_async(cast(web.Request, request))
+    response = await local_endpoints._create_wallet_async(cast(web.Request, request))
     wallet_data = json.loads(cast(bytes, response.body))
     wallet_path = str(tmp_path / "wallet_file_name")
     expected_wallet_path = WalletStorage.canonical_path(wallet_path)
@@ -210,7 +210,7 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
 
     local_endpoints = LocalEndpoints()
-    response = await local_endpoints.create_wallet_async(cast(web.Request, request))
+    response = await local_endpoints._create_wallet_async(cast(web.Request, request))
     wallet_data = json.loads(cast(bytes, response.body))
     wallet_path = str(tmp_path / "wallet_file_name")
     expected_wallet_path = WalletStorage.canonical_path(wallet_path)
@@ -275,7 +275,7 @@ async def test_create_account_async_success(app_state_restapi: AppStateProxy,
     }
 
     local_endpoints = LocalEndpoints()
-    response = await local_endpoints.create_account_async(cast(web.Request, account_request))
+    response = await local_endpoints._create_account_async(cast(web.Request, account_request))
     account_data = json.loads(cast(bytes, response.body))
     assert len(account_data) == 1
     assert "account_id" in account_data
@@ -315,7 +315,7 @@ async def test_create_account_async_fail_no_wallet(app_state_restapi: AppStatePr
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_account_async(cast(web.Request, account_request))
+        await local_endpoints._create_account_async(cast(web.Request, account_request))
     assert "Wallet with ID '223232' not currently loaded" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
@@ -364,7 +364,7 @@ async def test_create_account_async_bad_wallet_id(app_state_restapi: AppStatePro
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_account_async(cast(web.Request, account_request))
+        await local_endpoints._create_account_async(cast(web.Request, account_request))
     assert "URL 'wallet' value invalid" == exception_info.value.args[0]
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
@@ -415,7 +415,7 @@ async def test_create_account_async_fail_wallet_password(app_state_restapi: AppS
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.create_account_async(cast(web.Request, account_request))
+        await local_endpoints._create_account_async(cast(web.Request, account_request))
     assert "Wallet password is not correct" == exception_info.value.args[0]
 
 # Endpoint: create a hosted invoice

@@ -55,7 +55,7 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
 from .util import FormSectionWidget, protected, read_QIcon
-from .wizard_common import WizardFlags
+from .wizard_common import WizardFlag
 
 
 class CosignerState:
@@ -147,7 +147,7 @@ class CosignerCard(FormSectionWidget):
             return
 
         from .account_wizard import AccountWizard
-        child_wizard = AccountWizard(self._main_window_proxy, WizardFlags.MULTISIG_MODE, self)
+        child_wizard = AccountWizard(self._main_window_proxy, WizardFlag.MULTISIG_MODE, self)
         subtitle_text = _("Cosigner #{} Key Selection").format(self._state.cosigner_index+1)
         child_wizard.set_subtitle(subtitle_text)
         if child_wizard.run() == QWizard.DialogCode.Accepted:

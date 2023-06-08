@@ -7,7 +7,7 @@ from bitcoinx import BIP39Mnemonic, ElectrumMnemonic, Wordlists
 from electrumsv_database.sqlite import DatabaseContext
 
 from electrumsv.bitcoin import address_from_string
-from electrumsv.constants import AccountFlags, DerivationType, KeystoreTextType, MasterKeyFlags, \
+from electrumsv.constants import AccountFlag, DerivationType, KeystoreTextType, MasterKeyFlag, \
     ScriptType, SEED_PREFIX_ACCOUNT
 from electrumsv.crypto import pw_decode
 from electrumsv import keystore
@@ -58,7 +58,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-            AccountFlags.NONE, None, None)
+            AccountFlag.NONE, None, None, 1, 1)
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(self.wallet, account_row)
         return account
@@ -69,7 +69,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text',
-            AccountFlags.NONE, None, None)
+            AccountFlag.NONE, None, None, 1, 1)
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(self.wallet, account_row)
         self.wallet.register_account(account.get_id(), account)
@@ -98,7 +98,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         masterkey_row = ks.to_masterkey_row()
         assert masterkey_row.parent_masterkey_id is None
         assert masterkey_row.derivation_type == DerivationType.BIP32
-        assert masterkey_row.flags == MasterKeyFlags.ELECTRUM_SEED
+        assert masterkey_row.flags == MasterKeyFlag.ELECTRUM_SEED
         data = json.loads(masterkey_row.derivation_data)
         assert pw_decode(data["seed"], password) == seed_words
         assert data["seed"] is not None and data["seed"] == ks.seed
@@ -133,7 +133,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         masterkey_row = ks.to_masterkey_row()
         assert masterkey_row.parent_masterkey_id is None
         assert masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD
-        assert masterkey_row.flags == MasterKeyFlags.NONE
+        assert masterkey_row.flags == MasterKeyFlag.NONE
         data = json.loads(masterkey_row.derivation_data)
         assert data["seed"] is not None and data["seed"] == ks.seed
         assert data["mpk"] is not None and data["mpk"] == ks.mpk
@@ -160,7 +160,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         masterkey_row = ks.to_masterkey_row()
         assert masterkey_row.parent_masterkey_id is None
         assert masterkey_row.derivation_type == DerivationType.BIP32
-        assert masterkey_row.flags == MasterKeyFlags.BIP39_SEED
+        assert masterkey_row.flags == MasterKeyFlag.BIP39_SEED
         data = json.loads(masterkey_row.derivation_data)
         assert pw_decode(data["seed"], password) == seed_words
         assert data["seed"] is not None and data["seed"] == ks.seed

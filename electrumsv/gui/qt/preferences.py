@@ -38,14 +38,13 @@ from electrumsv import qrscanner
 from electrumsv.app_state import get_app_state_qt
 from electrumsv.constants import (DEFAULT_FEE, MAXIMUM_TXDATA_CACHE_SIZE_MB,
     MINIMUM_TXDATA_CACHE_SIZE_MB, WalletSettings)
-from electrumsv.extensions import Extension, extensions, label_sync
 from electrumsv.i18n import _, languages
 import electrumsv.web as web
 from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
 from . import qrreader
-from .util import Buttons, CloseButton, EnterButton, FormSectionWidget, HelpButton, MessageBox
+from .util import Buttons, CloseButton, FormSectionWidget, MessageBox
 
 if TYPE_CHECKING:
     from electrumsv.gui.qt.main_window import ElectrumWindow
@@ -80,7 +79,6 @@ class PreferencesDialog(QDialog):
             (self.general_widgets, _('General')),
             (self.tx_widgets, _('Transactions')),
             (self.fiat_widgets, _('Fiat')),
-            (partial(self.extensions_widgets, account), _('Extensions')),
         ]
         tabs_info.append((partial(self._wallet_widgets, wallet), _('Wallet')))
         tabs_info.append((self.ui_widgets, _('UI')))
@@ -355,37 +353,6 @@ class PreferencesDialog(QDialog):
         extension_form.add_row(_('Options'), options_box)
 
         vbox = QVBoxLayout()
-        vbox.addWidget(extension_form)
-        vbox.addStretch(1)
-        tab.setLayout(vbox)
-
-    def extensions_widgets(self, account: Optional[AbstractAccount], tab: QWidget) -> None:
-        app_state_qt = get_app_state_qt()
-
-        def cb_clicked(extension: Extension, settings_widget: EnterButton, checked: bool) -> None:
-            extension.set_enabled(checked)
-            if settings_widget:
-                settings_widget.setEnabled(checked)
-
-        vbox = QVBoxLayout()
-        extension_form = FormSectionWidget()
-        for extension in extensions:
-            cb = QCheckBox(_("Enabled"))
-            cb.setChecked(extension.is_enabled())
-            help_widget = HelpButton(extension.description)
-            field_layout = QHBoxLayout()
-            field_layout.addWidget(cb)
-            field_layout.addStretch(1)
-            if extension is label_sync and account:
-                settings_widget = app_state_qt.app_qt.label_sync.settings_widget(self, account)
-                settings_widget.setEnabled(extension.is_enabled())
-                field_layout.addWidget(settings_widget)
-                cb.clicked.connect(partial(cb_clicked, extension, settings_widget))
-            else:
-                cb.clicked.connect(partial(cb_clicked, extension, None))
-            field_layout.addWidget(help_widget)
-            extension_form.add_row(extension.name, field_layout)
-
         vbox.addWidget(extension_form)
         vbox.addStretch(1)
         tab.setLayout(vbox)

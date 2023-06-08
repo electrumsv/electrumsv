@@ -27,22 +27,19 @@ from __future__ import annotations
 
 import json
 import time
-import types
 from typing import Any, cast, Literal
 from typing_extensions import NotRequired, TypedDict
 import urllib.parse
 
-from bitcoinx import Address, PublicKey, Script
+from bitcoinx import Address, hex_str_to_hash, PublicKey, Script
 import requests
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
-from .exceptions import Bip270Exception
+from .exceptions import DPPException, DPPLocalException, DPPRemoteException
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
-from .transaction import XTxOutput
-from .wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
+from .transaction import Transaction, XTxInput, XTxOutput
 
 logger = logs.get_logger("dpp-messages")
 
@@ -64,6 +61,14 @@ def has_expired(expiration_timestamp: int | None) -> bool:
 
 
 HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5"
+
+# NOTE(rt12) In theory, we could remove this and assume that because JSON is inherently extensible
+#     other parties could throw in custom properties and we could ignore them and everyone could
+#     be happy. But in practice, if you don't know what you are dealing with you do not know that
+#     you are handling it correctly. So for now, this must be set.
+STRICT_PROPERTY_CHECKS = True
+OUTPUT_POLICY_KEYS = frozenset({ "fees", "lockTime", "SPVRequired" })
+INPUT_KEYS = frozenset({ "nSequence", "scriptSig", "txid", "vout", "value" })
 
 
 # DPP Message Types as per the TSC spec.
@@ -122,29 +127,26 @@ class HybridModePaymentACKDict(TypedDict):
 class HybridModePaymentDict(TypedDict):
     optionId: str
     transactions: list[str]  # hex raw transactions
-    ancestors: dict[str, Any] | None
+    ancestors: NotRequired[dict[str, Any] | None]
 
 
-# `PaymentTermsDict`, `PaymentDict` and `PaymentACKDict` are the three top-level structs of the
-# DPP protocol
 class PaymentTermsDict(TypedDict):
     network: str
     version: str
     creationTimestamp: int
-    expirationTimestamp: int
-    memo: str
+    expirationTimestamp: NotRequired[int]
+    memo: NotRequired[str]
     paymentUrl: str
-    beneficiary: dict[str, Any] | None
+    beneficiary: NotRequired[dict[str, Any] | None]
     modes: PaymentTermsModes
-    merchantData: dict[str, Any] | None
 
 
 class PaymentDict(TypedDict):
     modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
     mode: HybridModePaymentDict
-    originator: dict[str, Any] | None
-    transaction: str | None  # DEPRECATED as per TSC spec.
-    memo: str | None
+    originator: NotRequired[dict[str, Any]]
+    transaction: NotRequired[str] # DEPRECATED as per TSC spec.
+    memo: NotRequired[str | None]
 
 
 class PaymentACKDict(TypedDict):
@@ -153,58 +155,6 @@ class PaymentACKDict(TypedDict):
     peerChannel: NotRequired[PeerChannelDict | None]
     redirectUrl: str | None
 
-
-class Output:
-    def __init__(self, script_bytes: bytes, amount: int|None=None,
-            description: str|None=None) -> None:
-        self.script_bytes = script_bytes
-        if description is not None:
-            description_json = json.dumps(description)
-            if len(description_json) > 100:
-                raise Bip270Exception("Output description too long")
-        self.description = description
-        self.amount = amount
-
-    def to_tx_output(self) -> XTxOutput:
-        script = Script(self.script_bytes)
-        # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should come before
-        # the XTxOutput attrs, but typing expects these to be the XTxOutput attrs.
-        return XTxOutput(self.amount, script) # type: ignore
-
-    @classmethod
-    def from_dict(cls, data: DPPNativeOutput) -> Output:
-        if 'script' not in data:
-            raise Bip270Exception("Missing required 'script' field")
-        script_hex = data['script']
-
-        amount = data.get('amount')
-        if amount is not None and type(amount) is not int:
-            raise Bip270Exception("Invalid 'amount' field")
-
-        description = data.get('description')
-        if description is not None and type(description) is not str:
-            raise Bip270Exception("Invalid 'description' field")
-
-        return cls(bytes.fromhex(script_hex), amount, description)
-
-    def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            'script': self.script_bytes.hex(),
-        }
-        if self.amount and type(self.amount) is int:
-            data['amount'] = self.amount
-        if self.description:
-            data['description'] = self.description
-        return data
-
-    @classmethod
-    def from_json(cls, s: str) -> 'Output':
-        data = json.loads(s)
-        return cls.from_dict(data)
-
-    def to_json(self) -> str:
-        data = self.to_dict()
-        return json.dumps(data)
 
 
 # See: https://tsc.bitcoinassociation.net/standards/direct_payment_protocol/#Specification
@@ -228,188 +178,313 @@ def get_dpp_network_string() -> NETWORK_NAMES:
     raise ValueError("Unrecognized network")
 
 
-class PaymentTerms:
+class PolicyDict(TypedDict):
+    fees: dict[str, Any]
+    lockTime: NotRequired[int]
+    SPVRequired: NotRequired[bool]
+
+
+class PaymentTermsMessage:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    def __init__(self, outputs: list[Output], network: str, version: str, *,
-            creation_timestamp: int | None, expiration_timestamp: int | None=None,
-            memo: str | None=None, beneficiary: dict[str, Any] | None=None,
-            payment_url: str | None=None, merchant_data: str | None=None,
-            hybrid_payment_data: \
-                dict[str, dict[str, list[HybridModeTransactionTermsDict]]] | None=None) -> None:
-        # This is only used if there is a requestor identity (old openalias, needs rewrite).
-        self._id: int | None = None
-        self.tx = None
+    _raw_json: str|None = None
+    creation_timestamp: int
+    expiration_timestamp: int|None = None
+    memo: str|None
+    payment_url: str|None
+
+    def __init__(self, transactions: list[Transaction], transaction_policies: list[PolicyDict|None],
+            network: str, version: str, *, creation_timestamp: int | None,
+            expiration_timestamp: int | None=None, memo: str | None=None,
+            beneficiary: dict[str, Any] | None=None, payment_url: str | None=None,
+            raw_json: str|None = None) -> None:
+        # This is only set for incoming payment terms for which we are the payer. We use it for
+        # writing the unpaid invoice to the database, and nothing else.
+        self._raw_json = raw_json
 
         self.network = network
         self.version = version
-        self.outputs = outputs
-        self.hybrid_payment_data = hybrid_payment_data
+
+        self.transactions = transactions
+        self.transaction_policies = transaction_policies
+
         if creation_timestamp is not None:
-            creation_timestamp = int(creation_timestamp)
+            self.creation_timestamp = int(creation_timestamp)
         else:
-            creation_timestamp = int(time.time())
-        self.creation_timestamp = creation_timestamp
+            self.creation_timestamp = int(time.time())
         if expiration_timestamp is not None:
-            expiration_timestamp = int(expiration_timestamp)
-        self.expiration_timestamp = expiration_timestamp
+            self.expiration_timestamp = int(expiration_timestamp)
         self.memo = memo
         self.beneficiary = beneficiary
+        # TODO(nocheckin) Payments. Work out when this is `None` and document it and why it is
+        #     correct.
         self.payment_url = payment_url
-        self.merchant_data = merchant_data
-
-    def __str__(self) -> str:
-        return self.to_json()
 
     @classmethod
-    def from_wallet_entry(cls, request_row: PaymentRequestRow,
-            request_output_rows: list[PaymentRequestOutputRow]) -> PaymentTerms:
-        outputs = [ Output(request_output_row.output_script_bytes,
-            request_output_row.output_value) for request_output_row in request_output_rows ]
-        network = get_dpp_network_string()
-        return cls(outputs, "1.0", network, creation_timestamp=request_row.date_created,
-            expiration_timestamp=request_row.date_expires, memo=request_row.merchant_reference)
-
-    @classmethod
-    def from_json(cls, s: bytes | str) -> PaymentTerms:
+    def from_json(cls, s: str) -> PaymentTermsMessage:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception(_("Payment request oversized"))
+            raise DPPException("Payment request oversized")
 
         payment_terms = cast(PaymentTermsDict, json.loads(s))
 
         network = payment_terms.get('network')
         if network not in (DPP_NETWORK_REGTEST, DPP_NETWORK_TESTNET, DPP_NETWORK_STN,
                 DPP_NETWORK_MAINNET):
-            raise Bip270Exception(_("Invalid network '{}'").format(network))
+            raise DPPRemoteException(f"Invalid network '{network}'")
 
-        if 'version' not in payment_terms:
-            raise Bip270Exception(_("version field missing"))
+        if "version" not in payment_terms or type(payment_terms["version"]) is not str:
+            raise DPPRemoteException("Missing string key 'version'")
+        if "1.0" != payment_terms["version"]:
+            raise DPPRemoteException("'1.0' expected for 'version'")
+        if "outputs" in payment_terms:
+            raise DPPRemoteException("Key 'outputs' not accepted")
+        if "modes" not in payment_terms:
+            raise DPPRemoteException("Missing key 'mode'")
+        if HYBRID_PAYMENT_MODE_BRFCID not in payment_terms["modes"]:
+            raise DPPRemoteException("Missing key 'mode.ef63d9775da5'")
 
-        if 'outputs' in payment_terms:
-            raise Bip270Exception(_("The 'outputs' field is now deprecated in favour of "
-                                    "HybridPaymentMode: see DPP TSC spec."))
-        if 'modes' not in payment_terms:
-            raise Bip270Exception(_("Payment details missing"))
-
-        if 'ef63d9775da5' not in payment_terms['modes']:
-            raise Bip270Exception(_("modes section must include standard mode: 'ef63d9775da5'"))
-
-        hybrid_payment_mode = payment_terms['modes']['ef63d9775da5']
+        hybrid_payment_mode = payment_terms["modes"]["ef63d9775da5"]
         if not isinstance(hybrid_payment_mode, dict):
-            raise Bip270Exception(_("Corrupt payment details"))
+            raise DPPRemoteException("Key not object typed 'mode.ef63d9775da5'")
+        if "choiceID0" not in hybrid_payment_mode:
+            raise DPPRemoteException(
+                "Missing key 'mode.ef63d9775da5.choiceID0'")
 
-        # For the time being we only accept 'native' outputs and only a single
-        # choice - i.e. "choiceID0" to avoid too much up-front-complexity
-        if 'choiceID0' not in hybrid_payment_mode:
-            raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
-                                    "be native type and policies field must contain a valid "
-                                    "mAPI fee quote"))
+        choice0_payment_mode = hybrid_payment_mode["choiceID0"]
+        if "transactions" not in choice0_payment_mode or \
+                type(choice0_payment_mode["transactions"]) is not list:
+            raise DPPRemoteException(
+                "Missing list typed key 'mode.ef63d9775da5.choiceID0.transactions'")
 
-        choice0_payment_mode = hybrid_payment_mode['choiceID0']
-        if 'transactions' not in choice0_payment_mode:
-            raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
-                                    "be native type and policies field must contain a valid "
-                                    "mAPI fee quote"))
+        transactions: list[Transaction] = []
+        transaction_policies: list[PolicyDict|None] = []
+        transactions_list = cast(list[HybridModeTransactionTermsDict],
+            choice0_payment_mode["transactions"])
+        if len(transactions_list) < 1:
+            raise DPPRemoteException(
+                "Key missing entries 'mode.ef63d9775da5.choiceID0.transactions'")
+        for i, transaction_dict in enumerate(transactions_list):
+            if "inputs" in transaction_dict and type(transaction_dict["inputs"]) is not dict:
+                raise DPPRemoteException("Optional key not object typed "
+                    f"'mode.ef63d9775da5.choiceID0.transactions[{i}].inputs'")
+            if "outputs" not in transaction_dict or type(transaction_dict["outputs"]) is not dict:
+                raise DPPRemoteException("Missing list typed key "
+                    f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs'")
+            if "policies" in transaction_dict:
+                if type(transaction_dict["policies"]) is not dict:
+                    raise DPPRemoteException("Optional key not object typed "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies'")
 
-        transactions = choice0_payment_mode['transactions']
-        for tx in transactions:
-            for output in tx['outputs']:
-                if 'native' not in output:
-                    raise Bip270Exception(_("Only native type outputs are accepted at this time"))
+                policies_dict = cast(PolicyDict, transaction_dict["policies"])
+                if STRICT_PROPERTY_CHECKS:
+                    extra_key_names = set(policies_dict) - OUTPUT_POLICY_KEYS
+                    if len(extra_key_names) > 0:
+                        raise DPPRemoteException("Payment terms invalid: object "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies' "
+                            f"has unrecognised properties {list(extra_key_names)}")
 
-            tx_policies = tx['policies']
-            assert tx_policies is not None
-            if 'fees' not in tx_policies or 'SPVRequired' not in tx_policies:
-                tx_policies['SPVRequired'] = False
-                tx_policies['fees'] = None
+                if "SPVRequired" in policies_dict and \
+                        type(policies_dict["SPVRequired"]) is not bool:
+                    raise DPPRemoteException(
+                        "Payment terms invalid: optional key not boolean typed "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.SPVRequired]'")
+                if "lockTime" in policies_dict and type(policies_dict["lockTime"]) is not int:
+                    raise DPPRemoteException("Key is not integer typed "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.lockTime]'")
+                transaction_policies.append(policies_dict)
+            else:
+                transaction_policies.append(None)
 
-        if len(transactions) > 1:
-            raise Bip270Exception("ElectrumSV can currently only handle 1 transaction at a time. "
-                                  "This Payment Request contains multiple transaction requests")
-        outputs = []
+            inputs: list[XTxInput] = []
+            if "inputs" in transaction_dict and "native" in transaction_dict["inputs"]:
+                if type(transaction_dict["inputs"]["native"]) is not list:
+                    raise DPPRemoteException("Optional key not list typed "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].inputs.native'")
 
-        for ui_dict in transactions[0]['outputs']['native']:
-            outputs.append(Output.from_dict(ui_dict))
+                inputs_list = cast(list[DPPNativeInput], transaction_dict["inputs"]["native"])
+                for j, input_dict in enumerate(inputs_list):
+                    if STRICT_PROPERTY_CHECKS:
+                        extra_key_names = set(input_dict) - INPUT_KEYS
+                        if len(extra_key_names) > 0:
+                            raise DPPRemoteException("Payment terms invalid: object "
+                                f"'mode.ef63d9775da5.choiceID0.transactions[{i}].inputs' "
+                                f"has unrecognised properties {list(extra_key_names)}")
 
-        if 'creationTimestamp' not in payment_terms:
-            raise Bip270Exception(_("Creation time missing"))
-        creation_timestamp = payment_terms['creationTimestamp']
-        if type(creation_timestamp) is not int:
-            raise Bip270Exception(_("Corrupt creation time"))
+                    if "scriptSig" not in input_dict or type(input_dict["scriptSig"]) is not str:
+                        raise DPPRemoteException("Missing string typed key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                            f".inputs[{j}].scriptSig'")
+                    if "txid" not in input_dict or type(input_dict["txid"]) is not str:
+                        raise DPPRemoteException("Missing string typed key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                            f".inputs[{j}].txid'")
+                    if "vout" not in input_dict or type(input_dict["vout"]) is not int:
+                        raise DPPRemoteException("Missing integer typed key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                            f".inputs[{j}].vout'")
+                    if "value" not in input_dict or type(input_dict["value"]) is not int:
+                        raise DPPRemoteException("Missing integer typed key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                            f".inputs[{j}].value'")
+                    if "nSequence" in input_dict and type(input_dict["nSequence"]) is not int:
+                        raise DPPRemoteException("Key is not integer typed "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                            f".inputs[{j}].nSequence]'")
+
+                    try:
+                        script = Script.from_hex(input_dict["scriptSig"])
+                    except ValueError:
+                        raise DPPRemoteException("Key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]."
+                            f"inputs[{j}].scriptSig' is not valid hex")
+
+                    # TODO(nocheckin) Payments / payment terms / ancestors. See below.
+                    #     This should be deferred and we should not accept payment terms that
+                    #     specify ancestors until we have proper handling.
+                    # TODO(1.4.0) Proper handling for payment terms with inputs.
+                    #     1. Any inputs that have parents and merkle proofs should be checked and
+                    #        if they are valid they are checked off and if not valid then we reject.
+                    #     2. Any inputs that do not have parents we reject.
+                    #     3. Any inputs that have parents without a merkle proof we check output
+                    #        spends.
+                    #     4. If output spends show in the mempool then that is good enough.
+                    #     5. We should consider what to do if there is a reorg.
+
+                    invalid = False
+                    try:
+                        prev_hash = hex_str_to_hash(input_dict["txid"])
+                    except ValueError:
+                        invalid = True
+                    else:
+                        invalid = len(prev_hash) != 32
+                    if invalid:
+                        raise DPPRemoteException("Key "
+                            f"'mode.ef63d9775da5.choiceID0.transactions[{i}]."
+                            f"inputs[{j}].txid' is not valid hex")
+
+                    prev_idx = input_dict["vout"]
+                    nSequence = 0xFFFFFFFF
+                    if "nSequence" in input_dict:
+                        nSequence = input_dict["nSequence"]
+                        if nSequence < 0 or nSequence > 0xFFFFFFFF:
+                            raise DPPRemoteException("Key out of range "
+                                f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
+                                f".inputs[{j}].nSequence]'")
+
+
+                    inputs.append(XTxInput(prev_hash=prev_hash, # type: ignore[call-arg]
+                        prev_idx=prev_idx, script_sig=script, sequence=nSequence))
+
+            outputs_list = cast(list[dict[str, Any]], transaction_dict["outputs"])
+            if len(outputs_list) < 1:
+                raise DPPRemoteException("Missing entries for "
+                    f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs'")
+
+            outputs: list[XTxOutput] = []
+            for j, output_dict in enumerate(outputs_list):
+                if "native" not in output_dict or type(output_dict["native"]) is not dict:
+                    raise DPPRemoteException("Missing object typed key "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native'")
+
+                if "satoshis" not in output_dict["native"] or \
+                        type(output_dict["native"]["satoshis"]) is not int:
+                    raise DPPRemoteException("Missing int typed key "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
+                        ".satoshis'")
+                value = output_dict["native"]["satoshis"]
+
+                if "script" not in output_dict["native"] or \
+                        type(output_dict["native"]["script"]) is not str:
+                    raise DPPRemoteException("Missing string typed key "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
+                        ".script'")
+                script_hex = output_dict["native"]["script"]
+                try:
+                    script = Script.from_hex(script_hex)
+                except ValueError:
+                    raise DPPRemoteException("Key "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
+                        ".script' is not valid hex")
+
+                # NOTE(rt12) This is someone else's payment script. We do not care what it is,
+                #     they asked to be paid to it and we will do as requested. It should not be
+                #     expected that we will recognise the template.
+
+                # from .standards.script_templates import classify_transaction_output_script
+                # script_type, threshold, output = classify_transaction_output_script(script)
+
+                outputs.append(XTxOutput(value=value, # type: ignore[call-arg]
+                    script_pubkey=script))
+            transactions.append(Transaction(version=1, inputs=inputs, # type: ignore[call-arg]
+                outputs=outputs, locktime=0))
+
+        if 'creationTimestamp' not in payment_terms or \
+                type(payment_terms['creationTimestamp']) is not int:
+            raise DPPRemoteException("Missing int typed key 'creationTimestamp'")
 
         expiration_timestamp = payment_terms.get('expirationTimestamp')
         if expiration_timestamp is not None and type(expiration_timestamp) is not int:
-            raise Bip270Exception(_("Corrupt expiration time"))
+            raise DPPRemoteException("Optional key not int typed 'expirationTimestamp'")
 
-        memo = payment_terms.get('memo')
+        memo = payment_terms.get("memo")
         if memo is not None and type(memo) is not str:
-            raise Bip270Exception(_("Corrupt memo"))
+            raise DPPRemoteException("Optional key not string typed 'memo'")
 
         payment_url = payment_terms.get('paymentUrl')
         if payment_url is not None and type(payment_url) is not str:
-            raise Bip270Exception(_("Corrupt payment URL"))
+            raise DPPRemoteException("Optional key not string typed 'paymentUrl'")
 
-        # NOTE: payd wallet returns a nested json dictionary but technically the BIP270 spec.
-        # states this must be a string up to 10000 characters long.
-        merchant_data = payment_terms.get('merchantData')
-        if not isinstance(merchant_data, (str, types.NoneType)):
-            raise Bip270Exception(_("Corrupt merchant data"))
-
-        return cls(outputs, network, payment_terms['version'],
+        creation_timestamp = payment_terms['creationTimestamp']
+        return cls(transactions, transaction_policies, network, payment_terms['version'],
             creation_timestamp=creation_timestamp, expiration_timestamp=expiration_timestamp,
-            memo=memo, payment_url=payment_url, hybrid_payment_data=hybrid_payment_mode,
-            merchant_data=merchant_data)
+            memo=memo, payment_url=payment_url, raw_json=s)
 
     def to_json(self) -> str:
-        # TODO: This should be a TypedDict.
-        d: dict[str, Any] = {}
-        d['network'] = self.network
-        d['version'] = self.version
-        d['creationTimestamp'] = self.creation_timestamp
-        if self.expiration_timestamp is not None:
-            d['expirationTimestamp'] = self.expiration_timestamp
-        if self.memo is not None:
-            d['memo'] = self.memo
-        if self.payment_url is not None:
-            d['paymentUrl'] = self.payment_url
-        if self.beneficiary:
-            d['beneficiary'] = self.beneficiary
-        d['modes'] = {HYBRID_PAYMENT_MODE_BRFCID: self.hybrid_payment_data}
-        if self.merchant_data is not None:
-            d['merchantData'] = self.merchant_data
-        return json.dumps(d)
+        # This code is called if we are the payer and the invoice is beign written to the database.
+        if self._raw_json is not None:
+            return self._raw_json
 
-    def is_pr(self) -> bool:
-        return self.get_amount() != 0
+        assert self.payment_url is not None
+
+        # TODO(nocheckin) Payments. This should be the thing containing transactions and so on.
+        transaction_list: list[HybridModeTransactionTermsDict] = []
+        modes: PaymentTermsModes = {
+            "ef63d9775da5": {
+                "choiceID0": {
+                    "transactions": transaction_list,
+                }
+            },
+        }
+
+        # TODO: This should be a TypedDict.
+        payment_terms_dict: PaymentTermsDict = {
+            "network": self.network,
+            "version": "1.0",
+            "creationTimestamp": self.creation_timestamp,
+            "paymentUrl": self.payment_url,
+            "modes": modes,
+        }
+        if self.expiration_timestamp is not None:
+            payment_terms_dict['expirationTimestamp'] = self.expiration_timestamp
+        if self.memo is not None:
+            payment_terms_dict["memo"] = self.memo
+        if self.beneficiary:
+            payment_terms_dict['beneficiary'] = self.beneficiary
+        return json.dumps(payment_terms_dict)
 
     def has_expired(self) -> bool:
         return has_expired(self.expiration_timestamp)
 
-    def get_expiration_date(self) -> int | None:
-        return self.expiration_timestamp
-
     def get_amount(self) -> int:
-        return sum(cast(int, x.amount) for x in self.outputs)
-
-    def get_address(self) -> str:
-        if Net._net is SVMainnet:
-            network = BIP276Network.NETWORK_MAINNET
-        elif Net._net is SVTestnet:
-            network = BIP276Network.NETWORK_TESTNET
-        elif Net._net is SVScalingTestnet:
-            network = BIP276Network.NETWORK_SCALINGTESTNET
-        elif Net._net is SVRegTestnet:
-            network = BIP276Network.NETWORK_REGTEST
-        else:
-            raise Exception("unhandled network", Net._net)
-        return bip276_encode(PREFIX_BIP276_SCRIPT, self.outputs[0].script_bytes, network)
-
-    def get_payment_uri(self) -> str:
-        assert self.payment_url is not None
-        return self.payment_url
-
-    def get_memo(self) -> str | None:
-        return self.memo
+        payment_value = 0
+        for transaction in self.transactions:
+            # These are expected to be inputs provided by the payee.
+            for input in transaction.inputs:
+                assert input.value is not None
+                payment_value -= input.value
+            for output in transaction.outputs:
+                payment_value += output.value
+        return payment_value
 
     def get_id(self) -> int | None:
         return self._id
@@ -417,87 +492,114 @@ class PaymentTerms:
     def set_id(self, invoice_id: int) -> None:
         self._id = invoice_id
 
-    def get_outputs(self) -> list[XTxOutput]:
-        return [output.to_tx_output() for output in self.outputs]
 
-
-class Payment:
-    """See PaymentDPP type above for json format
-    At present ElectrumSV can strictly only handle a single transaction and the standard
-    HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5". And only for * native * type outputs.
-    """
+class PaymentMessage:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    def __init__(self, transaction_hex: str, memo: str | None=None) -> None:
-        self.transaction_hex = transaction_hex
+    def __init__(self, transactions: list[Transaction], memo: str|None=None) -> None:
+        # TODO(nocheckin) Payments. We should check locktime and input finality.
+        assert all(tx.is_complete() for tx in transactions)
+        self.transactions = transactions
         self.memo = memo
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'Payment':
-        if "modeId" in data:
-            mode_id = data['modeId']
-            if type(mode_id) is not str:
-                raise Bip270Exception("Invalid json 'modeId' field")
-        else:
-            raise Bip270Exception("Missing required json 'modeId' field")
+    def from_json(cls, s: str) -> PaymentMessage:
+        """
+        This function takes a serialised payment message and deserialises it.
 
-        if "mode" in data:
-            mode = data['mode']
-            # TODO(1.4.0) DPP. Mode should have a TypedDict and validation should be more extensive
-            if type(mode) is not dict:
-                raise Bip270Exception("Invalid json 'mode' field")
+        WARNING: This expects to be called only for payments paying us, not payments we constructed
+            and sent or intended to send as the payer. As such it bakes in our expectations in terms
+            of the payment structure.
 
-            transactions = mode['transactions']
-            if len(transactions) > 1:
-                raise Bip270Exception("Cannot handle multiple transactions at this time")
+        Raises `DPPRemoteException` when the deserialised text is incorrect in some way. The
+            specific error message is not for direct display to the user but should be relayable
+            in some way to the payer
+        """
+        if len(s) > cls.MAXIMUM_JSON_LENGTH:
+            raise DPPRemoteException("Invalid payment, too large")
+        data = json.loads(s)
+        if "modeId" not in data or type(data["modeId"]) is not str:
+            raise DPPRemoteException("Missing string typed key 'modeId'")
+        if "mode" not in data or type(data["mode"]) is not dict:
+            raise DPPRemoteException("Missing object typed 'mode' field")
 
-            transaction_hex = transactions[0]
-        else:
-            raise Bip270Exception("Missing required json 'mode' field")
+        mode_id = data["modeId"]
+        if mode_id != HYBRID_PAYMENT_MODE_BRFCID:
+            raise DPPRemoteException(f"'{HYBRID_PAYMENT_MODE_BRFCID}' expected in 'modeId'")
 
         originator = data.get('originator')
         if originator is not None and type(originator) is not dict:
-            raise Bip270Exception("Invalid json 'originator' field")
+            raise DPPRemoteException("Invalid key 'originator'")
 
-        memo = data.get('memo')
+        # This should
+        mode = data["mode"]
+
+        if "optionId" not in mode or type(mode["optionId"]) is not str:
+            raise DPPRemoteException("Missing list typed key 'mode.optionId'")
+        if "choiceID0" != mode["optionId"]:
+            raise DPPRemoteException("'choiceID0' expected in 'mode.optionId'")
+
+        if "transactions" not in mode or type(mode["transactions"]) is not list:
+            raise DPPRemoteException("Missing list typed key 'mode.transactions'")
+
+        ancestors: dict[str, Any]|None = None
+        if "ancestors" in mode:
+            if type(mode["ancestors"]) is not dict:
+                raise DPPRemoteException("Invalid object typed key 'mode.ancestors'")
+            # TODO(nocheckin) Payments. Validate ancestors.
+            ancestors = cast(dict[str, Any], mode["ancestors"])
+
+        # TODO(nocheckin) Payments. We need to validate that these match our requirements! But in
+        #     the caller, not here.
+
+        memo = data.get("memo")
         if memo is not None and type(memo) is not str:
-            raise Bip270Exception("Invalid json 'memo' field")
+            raise DPPRemoteException("Invalid json 'memo' field")
 
-        transaction_deprecated = data.get('transaction')
-        if transaction_deprecated is not None and type(transaction_deprecated) is not str:
-            raise Bip270Exception("Invalid json the top-level 'transaction' field is deprecated. "
-                                  "Use the 'mode' section")
+        transaction_list = mode["transactions"]
+        if len(transaction_list) < 1:
+            raise DPPRemoteException("Missing entries for key 'mode.transactions'")
 
-        return cls(transaction_hex, memo)
+        transactions: list[Transaction] = []
+        for i, transaction_hex in enumerate(transaction_list):
+            if type(transaction_hex) is not str:
+                raise DPPRemoteException(f"Missing string typed value 'mode.transactions[{i}]'")
 
-    def to_dict(self) -> PaymentDict:
-        data = cast(PaymentDict, {
-            'modeId': HYBRID_PAYMENT_MODE_BRFCID,
-            'mode': {
-                'transactions': [self.transaction_hex],
-                'optionId': 'choiceID01',
-                #'ancestors': <TSCAncestors>.to_json() - if SPVRequired
-            },
-            'memo': self.memo
-            # 'originator': None  # optional
-            # 'transaction': self.transaction_hex  # DEPRECATED as per TSC spec.
-        })
-        if self.memo:
-            data['memo'] = self.memo
-        return data
-
-    @classmethod
-    def from_json(cls, s: str) -> 'Payment':
-        if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception("Invalid payment, too large")
-        data = json.loads(s)
-        return cls.from_dict(data)
+            try:
+                tx = Transaction.from_hex(transaction_hex)
+            except ValueError:
+                raise DPPRemoteException(f"Incorrect transaction hex in 'mode.transactions[{i}]'")
+            transactions.append(tx)
+        return cls(transactions, memo)
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict())
+        """
+        This function serialised this payment message as JSON.
+
+        WARNING: This expects to be called only for payments we are making to a payee, not payments
+            we have received from a payer. As such it bakes in our expectations in terms of the
+            payment structure.
+
+        Raises nothing.
+        """
+        data: PaymentDict = {
+            "modeId": HYBRID_PAYMENT_MODE_BRFCID,
+            "mode": {
+                "optionId": "choiceID0",
+                "transactions": [ tx.to_hex() for tx in self.transactions ],
+                # TODO(nocheckin) Payments. Ancestors if payee requests otherwise we don't give it.
+                #'ancestors': <TSCAncestors>.to_json() - if SPVRequired
+            },
+            "memo": self.memo
+            # 'originator': None  # optional
+            # 'transaction': self.transaction_hex  # DEPRECATED as per TSC spec.
+        }
+        if self.memo:
+            data["memo"] = self.memo
+        return json.dumps(data)
 
 
-class PaymentACK:
+class PaymentACKMessage:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
     def __init__(self, mode_id: str, mode: HybridModePaymentACKDict,
@@ -506,58 +608,56 @@ class PaymentACK:
         self.mode = mode
         self.redirect_url = redirect_url
 
-    def to_dict(self) -> PaymentACKDict:
-        return PaymentACKDict(
+    def to_json(self) -> str:
+        data = PaymentACKDict(
             modeId=self.mode_id,
             mode=self.mode,
             redirectUrl=self.redirect_url
         )
+        return json.dumps(data)
 
     @classmethod
-    def from_dict(cls, data: PaymentACKDict) -> PaymentACK:
-        mode_id = data.get('modeId')
+    def from_json(cls, s: bytes | str) -> PaymentACKMessage:
+        if len(s) > cls.MAXIMUM_JSON_LENGTH:
+            raise DPPException("Invalid payment ACK, too large")
+        data = cast(PaymentACKDict, json.loads(s))
+        mode_id = data.get("modeId")
         if mode_id is None:
-            raise Bip270Exception("'modeId' field is required")
+            raise DPPException("'modeId' field is required")
 
         if mode_id is not None and mode_id != HYBRID_PAYMENT_MODE_BRFCID:
-            raise Bip270Exception(f"Invalid json 'modeId' field: {mode_id}")
+            raise DPPException(f"Invalid json 'modeId' field: {mode_id}")
 
-        mode = data.get('mode')
+        mode = data.get("mode")
         if mode is None:
-            raise Bip270Exception("'mode' field is required")
+            raise DPPException("'mode' field is required")
 
         if mode is not None and type(mode) is not dict:
-            raise Bip270Exception("Invalid json 'mode' field")
+            raise DPPException("Invalid json 'mode' field")
 
         redirect_url = data.get('redirectUrl')
         if redirect_url is not None and type(redirect_url) is not str:
-            raise Bip270Exception("Invalid json 'redirectUrl' field")
+            raise DPPException("Invalid json 'redirectUrl' field")
 
         assert mode_id is not None
         assert mode is not None
         return cls(mode_id, mode, redirect_url=redirect_url)
 
-    def to_json(self) -> str:
-        data = self.to_dict()
-        return json.dumps(data)
 
-    @classmethod
-    def from_json(cls, s: bytes | str) -> PaymentACK:
-        if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception("Invalid payment ACK, too large")
-        data = cast(PaymentACKDict, json.loads(s))
-        return cls.from_dict(data)
-
-
-def get_payment_terms(url: str, declared_receiver_address: Address) -> PaymentTerms:
+def get_payment_terms(url: str, declared_receiver_address: Address) -> PaymentTermsMessage:
     u = urllib.parse.urlparse(url)
     if u.scheme not in ['http', 'https']:
-        raise Bip270Exception(f"unknown scheme {url}")
+        raise DPPLocalException(_("Not a recognisable payment URL"))
 
     try:
         response = requests.request('GET', url, headers=REQUEST_HEADERS)
     except requests.exceptions.RequestException:
-        raise Bip270Exception("payment URL not pointing to a valid server")
+        # NOTE(technical-debt) This is terrible. We should know why this happens and present it in
+        #     a way that does not look like technobabble to the user. -- rt12
+        #     - Comment "`requests.request` raises `RequestException` when <some reason> or
+        #       <some other reason>"" and custom exception with specific user presentable reason
+        #       for each case.
+        raise DPPLocalException(_("The payment URL does not point to a working payment server"))
 
     try:
         response.raise_for_status()
@@ -565,30 +665,33 @@ def get_payment_terms(url: str, declared_receiver_address: Address) -> PaymentTe
         contentType = response.headers.get("Content-Type", "")
         if "application/json" not in contentType:
             logger.debug("Failed payment request, content type '%s'", contentType)
-            raise Bip270Exception("payment URL not pointing to a bitcoinSV payment request "
-                "handling server")
+            raise DPPLocalException(_("The payment URL does not point to a working payment server"))
 
         data = cast(dict[str, Any], response.json())
-        logger.debug('fetched payment request \'%s\'', url)
+        logger.debug("Fetched payment request '%s'", url)
     except requests.exceptions.RequestException:
-        raise Bip270Exception(response.content.decode())
+        # NOTE(technical-debt) This is terrible. We should know why this happens and present it in
+        #     a way that does not look like technobabble to the user. -- rt12
+        #     - We do not know which method is raising, we should guard specific methods for the
+        #       exceptions they raise not group them into exception stew.
+        raise DPPRemoteException(response.content.decode())
 
     envelope_data = cast(JSONEnvelope, data)
     try:
         validate_json_envelope(envelope_data, { "application/json" })
     except ValueError as value_error:
-        raise Bip270Exception(value_error.args[0])
+        raise DPPRemoteException(value_error.args[0])
 
     received_public_key_hex = envelope_data["publicKey"]
     received_signature = envelope_data["signature"]
     if received_public_key_hex is None or received_signature is None:
-        raise Bip270Exception("The payment terms are unsigned")
+        raise DPPLocalException("The payment terms are unsigned")
 
     received_public_key = PublicKey.from_hex(received_public_key_hex)
     if declared_receiver_address != received_public_key.to_address(compressed=True):
-        raise Bip270Exception("The payment terms were signed by an unknown party")
+        raise DPPLocalException("The payment terms were signed by an unknown party")
 
     # Because we have checked that the data has a signature and public key, we know that the
     # signature was checked in `validate_json_envelope` and must be valid for our public key.
     payload_text = cast(str, data["payload"])
-    return PaymentTerms.from_json(payload_text)
+    return PaymentTermsMessage.from_json(payload_text)

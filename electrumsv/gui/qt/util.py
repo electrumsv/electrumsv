@@ -793,7 +793,7 @@ class MyTreeWidget(QTreeWidget):
         account_id, tx_hash = item.data(0, Qt.ItemDataRole.UserRole)
         account = self._main_window._wallet.get_account(account_id)
         assert account is not None
-        account.set_transaction_label(tx_hash, text)
+        account.set_payment_label(tx_hash, text)
 
     # NOTE(typing) This is complained about even though it is a method signature in QWidget.
     def update(self) -> None: # type: ignore

@@ -7,7 +7,7 @@ from typing import cast, Iterable, List, Optional, Type
 import aiohttp
 import requests
 
-from electrumsv.constants import TxFlags
+from electrumsv.constants import TxFlag
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -76,8 +76,8 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.STATE_CLEARED) == TxFlags.STATE_CLEARED or \
-                    (tx_flags & TxFlags.STATE_SETTLED) == TxFlags.STATE_SETTLED:
+                    (tx_flags & TxFlag.STATE_CLEARED) == TxFlag.STATE_CLEARED or \
+                    (tx_flags & TxFlag.STATE_SETTLED) == TxFlag.STATE_SETTLED:
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:
@@ -102,7 +102,7 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
+                    (tx_flags & TxFlag.STATE_SETTLED == TxFlag.STATE_SETTLED):
                 txids_set.remove(txid)
 
             self.logger.debug(f"count txid_set = {len(txids_set)}")
@@ -129,7 +129,7 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
+                    (tx_flags & TxFlag.STATE_SETTLED == TxFlag.STATE_SETTLED):
                 url = "http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history"
                 payload = {"tx_flags": 2097152}
                 result = requests.get(url, data=json.dumps(payload))

@@ -336,6 +336,8 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument("-D", "--dir", dest="electrum_sv_path", help="ElectrumSV directory")
     group.add_argument("-P", "--portable", action="store_true", dest="portable", default=False,
                        help="Use local 'electrum_data' directory")
+    group.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
+                            help="Run offline")
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
     group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None,
                        help="Supply wallet password")
@@ -400,8 +402,6 @@ def get_parser() -> argparse.ArgumentParser:
     parser_gui.add_argument("url", nargs='?', default=None, help="bitcoin URI (or bip270 file)")
     parser_gui.add_argument("-g", "--gui", dest="gui", help="select graphical user interface",
                             choices=['qt'])
-    parser_gui.add_argument("-o", "--offline", action="store_true", dest="offline", default=False,
-                            help="Run offline")
     parser_gui.add_argument("-m", action="store_true", dest="hide_gui", default=False,
                             help="hide GUI on startup")
     parser_gui.add_argument("-L", "--lang", dest="language", default=None,
