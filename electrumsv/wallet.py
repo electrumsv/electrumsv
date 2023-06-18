@@ -4343,7 +4343,7 @@ class Wallet:
         """
         logger.debug("Initialising headers from header store")
         current_chain = get_longest_valid_chain()
-        current_tip_header = cast(Header, current_chain.tip)
+        current_tip_header = cast(Header, current_chain.tip())
         await self._reconcile_wallet_with_header_source(None, current_chain, current_tip_header)
 
     async def _start_existing_server_connections(self) -> None:
@@ -6418,7 +6418,7 @@ class Wallet:
             -> tuple[Chain, Header]:
         if server_state is None:
             chain = get_longest_valid_chain()
-            tip_header = cast(Header, chain.tip)
+            tip_header = cast(Header, chain.tip())
             return chain, tip_header
 
         assert server_state.chain is not None

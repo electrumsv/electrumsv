@@ -23,25 +23,32 @@
 # SOFTWARE.
 
 from __future__ import annotations
+
 import asyncio
+import concurrent.futures
+import dataclasses
+from io import BytesIO
+import time
+from typing import cast, Iterable, TYPE_CHECKING
+
 from aiohttp import ClientSession
 import bitcoinx
-from bitcoinx import Chain, double_sha256, hex_str_to_hash, Header, MissingHeader
-import dataclasses
-import concurrent.futures
-import time
-from io import BytesIO
-from typing import cast, Iterable, TYPE_CHECKING
+from bitcoinx import (
+    Chain, deserialized_header, double_sha256, Header, hex_str_to_hash,
+    MissingHeader
+)
 
 from .app_state import app_state
 from .constants import NetworkEventNames, NetworkServerType, ServerCapability
 from .exceptions import ServiceUnavailableError
 from .logs import logs
 from .network_support.api_server import APIServerDefinition
+from .network_support.headers import (
+    filter_tips_for_longest_chain, get_batched_headers_by_height_async,
+    get_chain_tips_async, HeaderServerState, ServerConnectivityMetadata,
+    subscribe_to_headers_async
+)
 from .network_support.types import TipResponse
-from .network_support.headers import filter_tips_for_longest_chain, \
-    get_batched_headers_by_height_async, get_chain_tips_async, HeaderServerState, \
-    ServerConnectivityMetadata, subscribe_to_headers_async
 from .networks import Net
 from .types import NetworkStatusDict, ServerAccountKey
 from .util import TriggeredCallbacks
@@ -120,7 +127,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 self.aiohttp_session, from_height=max(height_to_test, 0), count=1)
             try:
                 app_state.lookup_header(double_sha256(raw_header))
-                common_header = Net._net.COIN.deserialized_header(raw_header, height_to_test)
+                common_header = deserialized_header(raw_header, height_to_test)
                 return common_header
             except MissingHeader:
                 height_to_test -= step
