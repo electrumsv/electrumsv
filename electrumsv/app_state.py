@@ -151,27 +151,6 @@ class AppStateProxy(object):
             base_headers3_filepath = os.path.join(package_dir, "data", "headers3_mainnet")
             shutil.copyfile(base_headers3_filepath, headers3_filepath)
 
-    def read_header3_base_file(self) -> bytes:
-        """This is for a performance optimisation in read_cached_headers. These headers must
-        perfectly align with the headers3_mainnet_blockhashes file"""
-        headers3_filepath = os.path.join(package_dir, "data", "headers3_mainnet")
-        with open(headers3_filepath, 'rb') as hf:
-            return hf.read()
-
-    def read_header3_base_file_hashes(self) -> list[bytes]:
-        """This is for a performance optimisation in read_cached_headers. These block hashes must
-        perfectly align with the headers3_mainnet file."""
-        headers3_blockhashes_filepath = os.path.join(package_dir, "data",
-            "headers3_mainnet_blockhashes")
-        with open(headers3_blockhashes_filepath, 'rb') as hf:
-            data = hf.read()
-            hash_size = 32
-            hashes = []
-            for i in range(0, len(data), hash_size):
-                block_hash = data[i:i + hash_size]
-                hashes.append(block_hash)
-            return hashes
-
     def shutdown(self) -> None:
         self.credentials.close()
         if self._longest_chain_future is not None:
@@ -201,10 +180,7 @@ class AppStateProxy(object):
         return os.path.join(self.config.path, 'headers3')
 
     def read_headers(self) -> None:
-        base_headers = self.read_header3_base_file()
-        base_header_hashes = self.read_header3_base_file_hashes()
-        self.headers, self.headers_cursor = read_cached_headers(Net.COIN, self.headers_filename(),
-            base_headers, base_header_hashes)
+        self.headers, self.headers_cursor = read_cached_headers(Net.COIN, self.headers_filename())
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.debug("chain #%d: %s", n, chain.desc())
 

@@ -60,66 +60,12 @@ def write_cached_headers(headers: Headers, cursor: HeaderPersistenceCursor,
     return cast(HeaderPersistenceCursor, headers.cursor())
 
 
-def modified_connect(headers: Headers, raw_header: bytes, block_hash: bytes) -> Chain:
-    """Modified / optimised version of bitcoinx.Headers.connect (with check_headers=False).
-    It is faster because we provide the pre-computed block_hash rather than double-hashing
-    ~800,000 block headers"""
-    hashes = headers.hashes
-    tips = headers.tips
-
-    hdr_hash = block_hash  # This is the performance win (instead of hashing the header)
-    prev_hash = raw_header[4:36]
-    chain, height = hashes.get(prev_hash, (None, -1))
-    height += 1
-
-    if not chain:
-        if raw_header != headers.network.genesis_header:
-            raise MissingHeader(f'previous header {hash_to_hex_str(prev_hash)} not present')
-        # Handle duplicate genesis block
-        if headers.hashes:
-            chain, _ = hashes[hdr_hash]
-            return chain
-        chain = Chain(None, height)
-    elif tips[chain] != prev_hash:
-        # Silently ignore duplicate headers
-        duplicate, _ = hashes.get(hdr_hash, (None, -1))
-        if duplicate:
-            return duplicate
-        # Form a new chain
-        chain = Chain(chain, height)
-
-    chain.append(raw_header)
-    hashes[hdr_hash] = (chain, height)
-    tips[chain] = hdr_hash
-    return chain
-
-
-def read_cached_headers(coin: Network, file_path: str, base_headers: bytes | None = None,
-        base_hashes: list[bytes] | None = None) -> tuple[Headers, HeaderPersistenceCursor]:
+def read_cached_headers(coin: Network, file_path: str) -> tuple[Headers, HeaderPersistenceCursor]:
     # See app_state._migrate. A 'headers3' file should always be present.
     assert os.path.exists(file_path)
     logger.debug("New headers storage file: %s found", file_path)
     with open(file_path, "rb") as f:
         raw_headers = f.read()
     headers = Headers(coin)
-
-    # This `modified_connect` reduces startup time from 2.5 seconds to 1.5 seconds
-    # by avoiding hashing of every header in the base chain. Subsequent new headers
-    # need to be connected the standard way.
-    if base_headers is not None and base_hashes is not None:
-        genesis_hash = double_sha256(coin.genesis_header)
-        chain, height = headers.lookup(genesis_hash)
-        assert chain.tip().hash == genesis_hash
-
-        header_size = 80
-        base_headers_list = [base_headers[i:i+80] for i in range(0, len(base_headers), header_size)]
-        for block_hash, raw_header in zip(base_hashes, base_headers_list):
-            modified_connect(headers, raw_header, block_hash)  # 1.5 seconds
-            # headers.connect(raw_header, check_work=False)  # 2.5 seconds
-
-        # discard the already connected base_headers from raw_headers
-        assert raw_headers[:len(base_headers)] == base_headers
-        raw_headers = raw_headers[len(base_headers):]
-
     cursor = headers.connect_many(raw_headers, check_work=False)
     return headers, cursor
