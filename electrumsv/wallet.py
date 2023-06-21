@@ -921,8 +921,12 @@ class AbstractAccount:
             if len(key_usages) == 1:
                 transaction_output_key_usage[output_index] = key_usages[0]
 
+        account_ids: list[int]|None = None
+        if tx_context.payment_id is None:
+            account_ids = list(tx_context.account_descriptions)
         import_context = TransactionImportContext(payment_id=tx_context.payment_id,
             output_key_usage=transaction_output_key_usage,
+            account_ids=account_ids,
             account_descriptions=tx_context.account_descriptions.copy())
         return app_state.async_.spawn(self._wallet.add_local_transaction_async(
             tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None, import_context))
