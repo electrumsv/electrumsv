@@ -46,6 +46,7 @@ from ...transaction import TransactionContext
 from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
     profiler
 from ...wallet import AbstractAccount
+from ...wallet_database.types import AccountPaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 
 from .constants import ICON_NAME_INVOICE_PAYMENT
@@ -290,22 +291,19 @@ class HistoryList(MyTreeWidget):
                 MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
                     " Please try again when it has been obtained from the network."))
 
-    def update_descriptions(self, entries: list[tuple[str|None, int, bytes]]) -> None:
-        tx_hash_descriptions: dict[bytes, str|None] = {}
-        for description, account_id, tx_hash in entries:
-            if account_id == self._account_id:
-                tx_hash_descriptions[tx_hash] = description
+    def update_payment_descriptions(self, entries: list[AccountPaymentDescriptionRow]) -> None:
+        description_for_payment_id = { payment_id: description
+            for (account_id, payment_id, description) in entries if account_id == self._account_id }
 
-        if not len(tx_hash_descriptions):
+        if len(description_for_payment_id) == 0:
             return
 
         root = self.invisibleRootItem()
-        child_count = root.childCount()
-        for i in range(child_count):
+        for i in range(root.childCount()):
             item = root.child(i)
-            tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
-            if tx_hash in tx_hash_descriptions:
-                description = tx_hash_descriptions[tx_hash]
+            payment_id = cast(int, item.data(Columns.STATUS, self.PAYMENT_ROLE))
+            if payment_id in description_for_payment_id:
+                description = description_for_payment_id[payment_id]
                 item.setText(Columns.DESCRIPTION, description or "")
 
     # From the wallet 'verified' event.
@@ -481,7 +479,7 @@ class HistoryList(MyTreeWidget):
                     future.result()
                 except TransactionRemovalError as e:
                     self._main_window.show_error(e.args[0])
-            future = app_state.async_.spawn(self._wallet.data.delete_payment_async(payment_id))
+            future = app_state.async_.spawn(self._wallet.remove_payment_async(payment_id))
             future.add_done_callback(on_done_callback)
 
 
@@ -562,8 +560,8 @@ class HistoryView(QWidget):
         self._account_id = new_account_id
         self._account = new_account
 
-    def update_descriptions(self, entries: list[tuple[str|None, int, bytes]]) -> None:
-        self.list.update_descriptions(entries)
+    def update_payment_descriptions(self, entries: list[AccountPaymentDescriptionRow]) -> None:
+        self.list.update_payment_descriptions(entries)
 
     def update_tx_headers(self) -> None:
         self.list.update_tx_headers()

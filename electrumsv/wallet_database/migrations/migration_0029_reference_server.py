@@ -38,7 +38,7 @@ from __future__ import annotations
 from io import BytesIO
 import json
 import time
-from typing import Any, cast
+from typing import Any, cast, NamedTuple
 
 import bitcoinx
 from bitcoinx import Chain, double_sha256, ElectrumMnemonic, MissingHeader, P2PK_Output, \
@@ -500,15 +500,15 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             PRIMARY KEY (paymentrequest_id, transaction_index, output_index),
-            FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id),
-            FOREIGN KEY (paymentrequest_id) REFERENCES PaymentRequests (paymentrequest_id)
+            FOREIGN KEY (keyinstance_id)        REFERENCES KeyInstances (keyinstance_id),
+            FOREIGN KEY (paymentrequest_id)     REFERENCES PaymentRequests (paymentrequest_id)
         )
     """)
 
     conn.executemany("INSERT INTO PaymentRequestOutputs (paymentrequest_id, transaction_index, "
         "output_index, output_script_type, output_script, pushdata_hash, output_value, "
-        "keyinstance_id, date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, "
-        "?10)", paymentrequest_output_rows)
+        "keyinstance_id, date_created, date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        paymentrequest_output_rows)
 
     # Not the greatest idea, goodbye legacy script hash matching!
     conn.execute("DROP TABLE KeyInstanceScripts")
@@ -522,8 +522,6 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
        map to a single Payment.
     2. Map all payment requests to a Payment.
     """
-
-    # TODO(nocheckin) Payments. Ensure all this logic is completed.
 
     pr_txhashes_read_rows = cast(list[tuple[int, int, bytes]], conn.execute("""
         SELECT DISTINCT PR.paymentrequest_id, PR.date_created, TXO.tx_hash
@@ -609,9 +607,6 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     conn.executemany("UPDATE PaymentRequests SET payment_id=?2 WHERE paymentrequest_id=?1",
         pr_payment_rows)
 
-    # TODO(nocheckin) Payments. `AccountTransactions` -> `AccountPayments` migration
-    #     - Remember that transaction import needs to be replaced as the other side of this.
-
     # Migrate `AccountTransactions` -> `AccountPayments`. `AccountTransactions.flags` was not
     # used. `AccountTransactions.description` over grouped payment transactions not really used.
     conn.execute("""
@@ -645,6 +640,76 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     conn.executemany("INSERT INTO AccountPayments (account_id, payment_id, flags, description, "
         "date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", account_payment_insert_rows)
 
+    conn.execute("""
+    CREATE TABLE Invoices2 (
+        invoice_id                  INTEGER PRIMARY KEY,
+        payment_id                  INTEGER NOT NULL,
+        payment_uri                 TEXT NOT NULL,
+        description                 TEXT NULL,
+        invoice_flags               INTEGER NOT NULL,
+        value                       INTEGER NOT NULL,
+        invoice_data                BLOB NOT NULL,
+        date_expires                INTEGER DEFAULT NULL,
+        date_created                INTEGER NOT NULL,
+        date_updated                INTEGER NOT NULL,
+        FOREIGN KEY (payment_id)    REFERENCES Payments (payment_id)
+    )
+    """)
+
+    class OldInvoiceRow(NamedTuple):
+        invoice_id:     int
+        account_id:     int
+        tx_hash:        bytes|None
+        payment_uri:    str
+        description:    str|None
+        invoice_flags:  int
+        value:          int
+        invoice_data:   bytes
+        date_expires:   int|None
+        date_created:   int
+        date_updated:   int
+
+    class NewInvoiceRow(NamedTuple):
+        invoice_id:     int
+        payment_id:     int
+        payment_uri:    str
+        description:    str|None
+        invoice_flags:  int
+        value:          int
+        invoice_data:   bytes
+        date_expires:   int|None
+        date_created:   int
+        date_updated:   int
+
+    payment_rows = []
+    invoice_rows: list[NewInvoiceRow] = []
+    old_invoice_rows = [ OldInvoiceRow(*row) for row in \
+        conn.execute("SELECT invoice_id, account_id, tx_hash, payment_uri, description, " \
+            "invoice_flags, value, invoice_data, date_expires, date_created, date_updated " \
+            "FROM Invoices") ]
+    for it_old in old_invoice_rows:
+        if tx_hash not in payment_id_by_tx_hash:
+            # Make a payment with no transactions (so old invoices that never got paid but were
+            # never deleted appear in the list of payments).
+            payment_id = next_payment_id
+            payment_rows.append((payment_id, it_old.date_created, it_old.date_created))
+            next_payment_id += 1
+        else:
+            payment_id = payment_id_by_tx_hash[tx_hash]
+        invoice_rows.append(NewInvoiceRow(it_old.invoice_id, payment_id, it_old.payment_uri,
+            it_old.description, it_old.invoice_flags, it_old.value, it_old.invoice_data,
+            it_old.date_expires, it_old.date_created, it_old.date_updated))
+
+    conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
+        "VALUES (?1, ?2, ?3)", payment_rows)
+    conn.executemany("INSERT INTO Invoices2 (invoice_id, payment_id, payment_uri, description, "
+        "invoice_flags, value, invoice_data, date_expires, date_created, date_updated) VALUES "
+        "(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", invoice_rows)
+
+    conn.execute("DROP TABLE Invoices")
+    conn.execute("ALTER TABLE Invoices2 RENAME TO Invoices")
+
+    # The views for balance calculation (may still be revisited!).
     conn.execute("DROP VIEW TransactionValues")
     conn.execute("DROP VIEW TransactionSpentValues")
     conn.execute("DROP VIEW TransactionReceivedValues")

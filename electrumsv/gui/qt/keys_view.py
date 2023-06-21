@@ -485,7 +485,7 @@ class KeyView(QTableView):
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
         self._main_window.account_change_signal.connect(self._on_account_change)
         self._main_window.transaction_added_signal.connect(self._on_transaction_added)
-        self._main_window.transaction_deleted_signal.connect(self._on_transaction_deleted)
+        self._main_window.payment_deleted_signal.connect(self._on_payment_deleted)
 
         model = _ItemModel(self, self._headers)
         model.set_data(self._account_id, [])
@@ -605,8 +605,8 @@ class KeyView(QTableView):
             return
         self.reset_table()
 
-    def _on_transaction_deleted(self, account_id: int, tx_hash: bytes) -> None:
-        if account_id == self._account_id:
+    def _on_payment_deleted(self, account_ids: set[int], payment_id: int) -> None:
+        if self._account_id in account_ids:
             self.reset_table()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:

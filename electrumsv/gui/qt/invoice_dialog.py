@@ -64,10 +64,10 @@ class InvoiceDialog(WindowModalDialog):
         vh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         vh.hide()
 
-
-        # TODO(nocheckin) Payments. We can't really map outputs to payments for goods as that is
-        #     not the correct mapping. A goods listing should map to partial amount of the whole
-        #     and which transactions would cover it if funded are not relevant.
+        # TODO(nocheckin) Payments. A DPP invoice needs to present the bill of sale to the user.
+        # - There is no capacity in DPP to embed this data, but we could put it in there as JSON
+        #   in the memo and detect and process it out and display it. The existing handling was
+        #   related to BIP270 and displayed per-output descriptions. We will not be doing that.
         all_outputs = [ output for tx in dpp_payment_terms.transactions for output in tx.outputs ]
         output_desc = dpp_payment_terms.memo if dpp_payment_terms.memo else "?????"
 
@@ -108,7 +108,6 @@ class InvoiceDialog(WindowModalDialog):
                 self.close()
 
         deleteButton = EnterButton(_('Delete'), do_delete)
-
         vbox.addLayout(Buttons(exportButton, deleteButton, CloseButton(self)))
 
     def _on_table_menu(self, position: QPoint) -> None:

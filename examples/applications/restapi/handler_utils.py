@@ -507,7 +507,7 @@ class ExtendedHandlerUtils:
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
-        await account._wallet.data.set_transaction_state_async(tx_hash, TxFlag.STATE_CLEARED,
+        await account._wallet.data.set_transaction_states_async([ tx_hash ], TxFlag.STATE_CLEARED,
             TxFlag.MASK_STATE_BROADCAST)
         self.logger.debug("successful broadcast for %s", result)
         return result

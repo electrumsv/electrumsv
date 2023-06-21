@@ -129,8 +129,9 @@ def parse_pay_url(url: str) -> tuple[str, Address]:
     if len(url_parts) != 2:
         raise ValueError("The URL has no usable credentials")
 
-    address = Address.from_string(url_parts[1], Net.COIN)
-    return payment_url, address
+    # The last section of the query string is the payment id, and this is expected to be usable
+    # to validate the fetched payment terms come from the same party.
+    return payment_url, Address.from_string(url_parts[1], Net.COIN)
 
 
 def parse_URI(uri: str) -> dict[str, Any]:

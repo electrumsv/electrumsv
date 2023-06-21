@@ -294,6 +294,8 @@ class TransactionImportContext:
     # After import this will be the list of all accounts the transaction's payment is associated
     # with.
     account_ids: list[int]|None = None
+    account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
+    date_created: int = 0
     # Modifies the imported transaction outputs and links them to existing allocated keyinstances.
     output_key_usage: dict[int, tuple[int, ScriptType]] = dataclasses.field(default_factory=dict)
     # If the other transactions we spend from are already spent from, do we rollback the import
@@ -419,7 +421,7 @@ class BackupKeyUsageEntry(TypedDict):
     #     be populated. For now we defer it.
     masterkey_id: int
     subtype: Literal["derivation??"]
-    # TODO(nocheckin) This needs to be fleshed out.
+    # TODO(1.4.0) Backup. This needs to be fleshed out.
 
 class BackupPaymentEntry(TypedDict):
     "Represents.."

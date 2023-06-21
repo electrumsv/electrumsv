@@ -76,7 +76,8 @@ from ...util import UpdateCheckResultType, format_fee_satoshis, get_identified_r
     get_update_check_dates, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlag, Wallet
-from ...wallet_database.types import InvoiceRow, KeyDataProtocol, TransactionOutputSpendableProtocol
+from ...wallet_database.types import AccountPaymentDescriptionRow, InvoiceRow, KeyDataProtocol, \
+    TransactionOutputSpendableProtocol
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -136,9 +137,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     notifications_updated_signal = pyqtSignal(object)
     transaction_state_signal = pyqtSignal(object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
-    transaction_deleted_signal = pyqtSignal(object, object)
+    payment_deleted_signal = pyqtSignal(object, object)
     transaction_verified_signal = pyqtSignal(object, object, object)
-    transaction_labels_updated_signal = pyqtSignal(object)
+    payment_labels_updated_signal = pyqtSignal(object)
     payment_requests_paid_signal = pyqtSignal(list)
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
@@ -222,7 +223,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.account_restoration_signal.connect(self._on_account_restoration_signal)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
-        self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
+        self.payment_labels_updated_signal.connect(self._on_payment_labels_updated_signal)
         self.transaction_state_signal.connect(self._on_transaction_state_change)
         self.password_request_signal.connect(self._on_password_request)
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
@@ -261,12 +262,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             WalletEvent.KEYS_CREATE, WalletEvent.KEYS_UPDATE,
             WalletEvent.NOTIFICATIONS_CREATE, WalletEvent.NOTIFICATIONS_UPDATE,
             WalletEvent.TRANSACTION_HEIGHTS_UPDATED, WalletEvent.TRANSACTION_STATE_CHANGE,
-            WalletEvent.TRANSACTION_LABELS_UPDATE
+            WalletEvent.PAYMENT_LABELS_UPDATE
         ])
         self._wallet.events.register_callback(self._on_transaction_added,
             [ WalletEvent.TRANSACTION_ADD])
-        self._wallet.events.register_callback(self._on_transaction_deleted,
-            [ WalletEvent.TRANSACTION_DELETE ])
+        self._wallet.events.register_callback(self._on_payment_deleted,
+            [ WalletEvent.PAYMENT_DELETE ])
         self._wallet.events.register_callback(self._on_transaction_verified,
             [ WalletEvent.TRANSACTION_VERIFIED ])
         self._wallet.events.register_callback(self._on_payment_requests_paid,
@@ -364,8 +365,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.keys_updated_signal.emit(*args)
         elif event_name == WalletEvent.TRANSACTION_HEIGHTS_UPDATED:
             self.ui_callback_signal.emit(self._on_transaction_heights_updated, args)
-        elif event_name == WalletEvent.TRANSACTION_LABELS_UPDATE:
-            self.transaction_labels_updated_signal.emit(*args)
+        elif event_name == WalletEvent.PAYMENT_LABELS_UPDATE:
+            self.payment_labels_updated_signal.emit(*args)
         elif event_name == WalletEvent.TRANSACTION_STATE_CHANGE:
             self.transaction_state_signal.emit(*args)
         else:
@@ -387,10 +388,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_added_signal.emit(tx_hash, tx, set(import_context.account_ids))
 
     # Map the wallet event to a Qt UI signal.
-    def _on_transaction_deleted(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
+    def _on_payment_deleted(self, event_name: str, account_ids: set[int], payment_id: int) -> None:
         self._update_account_specific_event.set()
         self._update_common_event.set()
-        self.transaction_deleted_signal.emit(account_id, tx_hash)
+        self.payment_deleted_signal.emit(account_ids, payment_id)
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_verified(self, event_name: str, tx_hash: bytes, header: Header,
@@ -1456,17 +1457,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._receive_view = view
         return tab_widget
 
-    def confirm_broadcast_transaction(self, tx_hash: bytes, source: UIBroadcastSource) -> bool:
+    def confirm_broadcast_transaction(self, tx_hash: bytes, source: UIBroadcastSource, *,
+            is_invoice: bool=False) -> bool:
         # This function is intended to centralise the checks related to whether it is okay to
         # broadcast a transaction prior to calling `broadcast_transaction` on this wallet window.
         # Pass in the context of the call and check against the relevant contexts.
 
-        # Skip confirmation for transactions loaded for broadcast.
+        # Skip confirmation for transactions not in the database and solely loaded for broadcast.
         flags = self._wallet.data.read_transaction_flags(tx_hash)
         if flags is None:
             return True
 
-        if flags & TxFlag.PAYS_INVOICE and source == UIBroadcastSource.TRANSACTION_DIALOG:
+        if source == UIBroadcastSource.TRANSACTION_DIALOG and is_invoice:
             # At this time invoice payment is hooked into transaction broadcasting and it
             # defers to the send tab for an active invoice, and completes payment of that invoice.
             # TODO: Fix the requirement an invoice is active in the send tab, but make sure that
@@ -1494,8 +1496,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         "<br/><br/>" + body_text,
                         icon=QMessageBox.Icon.Warning):
                     return False
-            elif (self._send_view._payment_terms is None or
-                    self._send_view._payment_terms.get_id() != invoice_row.invoice_id):
+            elif (self._send_view._invoice_terms is None or
+                    self._send_view._invoice_terms.get_id() != invoice_row.invoice_id):
                 self.show_error(_("This transaction is associated with an invoice, but cannot "
                     "be broadcast as it is not active on the send tab. Go to the send tab and "
                     "select it from the invoice list and choose the 'Pay now' option."))
@@ -1555,8 +1557,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
             # Non-GUI thread. Is the broadcast done through invoicing payment delivery instead?
             if send_view.is_invoice_payment():
-                send_invoice_payment_success = send_view.send_invoice_payment(tx)
-                if not send_invoice_payment_success:
+                if not send_view.send_invoice_payment(tx):
                     # The invoice payment delivery either did not happen because the invoice was no
                     # longer valid, or for some other reason.
                     return False
@@ -1614,7 +1615,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if parsed_url.scheme == "pay":
             try:
-                payment_url, receiver_address = web.parse_pay_url(URI)
+                payment_url, payee_address = web.parse_pay_url(URI)
             except ValueError as value_error:
                 self.show_error(str(value_error))
                 return
@@ -1623,16 +1624,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 from ... import dpp_messages
                 from ...exceptions import DPPException
                 try:
-                    request = dpp_messages.get_payment_terms(payment_url, receiver_address)
+                    request = dpp_messages.get_payment_terms(payment_url, payee_address)
                 except DPPException as e:
-                    send_view.payment_request_import_error(e.args[0])
+                    send_view.payable_invoice_import_error(e.args[0])
                     return
-                send_view.on_payment_request(request, receiver_address)
+                send_view.import_and_display_invoice(request, payee_address)
             t = threading.Thread(target=get_payment_terms_thread)
             t.setDaemon(True)
             t.start()
 
-            send_view.prepare_for_payment_request()
+            send_view.show_invoice_loading_state()
         else:
             try:
                 out = web.parse_URI(URI)
@@ -2412,10 +2413,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             args: tuple[Any, ...]) -> None:
         callback(args)
 
-    def _on_transaction_labels_updated_signal(self,
-            update_entries: list[tuple[str|None, int, bytes]]) -> None:
-        self.history_view.update_descriptions(update_entries)
-        self.utxo_list.update_tx_labels(update_entries)
+    def _on_payment_labels_updated_signal(self,
+            update_entries: list[AccountPaymentDescriptionRow]) -> None:
+        self.history_view.update_payment_descriptions(update_entries)
 
     def _on_transaction_state_change(self, tx_hash: bytes, new_state: TxFlag) -> None:
         self.update_history_view()

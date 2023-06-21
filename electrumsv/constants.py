@@ -87,7 +87,7 @@ class TxFlag(IntFlag):
     # allocated.
     STATE_DISPATCHED = 1 << 24
 
-    PAYS_INVOICE = 1 << 30
+    LAST_BIT_USED = 1 << 31
 
     MASK_STATE = STATE_SETTLED | STATE_DISPATCHED | STATE_RECEIVED | STATE_CLEARED | STATE_SIGNED
     MASK_STATELESS = ~MASK_STATE
@@ -111,7 +111,7 @@ class TxFlag(IntFlag):
             return f"TxFlag({entry.name})"
 
         # Handle bit flags. Start with the highest bit, work back.
-        mask = int(TxFlag.PAYS_INVOICE)
+        mask = int(TxFlag.LAST_BIT_USED)
         names = []
         while mask > 0:
             value = bitmask & mask
@@ -412,9 +412,9 @@ class WalletEvent(Enum):
     NOTIFICATIONS_UPDATE = "notifications_updated"
     PAYMENT_REQUEST_PAID = "payment_requests_paid"
     TRANSACTION_ADD = "transaction_added"
-    TRANSACTION_DELETE = "transaction_deleted"
+    PAYMENT_DELETE = "transaction_deleted"
     TRANSACTION_HEIGHTS_UPDATED = "transaction_heights_updated"
-    TRANSACTION_LABELS_UPDATE = "transaction_labels_updated"
+    PAYMENT_LABELS_UPDATE = "payment_labels_updated"
     TRANSACTION_OBTAINED = "missing_transaction_obtained"
     TRANSACTION_STATE_CHANGE = "transaction_state_change"
     TRANSACTION_VERIFIED = "transaction_verified"

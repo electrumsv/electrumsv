@@ -61,7 +61,7 @@ class BackupWriter(BackupWritingProtocol):
             input_groups: dict[bytes, list[TransactionInputSnapshotRow]],
             output_groups: dict[bytes, list[AccountTransactionOutputSpendableRow]]) \
                 -> BackupPaymentEntry:
-        # TODO(nocheckin) Payments. This should pass in payment request data?? subtype should
+        # TODO(1.4.0) Backup. This should pass in payment request data?? subtype should
         #     depend on invoice or payment request.
         return {
             "type": "payment",
@@ -95,10 +95,10 @@ class BackupWriter(BackupWritingProtocol):
         # `KeyDataProtocol` is that the former allows an optional `keyinstance_id`. Callers may
         # have to cast to ensure the typing works, but we're asserting to make sure.
         assert key_data.keyinstance_id is not None
-        # TODO(technical-debt) Payments. See `BackupKeyUsageEntry` for commentary on `masterkey_id`.
+        # TODO(technical-debt) Backup. See `BackupKeyUsageEntry` for commentary on `masterkey_id`.
         assert key_data.masterkey_id is not None
 
-        # TODO(nocheckin) Payments. Resolve `subtype` from the derivation data.
+        # TODO(1.4.0) Backup. Resolve `subtype` from the derivation data.
         return {
             "type": "key-usage",
             "subtype": "derivation??",

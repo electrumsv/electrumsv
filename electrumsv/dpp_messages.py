@@ -685,13 +685,14 @@ def get_payment_terms(url: str, declared_receiver_address: Address) -> PaymentTe
     received_public_key_hex = envelope_data["publicKey"]
     received_signature = envelope_data["signature"]
     if received_public_key_hex is None or received_signature is None:
-        raise DPPLocalException("The payment terms are unsigned")
+        raise DPPLocalException(_("The payment terms are unsigned"))
 
+    # While the above validation checks the included public key signed the payment terms, we
+    # need to use the payee's address included in the invoice URL is the same as that public key.
+    # This ensures the payment terms come from the same party we got the invoice URL.
     received_public_key = PublicKey.from_hex(received_public_key_hex)
     if declared_receiver_address != received_public_key.to_address(compressed=True):
-        raise DPPLocalException("The payment terms were signed by an unknown party")
+        raise DPPLocalException(_("The payment terms were signed by an unknown party"))
 
-    # Because we have checked that the data has a signature and public key, we know that the
-    # signature was checked in `validate_json_envelope` and must be valid for our public key.
     payload_text = cast(str, data["payload"])
     return PaymentTermsMessage.from_json(payload_text)

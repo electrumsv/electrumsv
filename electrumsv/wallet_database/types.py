@@ -66,27 +66,17 @@ class HistoryListRow(NamedTuple):
     date_relevant: int
 
 
-class InvoiceAccountRow(NamedTuple):
-    invoice_id: int
-    payment_uri: str
-    description: str | None
-    flags: PaymentRequestFlag
-    value: int
-    date_expires: int | None
-    date_created: int
-
-
 class InvoiceRow(NamedTuple):
     invoice_id: int
-    account_id: int
-    tx_hash: bytes | None
+    payment_id: int
     payment_uri: str
-    description: str | None
+    description: str|None
     flags: PaymentRequestFlag
     value: int
     invoice_data: bytes
     date_expires: int | None
-    date_created: int = -1
+    date_created: int
+    date_updated: int
 
 
 class KeyDataProtocol(Protocol):
@@ -293,7 +283,6 @@ class TransactionOutputAddRow(NamedTuple):
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
-    script_hash: bytes
     script_offset: int
     script_length: int
     date_created: int
@@ -308,8 +297,6 @@ class TransactionOutputShortRow(NamedTuple):
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag
     script_type: ScriptType
-    # Extension fields for this type.
-    script_hash: bytes
 
 
 class TransactionOutputFullRow(NamedTuple):
@@ -321,7 +308,6 @@ class TransactionOutputFullRow(NamedTuple):
     flags: TransactionOutputFlag
     script_type: ScriptType
     # Extension fields for this type.
-    script_hash: bytes
     script_offset: int
     script_length: int
     spending_tx_hash: bytes | None

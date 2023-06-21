@@ -83,12 +83,12 @@ class SendView(QWidget):
     transaction to the latter and receives it back for dispatching to the recipient.
     """
 
-    payment_request_ok_signal = pyqtSignal()
-    payment_request_error_signal = pyqtSignal(int, bytes, str)
-    payment_request_import_error_signal = pyqtSignal(object)
-    payment_request_imported_signal = pyqtSignal(object)
-    payment_request_deleted_signal = pyqtSignal(int)
-    _fee_quotes_finished = pyqtSignal(object)
+    display_invoice_signal = pyqtSignal(object)
+    import_and_display_invoice_signal = pyqtSignal()
+    invoice_error_signal = pyqtSignal(int, bytes, str)
+    invoice_import_error_signal = pyqtSignal(object)
+    invoice_deleted_signal = pyqtSignal(int)
+    fee_quotes_finished = pyqtSignal(object)
 
     _account_id: int|None = None
     _account: AbstractAccount|None = None
@@ -104,21 +104,22 @@ class SendView(QWidget):
         self._is_max = False
         self._not_enough_funds = False
         self._require_fee_update: float|None = None
-        self._payment_terms: PaymentTermsMessage | None = None
-        self._receiver_address: Address | None = None
+        self._invoice_terms: PaymentTermsMessage|None = None
+        # If this is an invoice this will be the security address from the "pay:" URL.
+        self._invoice_address: Address|None = None
         self._completions = QStringListModel()
         self._transaction_creation_context = TransactionCreationContext()
         self._transaction_creation_context.set_account(self._account)
-        self._transaction_creation_context.callbacks.append(self._fee_quotes_finished.emit)
+        self._transaction_creation_context.callbacks.append(self.fee_quotes_finished.emit)
 
         self.setLayout(self.create_send_layout())
 
-        self.payment_request_ok_signal.connect(self.payment_request_ok)
-        self.payment_request_error_signal.connect(self.payment_request_error)
-        self.payment_request_import_error_signal.connect(self._payment_request_import_error)
-        self.payment_request_imported_signal.connect(self._payment_request_imported)
-        self.payment_request_deleted_signal.connect(self._payment_request_deleted)
-        self._fee_quotes_finished.connect(self._on_ui_thread_fee_quotes_finished)
+        self.display_invoice_signal.connect(self._display_invoice)
+        self.import_and_display_invoice_signal.connect(self._import_and_display_invoice)
+        self.invoice_error_signal.connect(self._invoice_error)
+        self.invoice_import_error_signal.connect(self._invoice_import_error)
+        self.invoice_deleted_signal.connect(self._invoice_deleted)
+        self.fee_quotes_finished.connect(self._on_ui_thread_fee_quotes_finished)
 
         app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
@@ -246,7 +247,7 @@ class SendView(QWidget):
 
         def reset_max(t: str) -> None:
             # Invoices set the amounts, which invokes this despite them being frozen.
-            if self._payment_terms is not None:
+            if self._invoice_terms is not None:
                 return
             self._is_max = False
             self._max_button.setEnabled(not bool(t))
@@ -338,8 +339,8 @@ class SendView(QWidget):
         # So anything that calls this should follow it with a call to `update_widgets`.
         self._is_max = False
         self._not_enough_funds = False
-        self._payment_terms = None
-        self._payto_e.is_pr = False
+        self._invoice_terms = None
+        self._payto_e.is_invoice = False
 
         edit_fields: tuple[FrozenEditProtocol, ...] = \
             (self._payto_e, self.amount_e, self._fiat_send_e, self._message_e)
@@ -447,16 +448,20 @@ class SendView(QWidget):
         assert self._account is not None
         dialogs.show_named('think-before-sending')
 
-        if self._payment_terms is not None:
-            tx = self.get_transaction_for_invoice()
-            if tx is not None:
-                if preview or not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx, pr=self._payment_terms)
-                    self.clear()
-                    return
+        if self._invoice_terms is not None:
+            # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
+            # - A DPP invoice will provide a list of transactions and outputs in each transaction
+            #   that the payer must fund. This requires rewriting the output-related logic here.
+            raise NotImplementedError("DPP multi-transaction")
+            # tx = self._get_transaction_for_invoice()
+            # if tx is not None:
+            #     if preview or not tx.is_complete():
+            #         self._main_window.show_transaction(self._account, tx, pr=self._invoice_terms)
+            #         self.clear()
+            #         return
 
-                self._main_window.broadcast_transaction(self._account, tx)
-                return
+            #     self._main_window.broadcast_transaction(self._account, tx)
+            #     return
 
         r = self._read()
         if r is None:
@@ -481,20 +486,22 @@ class SendView(QWidget):
         tx_context.account_descriptions[self._account.get_id()] = tx_desc
         if preview:
             self._main_window.show_transaction(self._account, tx, tx_context,
-                pr=self._payment_terms)
+                pr=self._invoice_terms)
         else:
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
             self._sign_tx_and_broadcast_if_complete(amount, tx, tx_context)
 
     def _read(self) -> tuple[list[XTxOutput], str, list[TransactionOutputSpendableProtocol]] | None:
-        if self._payment_terms and self._payment_terms.has_expired():
+        if self._invoice_terms and self._invoice_terms.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return None
         label = self._message_e.text()
 
         outputs: list[XTxOutput]
-        if self._payment_terms:
-            # TODO(nocheckin) Payments. These are transactions we need to keep structurally.
+        if self._invoice_terms:
+            # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
+            # - A DPP invoice will provide a list of transactions and outputs in each transaction
+            #   that the payer must fund. This requires rewriting the output-related logic here.
             raise NotImplementedError("TODO 1.4.0")
             # outputs = self._payment_request.get_outputs()
         else:
@@ -527,6 +534,7 @@ class SendView(QWidget):
 
     def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
             tx_context: TransactionContext) -> None:
+        assert self._account is not None
         # confirmation dialog
         fee = tx.get_fee()
 
@@ -544,14 +552,16 @@ class SendView(QWidget):
         if not password:
             return
 
-        if self._payment_terms is not None:
-            tx_context.invoice_id = self._payment_terms.get_id()
+        if self._invoice_terms is not None:
+            row = self._account._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
+            assert row is not None
+            tx_context.payment_id = row.payment_id
 
         def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
                     self._main_window.show_transaction(self._account, tx, tx_context,
-                        pr=self._payment_terms)
+                        pr=self._invoice_terms)
                     self.clear()
                     return
 
@@ -559,98 +569,7 @@ class SendView(QWidget):
 
         self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
 
-    def get_transaction_for_invoice(self) -> Transaction|None:
-        assert self._account is not None and self._payment_terms is not None
-        invoice_row = self._account._wallet.data.read_invoice(
-            invoice_id=self._payment_terms.get_id())
-        assert invoice_row is not None
-        if invoice_row.tx_hash is not None:
-            return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
-        return None
-
-    def is_invoice_payment(self) -> bool:
-        return self._payment_terms is not None
-
-    def send_invoice_payment(self, tx: Transaction) -> bool:
-        """
-        WARNING: This is not expected to be called from the UI thread.
-
-        Returns `True` if there is an invoice payment to send.
-        Returns `False` if there is no pending invoice to pay.
-        """
-        assert self._account is not None
-        assert self._payment_terms is not None
-        tx_hash = tx.hash()
-        invoice_id = self._payment_terms.get_id()
-        assert invoice_id is not None
-
-        if self._payment_terms.has_expired():
-            self.payment_request_error_signal.emit(invoice_id, tx_hash,
-                _("The invoice has expired"))
-            return False
-
-        if not self._payment_terms.payment_url:
-            self.payment_request_error_signal.emit(invoice_id, tx_hash, _("This invoice does "
-                "not have a payment URL"))
-            return False
-
-        # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
-        # invoice being active in the send tab. Until then we assume that broadcasting a
-        # transaction that is not related to the active invoice and it's repercussions, has
-        # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
-        # in the main window logic.
-        try:
-            app_state.async_.spawn_and_wait(
-                self._account._wallet.send_outgoing_direct_payment_async(invoice_id, [ tx ]))
-        except DPPException as bip270_exception:
-            self._logger.exception("DPP invoice payment failure")
-            self.payment_request_error_signal.emit(invoice_id, tx_hash, bip270_exception.args[0])
-            return False
-
-        self._payment_terms = None
-        # On success we broadcast as well, but it is assumed that the merchant also
-        # broadcasts.
-        return True
-
-    def pay_for_payment_request(self, payment_terms: PaymentTermsMessage) -> None:
-        # The invoice id will already be set on the payment request.
-        self._payment_terms = payment_terms
-        self.prepare_for_payment_request()
-        self.payment_request_ok()
-
-    def prepare_for_payment_request(self) -> None:
-        """
-        Calling context: Guaranteed to be the UI thread.
-        """
-        self._payto_e.is_pr = True
-        edit_widgets: list[FrozenEditProtocol] = [self._payto_e, self.amount_e, self._message_e]
-        for widget in edit_widgets:
-            widget.setFrozen(True)
-        self._max_button.setDisabled(True)
-        self._payto_e.setText(_("please wait..."))
-
-    def on_payment_request(self, request: PaymentTermsMessage,
-            declared_receiver_address: Address) -> None:
-        """
-        Calling context: Not guaranteed to be the UI thread.
-        """
-        self._receiver_address = declared_receiver_address
-        self._payment_terms = request
-        # Proceed to process the payment request on the GUI thread.
-        self.payment_request_ok_signal.emit()
-
-    def payment_request_import_error(self, text: str) -> None:
-        """
-        Calling context: Not guaranteed to be the UI thread.
-        """
-        self.payment_request_import_error_signal.emit(text)
-
-    def _payment_request_import_error(self, text: str) -> None:
-        self.clear()
-
-        extended_text = _("The payment request is invalid.") +"<br/><br/>"
-        extended_text += text
-        self._main_window.show_error(extended_text)
+    # Legacy payment.
 
     def set_processed_url_data(self, data: dict[str, Any]) -> None:
         address = data.get('address')
@@ -672,59 +591,120 @@ class SendView(QWidget):
             self.amount_e.setAmount(amount)
             self.amount_e.textEdited.emit("")
 
-    def payment_request_ok(self) -> None:
-        pr_optional = self._payment_terms
-        account = self._account
-        assert account is not None and pr_optional is not None
-        pr = pr_optional
-        wallet = account._wallet
+    def is_invoice_payment(self) -> bool:
+        return self._invoice_terms is not None
 
-        if pr.get_id() is None:
-            def callback(future: concurrent.futures.Future[None]) -> None:
-                nonlocal wallet, pr
-                # Skip if the action was cancelled.
-                if future.cancelled():
-                    return
-                # Raise any exception encountered.
-                future.result()
+    def send_invoice_payment(self, tx: Transaction) -> bool:
+        """
+        WARNING: This is not expected to be called from the UI thread.
 
-                # NOTE This callback will be happening in the database thread. No UI calls should
-                #   be made, unless we emit a signal to do it.
-                row = wallet.data.read_invoice(payment_uri=pr.payment_url)
-                assert row is not None
-                pr.set_id(row.invoice_id)
-                self.payment_request_imported_signal.emit(row)
+        Returns `True` if there is an invoice payment to send.
+        Returns `False` if there is no pending invoice to pay.
+        """
+        assert self._account is not None
+        assert self._invoice_terms is not None
+        tx_hash = tx.hash()
+        invoice_id = self._invoice_terms.get_id()
+        assert invoice_id is not None
 
-            assert pr.payment_url is not None
-            row = wallet.data.read_invoice(payment_uri=pr.payment_url)
-            if row is None:
-                row = InvoiceRow(0, account.get_id(), None, pr.payment_url, pr.memo,
-                    PaymentRequestFlag.STATE_UNPAID, pr.get_amount(), pr.to_json().encode(),
-                    pr.expiration_timestamp)
-                future = wallet.data.create_invoices([ row ])
-                future.add_done_callback(callback)
-                # We're waiting for the callback.
-                return
-        else:
-            row = account._wallet.data.read_invoice(invoice_id=pr.get_id())
+        if self._invoice_terms.has_expired():
+            self.invoice_error_signal.emit(invoice_id, tx_hash,
+                _("The invoice has expired"))
+            return False
+
+        if not self._invoice_terms.payment_url:
+            self.invoice_error_signal.emit(invoice_id, tx_hash, _("This invoice does "
+                "not have a payment URL"))
+            return False
+
+        # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
+        # invoice being active in the send tab. Until then we assume that broadcasting a
+        # transaction that is not related to the active invoice and it's repercussions, has
+        # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
+        # in the main window logic.
+        try:
+            app_state.async_.spawn_and_wait(
+                self._account._wallet.send_direct_payment_async(invoice_id, [ tx ]))
+        except DPPException as bip270_exception:
+            self._logger.exception("DPP invoice payment failure")
+            self.invoice_error_signal.emit(invoice_id, tx_hash, bip270_exception.args[0])
+            return False
+
+        self._invoice_terms = None
+        # On success we broadcast as well, but it is assumed that the merchant also
+        # broadcasts.
+        return True
+
+    def display_invoice(self, terms: PaymentTermsMessage) -> None:
+        assert self._account is not None
+        self._invoice_terms = terms
+        invoice_id = terms.get_id()
+        assert invoice_id is not None
+        row = self._account._wallet.data.read_invoice(invoice_id=invoice_id)
+        self.display_invoice_signal.emit(row)
+
+    def show_invoice_loading_state(self) -> None:
+        """
+        Calling context: Guaranteed to be the UI thread.
+        """
+        self._payto_e.is_invoice = True
+        edit_widgets: list[FrozenEditProtocol] = [self._payto_e, self.amount_e, self._message_e]
+        for widget in edit_widgets:
+            widget.setFrozen(True)
+        self._max_button.setDisabled(True)
+        self._payto_e.setText(_("please wait..."))
+
+    def import_and_display_invoice(self, terms: PaymentTermsMessage,
+            receiver_address: Address) -> None:
+        """
+        Calling context: Not guaranteed to be the UI thread.
+        """
+        self._invoice_address = receiver_address
+        self._invoice_terms = terms
+        # Proceed to process the invoice on the GUI thread.
+        self.import_and_display_invoice_signal.emit()
+
+    def payable_invoice_import_error(self, text: str) -> None:
+        """
+        Calling context: Not guaranteed to be the UI thread.
+        """
+        self.invoice_import_error_signal.emit(text)
+
+    def _invoice_import_error(self, text: str) -> None:
+        self._main_window.show_error(_("The invoice is invalid.") +"<br/><br/>" + text)
+        self.clear()
+
+    def _import_and_display_invoice(self) -> None:
+        assert self._account is not None and self._invoice_terms is not None
+        if self._invoice_terms.get_id() is not None:
+            row = self._account._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
             assert row is not None
-
-        pr.set_id(row.invoice_id)
-
-        # The invoice is already present. Populate it unless it's paid.
-        if row.flags & PaymentRequestFlag.STATE_PAID:
-            self._main_window.show_message("invoice already paid")
-            self._payment_terms = None
-            self.clear()
+            if row.flags & PaymentRequestFlag.STATE_PAID:
+                self._main_window.show_message(_("This invoice is both already imported and paid."))
+                self.clear()
+            self.display_invoice_signal.emit(row)
             return
-        self._payment_request_imported(row)
 
-    def _payment_request_imported(self, row: InvoiceRow) -> None:
+        def future_callback(future: concurrent.futures.Future[InvoiceRow]) -> None:
+            if future.cancelled() or self._invoice_terms is None:
+                return
+            row = future.result()
+            self._invoice_terms.set_id(row.invoice_id)
+            self.display_invoice_signal.emit(row)
+
+        contact_id: int|None = None
+        future = app_state.async_.spawn(
+            self._account.import_invoice_async(self._invoice_terms, contact_id))
+        future.add_done_callback(future_callback)
+
+    def _display_invoice(self, row: InvoiceRow) -> None:
+        assert self._invoice_terms is not None
+        assert self._invoice_terms.get_id() == row.invoice_id
+
         assert row.description is not None
-
         self.invoice_list.update()
 
-        self._payto_e.is_pr = True
+        self._payto_e.is_invoice = True
         if not has_expired(row.date_expires):
             self._payto_e.set_validated()
         else:
@@ -735,19 +715,17 @@ class SendView(QWidget):
         # signal to set fee
         self.amount_e.textEdited.emit("")
 
-    def _payment_request_deleted(self, invoice_id: int) -> None:
-        if self._payment_terms is not None:
-            if self._payment_terms.get_id() == invoice_id:
-                self._payment_terms = None
-                self.clear()
+    def _invoice_deleted(self, invoice_id: int) -> None:
+        if self._invoice_terms is not None and self._invoice_terms.get_id() == invoice_id:
+            self.clear()
 
         # Remove the seal from the history lines.
         self._main_window.update_history_view()
         # Update the invoice list.
         self.update_widgets()
 
-    def payment_request_error(self, invoice_id: int, tx_hash: bytes, message: str) -> None:
-        assert self._payment_terms is not None
+    def _invoice_error(self, invoice_id: int, tx_hash: bytes, message: str) -> None:
+        assert self._invoice_terms is not None
         # The transaction is still signed and associated with the invoice. This should be
         # indicated to the user in the UI, and they can deal with it.
 
@@ -755,8 +733,6 @@ class SendView(QWidget):
             self._main_window.reference(), _("Invoice Payment Error"),
             _("Your payment was rejected for some reason."), untrusted_text=message)
         d.exec()
-
-        self._payment_terms = None
         self.clear()
 
     def _on_ui_thread_fee_quotes_started(self) -> None:

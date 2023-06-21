@@ -75,7 +75,7 @@ class PayToEdit(ScanQRTextEdit):
         self._outputs: List[XTxOutput] = []
         self._errors: List[Tuple[int, str]] = []
         # Accessed by the send view.
-        self.is_pr = False
+        self.is_invoice = False
         self._ignore_uris = False
         self.update_size()
         self._payto_script: Optional[Script] = None
@@ -178,7 +178,7 @@ class PayToEdit(ScanQRTextEdit):
 
     def _on_text_changed(self) -> None:
         self._errors = []
-        if self.is_pr:
+        if self.is_invoice:
             return
 
         self._payto_script = None

@@ -25,7 +25,7 @@ import concurrent.futures
 from functools import partial
 import math
 import time
-from typing import cast, TYPE_CHECKING, Optional
+from typing import cast, TYPE_CHECKING
 import urllib.parse
 import weakref
 
@@ -39,7 +39,7 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.dpp_messages import PaymentTermsMessage
 from electrumsv.platform import platform
-from electrumsv.util import format_posix_timestamp, get_posix_timestamp
+from electrumsv.util import format_posix_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_icons, pr_tooltips
@@ -78,7 +78,7 @@ class InvoiceList(MyTreeWidget):
         self.setColumnWidth(COL_REQUESTOR, 200)
 
         # This is used if there is a pending expiry.
-        self._timer: Optional[QTimer] = None
+        self._timer: QTimer|None = None
 
     def _start_timer(self, event_time: float) -> None:
         seconds = math.ceil(event_time - time.time())
@@ -109,9 +109,9 @@ class InvoiceList(MyTreeWidget):
         self._stop_timer()
 
         current_id = None
-        current_item: Optional[QTreeWidgetItem] = None
-        if self._send_view._payment_terms is not None:
-            current_id = self._send_view._payment_terms.get_id()
+        current_item: QTreeWidgetItem|None = None
+        if self._send_view._invoice_terms is not None:
+            current_id = self._send_view._invoice_terms.get_id()
         if current_id is None:
             current_item = self.currentItem()
             current_id = current_item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole) \
@@ -120,14 +120,14 @@ class InvoiceList(MyTreeWidget):
         self.clear()
 
         current_item = None
-        current_time = get_posix_timestamp()
+        current_time = int(time.time())
         nearest_expiry_time = float("inf")
 
         # TODO Ability to change the invoice list to specify what invoices are shown.
         #   This would for instance allow viewing of archived invoices.
         assert self._send_view._account is not None
         wallet = self._send_view._account.get_wallet()
-        invoice_rows = wallet.data.read_invoices_for_account(self._send_view._account.get_id(),
+        invoice_rows = wallet.data.read_invoices(self._send_view._account.get_id(),
             PaymentRequestFlag.NONE, PaymentRequestFlag.ARCHIVED)
 
         for row in invoice_rows:
@@ -169,7 +169,7 @@ class InvoiceList(MyTreeWidget):
         '''Called only when the text actually changes'''
         assert self._send_view._account is not None
 
-        text: Optional[str] = item.text(column).strip()
+        text: str|None = item.text(column).strip()
         if text == "":
             text = None
         invoice_id = cast(int, item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole))
@@ -246,7 +246,7 @@ class InvoiceList(MyTreeWidget):
 
         self._main_window.show_send_tab()
         payment_terms.set_id(row.invoice_id)
-        self._send_view.pay_for_payment_request(payment_terms)
+        self._send_view.display_invoice(payment_terms)
 
     def _delete_invoice(self, invoice_id: int) -> None:
         assert self._send_view._account is not None
@@ -264,7 +264,7 @@ class InvoiceList(MyTreeWidget):
 
             # NOTE This callback will be happening in the database thread. No UI calls should
             #   be made, unless we emit a signal to do it.
-            self._send_view.payment_request_deleted_signal.emit(invoice_id)
+            self._send_view.invoice_deleted_signal.emit(invoice_id)
 
         future = self._send_view._account._wallet.data.delete_invoices([ invoice_id ])
         future.add_done_callback(callback)

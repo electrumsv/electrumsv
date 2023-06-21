@@ -8,7 +8,7 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3
 
-from typing import cast, Optional, Type, TypeVar
+from typing import cast, Type, TypeVar
 
 from bitcoinx import base58_decode_check, PublicKey
 
@@ -51,7 +51,7 @@ def collect_results(result_type: Type[T], cursor: sqlite3.Cursor, results: list[
     results.extend(result_type(*row) for row in rows)
 
 
-def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> tuple[str, list[T]]:
+def flag_clause(column: str, flags: T|None, mask: T|None) -> tuple[str, list[T]]:
     if flags is None:
         if mask is None:
             return "", []

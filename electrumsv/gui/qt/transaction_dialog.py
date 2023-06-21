@@ -170,7 +170,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def __init__(self, account: AbstractAccount|None, tx: Transaction,
             context: TransactionContext|None, main_window: ElectrumWindow,
-            prompt_if_unsaved: bool, payment_request: PaymentTermsMessage|None=None) -> None:
+            prompt_if_unsaved: bool, invoice_terms: PaymentTermsMessage|None=None) -> None:
         # We want to be a top-level window
         QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
@@ -179,7 +179,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._wallet = main_window._wallet
         self._account = account
         self._account_id = account.get_id() if account is not None else None
-        self._payment_request = payment_request
+        self._invoice_terms = invoice_terms
         self._prompt_if_unsaved = prompt_if_unsaved
         self._saved = False
 
@@ -343,8 +343,11 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             mapi_server_hint = self._context.mapi_server_hint
 
+        # TODO(nocheckin) Payments. Broadcasting a transaction related to an invoice is wrong.
+        # - The payment should be handled off to the payee.
+        is_invoice = self._invoice_terms is not None
         if not self._main_window.confirm_broadcast_transaction(self._tx_hash,
-                UIBroadcastSource.TRANSACTION_DIALOG):
+                UIBroadcastSource.TRANSACTION_DIALOG, is_invoice=is_invoice):
             return
 
         # The only field we need set for broadcast in this case is the server hint.
@@ -397,8 +400,10 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.update()
             self._main_window.pop_top_level_window(self)
 
-        if self._payment_request is not None:
-            self._context.invoice_id = self._payment_request.get_id()
+        if self._invoice_terms is not None:
+            row = self._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
+            assert row is not None
+            self._context.payment_id = row.payment_id
 
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)

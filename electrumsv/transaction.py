@@ -120,7 +120,7 @@ HardwareSigningMetadata = dict[bytes, tuple[DerivationPath, tuple[str], int]]
 
 @dataclasses.dataclass
 class TransactionContext:
-    invoice_id: int | None = dataclasses.field(default=None)
+    payment_id: int|None = dataclasses.field(default=None)
     account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
     parent_transactions: dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
     hardware_signing_metadata: list[HardwareSigningMetadata] \
@@ -130,7 +130,7 @@ class TransactionContext:
         = dataclasses.field(default_factory=dict)
     key_datas_by_txo_index: dict[int, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
-    mapi_server_hint: ServerAndCredential | None = dataclasses.field(default=None)
+    mapi_server_hint: ServerAndCredential|None = dataclasses.field(default=None)
 
 
 

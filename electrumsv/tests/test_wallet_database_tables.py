@@ -28,8 +28,7 @@ from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountPaymentRow, ContactAddRow,
-    ContactRow, InvoiceAccountRow,
-    InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
+    ContactRow, InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
     TransactionInputAddRow, TransactionOutputAddRow, TransactionProofUpdateRow, TransactionRow,
@@ -670,7 +669,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_4.block_hash,
             merkle_proof_row_4.block_height, merkle_proof_row_4.block_position,
             TxFlag.STATE_SETTLED, 1, tx_hash_2)
-        flag_update_entry = (TxFlag(~TxFlag.PAYS_INVOICE), TxFlag.PAYS_INVOICE, tx_hash_2)
+        flag_update_entry = (TxFlag(~TxFlag.LAST_BIT_USED), TxFlag.LAST_BIT_USED, tx_hash_2)
         db_functions.update_transaction_proof_and_flag_write([ tx_proof_update_row ],
             [ flag_update_entry ], db_connection)
 
@@ -683,7 +682,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         assert proof_datas[0].tx_block_position == BLOCK_POSITION_4
         assert proof_datas[0].proof_block_height == BLOCK_HEIGHT_4
         assert proof_datas[0].proof_block_position == BLOCK_POSITION_4
-        assert TxFlag(proof_datas[0].flags) == TxFlag.STATE_SETTLED|TxFlag.PAYS_INVOICE
+        assert TxFlag(proof_datas[0].flags) == TxFlag.STATE_SETTLED|TxFlag.LAST_BIT_USED
     finally:
         db_context.release_connection(db_connection)
 
@@ -773,11 +772,11 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     db_functions.create_keyinstances(db_context, keyinstance_rows).result(timeout=5)
 
     row1 = TransactionOutputAddRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
-        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     row2 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
-        KEYINSTANCE_ID_2, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+        KEYINSTANCE_ID_2, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     row3 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
-        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
 
     # Create some UTXOs for the funded transaction.
     db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ]) \
@@ -871,12 +870,12 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     SCRIPT_OFFSET3 = TX_BYTES.index(OTHER_OUTPUT_DATA2)
 
     row1 = TransactionOutputAddRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
-        ScriptType.P2PKH, TXOUT_FLAGS | TransactionOutputFlag.COINBASE, b'',
+        ScriptType.P2PKH, TXOUT_FLAGS | TransactionOutputFlag.COINBASE,
         SCRIPT_OFFSET1, COINBASE_SCRIPT_LENGTH, 10, 10)
     row2 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, ScriptType.P2PKH,
-        TXOUT_FLAGS, b'', SCRIPT_OFFSET2, OTHER_SCRIPT_LENGTH, 10, 10)
+        TXOUT_FLAGS, SCRIPT_OFFSET2, OTHER_SCRIPT_LENGTH, 10, 10)
     row3 = TransactionOutputAddRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, ScriptType.P2PKH,
-        TXOUT_FLAGS, b'', SCRIPT_OFFSET3, OTHER_SCRIPT_LENGTH, 10, 10)
+        TXOUT_FLAGS, SCRIPT_OFFSET3, OTHER_SCRIPT_LENGTH, 10, 10)
 
     # No effect: The transactionoutput foreign key constraint will fail as the transactionoutput
     # does not exist.
@@ -1375,7 +1374,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
 
     txo_row1 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1,
-        ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+        ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ]).result(timeout=5)
 
     ap_entries = [
@@ -1391,7 +1390,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
             db_functions.close_paid_payment_request(create_request2_row.paymentrequest_id, db)
     finally:
         db_context.release_connection(db)
-    assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, PAYMENT_ID_1) ]
+    assert transaction_description_update_rows == [ (ACCOUNT_ID, PAYMENT_ID_1, TX_DESC2) ]
 
     ## Continue.
     assert create_request2_row.paymentrequest_id is not None
@@ -1496,7 +1495,7 @@ def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
 async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> None:
     mock_time.time.side_effect = lambda: 111
 
-    db_lines = db_functions.read_invoices_for_account(db_context, 1)
+    db_lines = db_functions.read_invoices(db_context, 1)
     assert len(db_lines) == 0
 
     TX_BYTES_1 = os.urandom(10)
@@ -1516,18 +1515,18 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
 
     # LINE_COUNT = 3
-    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentRequestFlag.STATE_UNPAID,
-        1, b'{}', None, 111)
-    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentRequestFlag.STATE_PAID,
-        2, b'{}', 10, 111)
-    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentRequestFlag.STATE_UNPAID,
-        3, b'{}', None, 111)
+    row1a1 = InvoiceRow(0, 0, "payment_uri1", "desc", PaymentRequestFlag.STATE_UNPAID, 1,
+        b'{}', None, 11, 111)
+    row2a1 = InvoiceRow(0, 0, "payment_uri2", "desc", PaymentRequestFlag.STATE_PAID, 2,
+        b'{}', 10, 10, 111)
+    row3a2 = InvoiceRow(0, 0, "payment_uri3", "desc", PaymentRequestFlag.STATE_UNPAID, 3,
+        b'{}', None, 11, 111)
 
     # No effect: The transactionoutput foreign key constraint will fail as the account
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_invoices(db_context, [ line1_1 ])
-        future.result()
+        db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
+            None).result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
@@ -1543,72 +1542,78 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
+    row1a1 = db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
+        None).result()
+    row2a1 = db_context.post_to_thread(db_functions.create_invoice_write, row2a1, ACCOUNT_ID_1,
+        None).result()
+    row3a2 = db_context.post_to_thread(db_functions.create_invoice_write, row3a2, ACCOUNT_ID_2,
+        None).result()
+
     txs = []
+    payment_id_by_tx_hash = { TX_HASH_1: row2a1.payment_id }
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
         tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlag.STATE_SETTLED,
             block_height=10, block_hash=b'11', block_position=1, fee_value=250,
             description=None, version=None, locktime=None, date_created=1, date_updated=2,
-            payment_id=None)
+            payment_id=payment_id_by_tx_hash.get(txh, None))
         txs.append(tx)
     future = db_functions.create_transactions_UNITTEST(db_context, txs)
     future.result(timeout=5)
 
-    future = db_functions.create_invoices(db_context, [ line1_1, line2_1, line3_2 ])
-    future.result()
+    # No effect: Only rows with no pre-populated invoice_id can be created.
+    with pytest.raises(AssertionError):
+        db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
+            None).result()
 
-    # No effect: The primary key constraint will prevent any conflicting entry from being added.
-    with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_invoices(db_context, [ line1_1 ])
-        future.result()
-
-    def compare_row_to_account_row(src: InvoiceRow, dst: InvoiceAccountRow) -> None:
-        assert src.description == dst.description
-        assert src.flags == dst.flags
-        assert src.value == dst.value
-        assert src.date_expires == dst.date_expires
-        assert src.date_created == dst.date_created
+    def compare_row_to_account_row(src: InvoiceRow, dst: InvoiceRow) -> None:
+        assert src == dst
+        # assert src.description == dst.description
+        # assert src.flags == dst.flags
+        # assert src.value == dst.value
+        # assert src.date_expires == dst.date_expires
+        # assert src.date_created == dst.date_created
 
     # Read all rows in the table for account 1.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1)
     assert 2 == len(db_lines)
-    db_line1 = [ db_line for db_line in db_lines if db_line.invoice_id == line1_1.invoice_id ][0]
-    compare_row_to_account_row(line1_1, db_line1)
-    db_line2 = [ db_line for db_line in db_lines if db_line.invoice_id == line2_1.invoice_id ][0]
-    compare_row_to_account_row(line2_1, db_line2)
+    db_line1 = [ db_line for db_line in db_lines if db_line.invoice_id == row1a1.invoice_id ][0]
+    compare_row_to_account_row(row1a1, db_line1)
+    db_line2 = [ db_line for db_line in db_lines if db_line.invoice_id == row2a1.invoice_id ][0]
+    compare_row_to_account_row(row2a1, db_line2)
 
     # Read all rows in the table for account 2.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_2)
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_2)
     assert 1 == len(db_lines)
-    db_line3 = [ db_line for db_line in db_lines if db_line.invoice_id == line3_2.invoice_id ][0]
-    compare_row_to_account_row(line3_2, db_line3)
+    db_line3 = [ db_line for db_line in db_lines if db_line.invoice_id == row3a2.invoice_id ][0]
+    compare_row_to_account_row(row3a2, db_line3)
 
     # Read all PAID rows in the table for the first account.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         mask=PaymentRequestFlag.STATE_PAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].invoice_id
 
     # Read all UNPAID rows in the table for the first account.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         mask=PaymentRequestFlag.STATE_UNPAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].invoice_id
 
     # Require ARCHIVED flag.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         mask=PaymentRequestFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         flags=PaymentRequestFlag.NONE, mask=PaymentRequestFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
     # Non-existent account.
-    db_lines = db_functions.read_invoices_for_account(db_context, 1010101)
+    db_lines = db_functions.read_invoices(db_context, 1010101)
     assert 0 == len(db_lines)
 
-    row = db_functions.read_invoice(db_context, invoice_id=line1_1.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=row1a1.invoice_id)
     assert row is not None
     assert 1 == row.invoice_id
 
@@ -1619,37 +1624,20 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     assert row is not None
     assert 2 == row.invoice_id
 
-    future = db_functions.update_invoice_transactions(db_context,
-        [ (TX_HASH_3, line3_2.invoice_id) ])
-    future.result()
-
-    # Verify the invoice is now marked with no associated tx.
-    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
-    assert row is not None
-    assert row.tx_hash == TX_HASH_3
-
-    future = db_functions.update_invoice_transactions(db_context, [ (None, line3_2.invoice_id) ])
-    future.result()
-
-    # Verify the invoice is now marked with no associated tx.
-    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
-    assert row is not None
-    assert row.tx_hash is None
-
     future = db_functions.update_invoice_descriptions(db_context,
-        [ ("newdesc3.2", line3_2.invoice_id) ])
+        [ ("newdesc3.2", row3a2.invoice_id) ])
     future.result()
 
     # Verify the invoice now has the new description.
-    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=row3a2.invoice_id)
     assert row is not None
     assert row.description == "newdesc3.2"
 
     await db_context.run_in_thread_async(db_functions.update_invoice_flags,
-        [ (PaymentRequestFlag.NOT_ARCHIVED, PaymentRequestFlag.ARCHIVED, line3_2.invoice_id), ])
+        [ (PaymentRequestFlag.NOT_ARCHIVED, PaymentRequestFlag.ARCHIVED, row3a2.invoice_id), ])
 
     # Verify the invoice now has the new description.
-    row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    row = db_functions.read_invoice(db_context, invoice_id=row3a2.invoice_id)
     assert row is not None
     assert row.flags == PaymentRequestFlag.ARCHIVED | PaymentRequestFlag.STATE_UNPAID
 
@@ -1658,12 +1646,12 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     duplicate_row2 = db_functions.read_invoice(db_context, payment_uri=row.payment_uri)
     assert duplicate_row2 == row
 
-    future = db_functions.delete_invoices(db_context, [ line2_1.invoice_id ])
+    future = db_functions.delete_invoices(db_context, [ row2a1.invoice_id ])
     future.result()
 
-    db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
+    db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1)
     assert 1 == len(db_lines)
-    assert db_lines[0].invoice_id == line1_1.invoice_id
+    assert db_lines[0].invoice_id == row1a1.invoice_id
 
 
 def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:

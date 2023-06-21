@@ -570,7 +570,7 @@ class ReceiveDialog(QDialog):
 
     def _on_create_button_clicked(self, amount: int, your_text: str, their_text: str | None) \
             -> None:
-        # TODO(nocheckin) Payments. contact_id should trickle down.
+        # TODO(1.4.0) Contacts. We could add or set a contact to receive the payment from.
         contact_id: int|None = None
         expires_index = self._expires_combo.currentIndex()
         duration_seconds = EXPIRATION_VALUES[expires_index][1]

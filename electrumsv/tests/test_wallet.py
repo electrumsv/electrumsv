@@ -1502,7 +1502,7 @@ def test_extend_transaction_complete_hex() -> None:
 
     wallet.extend_transaction(tx, tx_context)
 
-    assert tx_context.invoice_id is None
+    assert tx_context.payment_id is None
     assert not len(tx_context.account_descriptions)
     assert len(tx_context.parent_transactions) == 0
     assert tx_context.spent_outpoint_values == {}
@@ -1529,7 +1529,7 @@ def test_extend_transaction_incomplete_non_database() -> None:
                     masterkey_id=None, keyinstance_id=None,
                     source=DatabaseKeyDerivationType.IMPORTED)
     }
-    assert tx_context.invoice_id is None
+    assert tx_context.payment_id is None
     assert tx_context.account_descriptions == {}
     # assert tx_context.description == "Pay someone"
     assert len(tx_context.parent_transactions) == 0
@@ -1610,7 +1610,7 @@ async def test_extend_transaction_sequence() -> None:
         tx_1_context = TransactionContext()
         wallet.extend_transaction(tx_1, tx_1_context)
 
-        assert tx_1_context.invoice_id is None
+        assert tx_1_context.payment_id is None
         assert tx_1_context.account_descriptions == {}
         assert len(tx_1_context.parent_transactions) == 0
         assert tx_1_context.spent_outpoint_values == {}
@@ -1629,7 +1629,7 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_a = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_a)
-        assert tx_2_context_a.invoice_id is None
+        assert tx_2_context_a.payment_id is None
         assert tx_2_context_a.account_descriptions == {}
         assert len(tx_2_context_a.parent_transactions) == 0
         spent_output_values = {
@@ -1668,7 +1668,7 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
-        assert tx_2_context_b.invoice_id is None
+        assert tx_2_context_b.payment_id is None
         assert tx_2_context_b.account_descriptions == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
@@ -1728,7 +1728,7 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
-        assert tx_2_context_b.invoice_id is None
+        assert tx_2_context_b.payment_id is None
         assert tx_2_context_b.account_descriptions == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
