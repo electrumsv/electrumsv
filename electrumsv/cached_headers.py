@@ -32,12 +32,11 @@ ElectrumSV decisions:
 from __future__ import annotations
 
 import os
-from struct import Struct
 import typing
 from typing import cast
 
 import bitcoinx
-from bitcoinx import Headers, Network
+from bitcoinx import Headers, Network, double_sha256, Chain, MissingHeader, hash_to_hex_str
 
 from .logs import logs
 
@@ -53,50 +52,74 @@ logger = logs.get_logger("app_state")
 HeaderPersistenceCursor = dict[bitcoinx.Chain, int]
 
 
-# The old bitcoinx (<=0.7.1) files are stored as a reserved area,
-# followed by the headers consecutively.
-# The reserved area has the following format:
-#    a) reserved area size (little endian uint16)
-#    b) version number (little endian uint16)
-#    c) block header count (little endian uint32)
-old_headers_struct_reserved = Struct('<HHI')
-
-
 def write_cached_headers(headers: Headers, cursor: HeaderPersistenceCursor,
-        app_state: AppStateProxy) -> HeaderPersistenceCursor:
-    old_headers_file_path = app_state.headers_filename()
-    new_headers_file_path = old_headers_file_path + ".raw"
-    with open(new_headers_file_path, "ab") as hf:
+        app_state: 'AppStateProxy') -> HeaderPersistenceCursor:
+    headers_file_path = app_state.headers_filename()
+    with open(headers_file_path, "ab") as hf:
         hf.write(headers.unpersisted_headers(cursor))
     return cast(HeaderPersistenceCursor, headers.cursor())
 
 
-def read_cached_headers(coin: Network, file_path: str) -> tuple[Headers, HeaderPersistenceCursor]:
-    """We will attempt to read in the new headers file format but if it is not found, it will
-    fall back to reading the old headers format (as a once-off to avoid re-download)"""
-    new_headers_file_exists = os.path.exists(file_path + ".raw")
-    old_headers_file_exists = os.path.exists(file_path)
-    if new_headers_file_exists:
-        logger.debug("New headers storage file: %s found", new_headers_file_exists)
-        with open(file_path + ".raw", "rb") as f:
-            raw_headers = f.read()
-        headers = Headers(coin)
-        cursor = headers.connect_many(raw_headers, check_work=False)
-    elif old_headers_file_exists:
-        logger.debug("Old headers storage file: %s found", old_headers_file_exists)
-        # Look for old headers file version and migrate it over
-        with open(file_path, "rb") as hf:
-            reserved_bytes = hf.read(old_headers_struct_reserved.size)
-            actual_reserved_size, header_store_version, header_store_count = \
-                old_headers_struct_reserved.unpack(reserved_bytes)
-            assert header_store_version == 0
-            raw_headers = hf.read(header_store_count * 80)
-        headers = Headers(coin)
-        headers.connect_many(raw_headers, check_work=False)
-        cursor = {}  # set cursor empty so all header state is persisted in `write_cached_headers`
-    else:
-        logger.debug("Headers storage file: %s not found. Creating...", new_headers_file_exists)
-        headers = Headers(coin)
-        cursor = {}  # set cursor empty so all header state is persisted in `write_cached_headers`
+def modified_connect(headers: Headers, raw_header: bytes, block_hash: bytes) -> Chain:
+    """Modified / optimised version of bitcoinx.Headers.connect (with check_headers=False).
+    It is faster because we provide the pre-computed block_hash rather than double-hashing
+    ~800,000 block headers"""
+    hashes = headers.hashes
+    tips = headers.tips
 
+    hdr_hash = block_hash  # This is the performance win (instead of hashing the header)
+    prev_hash = raw_header[4:36]
+    chain, height = hashes.get(prev_hash, (None, -1))
+    height += 1
+
+    if not chain:
+        if raw_header != headers.network.genesis_header:
+            raise MissingHeader(f'previous header {hash_to_hex_str(prev_hash)} not present')
+        # Handle duplicate genesis block
+        if headers.hashes:
+            chain, _ = hashes[hdr_hash]
+            return chain
+        chain = Chain(None, height)
+    elif tips[chain] != prev_hash:
+        # Silently ignore duplicate headers
+        duplicate, _ = hashes.get(hdr_hash, (None, -1))
+        if duplicate:
+            return duplicate
+        # Form a new chain
+        chain = Chain(chain, height)
+
+    chain.append(raw_header)
+    hashes[hdr_hash] = (chain, height)
+    tips[chain] = hdr_hash
+    return chain
+
+
+def read_cached_headers(coin: Network, file_path: str, base_headers: bytes | None = None,
+        base_hashes: list[bytes] | None = None) -> tuple[Headers, HeaderPersistenceCursor]:
+    # See app_state._migrate. A 'headers3' file should always be present.
+    assert os.path.exists(file_path)
+    logger.debug("New headers storage file: %s found", file_path)
+    with open(file_path, "rb") as f:
+        raw_headers = f.read()
+    headers = Headers(coin)
+
+    # This `modified_connect` reduces startup time from 2.5 seconds to 1.5 seconds
+    # by avoiding hashing of every header in the base chain. Subsequent new headers
+    # need to be connected the standard way.
+    if base_headers is not None and base_hashes is not None:
+        genesis_hash = double_sha256(coin.genesis_header)
+        chain, height = headers.lookup(genesis_hash)
+        assert chain.tip().hash == genesis_hash
+
+        header_size = 80
+        base_headers_list = [base_headers[i:i+80] for i in range(0, len(base_headers), header_size)]
+        for block_hash, raw_header in zip(base_hashes, base_headers_list):
+            modified_connect(headers, raw_header, block_hash)  # 1.5 seconds
+            # headers.connect(raw_header, check_work=False)  # 2.5 seconds
+
+        # discard the already connected base_headers from raw_headers
+        assert raw_headers[:len(base_headers)] == base_headers
+        raw_headers = raw_headers[len(base_headers):]
+
+    cursor = headers.connect_many(raw_headers, check_work=False)
     return headers, cursor

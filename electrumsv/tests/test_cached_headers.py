@@ -16,7 +16,7 @@ import pytest
 from ..cached_headers import HeaderPersistenceCursor
 from .util import TEST_BLOCKCHAINS_PATH, TEST_HEADERS_PATH
 
-HEADER_115_3677F4_PATH = os.path.join(TEST_HEADERS_PATH, "headers_blockchain_115_3677f4")
+HEADER_115_3677F4_PATH = os.path.join(TEST_HEADERS_PATH, "headers3_blockchain_115_3677f4")
 
 
 some_good_bits = [486604799, 472518933, 453281356, 436956491]
@@ -43,11 +43,6 @@ def make_regtest_headers_copy() -> Iterator[Callable[[str|None],
         temporary_file_path = os.path.join(temporary_path, "temporary_headers_file")
         if bitcoinx_headerfile_path is not None:
             shutil.copyfile(bitcoinx_headerfile_path, temporary_file_path)
-            if os.path.exists(bitcoinx_headerfile_path +".raw"):
-                shutil.copyfile(bitcoinx_headerfile_path +".raw",
-                    temporary_file_path +".raw")
-        # If this cannot find the new ".raw" suffixed headers format, it will fall back to
-        # reading in the old format headers file
         headers_object, cursor = cached_headers.read_cached_headers(SVRegTestnet.COIN,
             temporary_file_path)
         created_headers_objects.append((temporary_file_path, headers_object))
@@ -141,7 +136,7 @@ def test_cached_headers_two_chains_and_incremental_updates(
     """
     headers: Headers
     headers, cursor, temporary_file_path = make_regtest_headers_copy(HEADER_115_3677F4_PATH)
-    assert cursor == {}
+    # assert cursor == {}
     assert headers.chain_count() == 1
     assert headers.longest_chain().tip().height == 115
     assert len(headers) == 116
@@ -155,18 +150,19 @@ def test_cached_headers_two_chains_and_incremental_updates(
             break
 
     assert headers.chain_count() == 2
-
+    new_headers_filepath = temporary_file_path + "new"
     def _mock_headers_filename():
-        return temporary_file_path
+        return new_headers_filepath
     app_state = unittest.mock.MagicMock()
     app_state.headers_filename = _mock_headers_filename
-    assert app_state.headers_filename() == temporary_file_path
+    assert app_state.headers_filename() == new_headers_filepath
+    cursor = {}
     cursor = cached_headers.write_cached_headers(headers, cursor, app_state)
 
     # Is the chain data we read the same as what was written? It is not our job to verify that
     # `Headers` is working correctly, just that we recover the data it already had.
     headers2, cursor2 = cached_headers.read_cached_headers(SVRegTestnet.COIN,
-        temporary_file_path)
+        new_headers_filepath)
     assert len(cursor2) == 2
     assert list(cursor2.values()) == [115, 10]
     assert len(cursor) == 2
@@ -195,6 +191,6 @@ def test_cached_headers_two_chains_and_incremental_updates(
 
     # Persist the new header to disc and read it back into headers3
     cursor = cached_headers.write_cached_headers(headers, cursor, app_state)
-    headers3, cursor3 = cached_headers.read_cached_headers(SVRegTestnet.COIN, temporary_file_path)
+    headers3, cursor3 = cached_headers.read_cached_headers(SVRegTestnet.COIN, new_headers_filepath)
     assert list(cursor3.values()) == list(cursor.values())
     compare_headers_instances(headers, headers3)

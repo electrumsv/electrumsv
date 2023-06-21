@@ -140,14 +140,37 @@ class AppStateProxy(object):
         if os.path.exists(checkpointed_headers_filepath):
             os.remove(checkpointed_headers_filepath)
 
+        # Remove headers2 file that has metadata at the beginning of the file (bitcoinx <=0.7.1)
         headers2_filepath = os.path.join(self.config.path, "headers2")
-        if Net.is_mainnet() and not os.path.exists(headers2_filepath):
-            base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
-            shutil.copyfile(base_headers2_filepath, headers2_filepath)
+        if os.path.exists(headers2_filepath):
+            os.remove(headers2_filepath)
 
-            if os.path.exists(base_headers2_filepath +".chain_data"):
-                shutil.copyfile(base_headers2_filepath +".chain_data",
-                    headers2_filepath +".chain_data")
+        # 3.x versions are a plain raw headers dump (bitcoinx >= 0.8)
+        headers3_filepath = os.path.join(self.config.path, "headers3")
+        if Net.is_mainnet() and not os.path.exists(headers3_filepath):
+            base_headers3_filepath = os.path.join(package_dir, "data", "headers3_mainnet")
+            shutil.copyfile(base_headers3_filepath, headers3_filepath)
+
+    def read_header3_base_file(self) -> bytes:
+        """This is for a performance optimisation in read_cached_headers. These headers must
+        perfectly align with the headers3_mainnet_blockhashes file"""
+        headers3_filepath = os.path.join(package_dir, "data", "headers3_mainnet")
+        with open(headers3_filepath, 'rb') as hf:
+            return hf.read()
+
+    def read_header3_base_file_hashes(self) -> list[bytes]:
+        """This is for a performance optimisation in read_cached_headers. These block hashes must
+        perfectly align with the headers3_mainnet file."""
+        headers3_blockhashes_filepath = os.path.join(package_dir, "data",
+            "headers3_mainnet_blockhashes")
+        with open(headers3_blockhashes_filepath, 'rb') as hf:
+            data = hf.read()
+            hash_size = 32
+            hashes = []
+            for i in range(0, len(data), hash_size):
+                block_hash = data[i:i + hash_size]
+                hashes.append(block_hash)
+            return hashes
 
     def shutdown(self) -> None:
         self.credentials.close()
@@ -175,10 +198,13 @@ class AppStateProxy(object):
 
     def headers_filename(self) -> str:
         # 1.3.13 and earlier was "headers", renamed due to stopping checkpointing.
-        return os.path.join(self.config.path, 'headers2')
+        return os.path.join(self.config.path, 'headers3')
 
     def read_headers(self) -> None:
-        self.headers, self.headers_cursor = read_cached_headers(Net.COIN, self.headers_filename())
+        base_headers = self.read_header3_base_file()
+        base_header_hashes = self.read_header3_base_file_hashes()
+        self.headers, self.headers_cursor = read_cached_headers(Net.COIN, self.headers_filename(),
+            base_headers, base_header_hashes)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.debug("chain #%d: %s", n, chain.desc())
 
@@ -263,7 +289,7 @@ class AppStateProxy(object):
         """
         with self._headers_lock:
             logger.debug("Writing cached headers state")
-            write_cached_headers(self.headers, self.headers_cursor, self)
+            self.headers_cursor = write_cached_headers(self.headers, self.headers_cursor, self)
             self._last_headers_save = time.time()
 
     async def _follow_longest_valid_chain(self) -> None:

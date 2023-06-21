@@ -17,7 +17,7 @@ And two spending transactions:
 - `d53a9ebfac748561132e49254c42dbe518080c2a5956822d5d3914d47324e842`
 
 The associated `bitcoinx.Headers` file is found at 
-`tests/headers/headers_blockchain_115_3677f4` (i.e. the first 115 blocks of 
+`tests/headers/headers3_blockchain_115_3677f4` (i.e. the first 115 blocks of 
 our main, precompiled regtest blockchain)
 
 NOTE: This wallet should ideally not be modified or have any new blocks
@@ -52,8 +52,7 @@ The results of `read_history_for_outputs` is:
     tx_hash: 7b422f2719248686cb905456b00afa92b571023fe49d724d485aabbf2e0d542a, value: 100000000
 
 The associated `bitcoinx.Headers` file is found at 
-- `tests/headers/headers2_paytomany`
-- `tests/headers/headers2_paytomany.chain_data`
+- `tests/headers/headers3_paytomany`
 
 ### 29_regtest_receiving_wallet_paytomany.sqlite
 Purpose: To provide test data for testing the `read_history_for_outputs` function.
@@ -73,6 +72,5 @@ The results of `read_history_for_outputs` is:
     tx_hash: e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063, value: 300000000
 
 The associated `bitcoinx.Headers` file is found at
-- `tests/headers/headers2_paytomany`
-- `tests/headers/headers2_paytomany.chain_data`
+- `tests/headers/headers3_paytomany`
 
