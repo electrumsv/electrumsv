@@ -50,7 +50,7 @@ The goal is that the ordering makes as much sense as anything Bitcoin can to reg
 are some initial aspects that we might assume are true:
 
 * We definitely want open payments (unpaid invoices and payment requests) to be listed at the top
-  like unconfirmed transactions were.
+  like unconfirmed transactions were. These would act like outstanding and draft payments.
 * When a previously open payment is closed (paid, expires or manually closed) it should perhaps be
   marked with that timestamp for sorting.
 * Payments that come from restoration cannot be sorted by date to give correct ordering. Each will
@@ -80,3 +80,10 @@ is allowing a contact to be associated with a payment.
 
 We might show a column in the history list with the lifehash avatar of each involved contact.
 
+### P2P network connectivity
+
+Our first preference should be to broadcast transactions using the P2P network. But we should have
+a fallback for when it is not available (MAPI or ARC). We should not trust either and should use
+output spend notifications for all approaches.
+
+What does the P2P experience look like in the wallet?

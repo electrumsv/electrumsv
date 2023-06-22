@@ -494,7 +494,7 @@ async def maintain_external_peer_channel_connection_async(state: PeerChannelServ
     state.connection_flags |= ServerConnectionFlag.STARTING
 
     try:
-        while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
+        while not state.connection_flags & ServerConnectionFlag.MASK_EXIT:
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
             # Both the connection management task and worker tasks.

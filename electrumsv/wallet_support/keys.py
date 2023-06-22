@@ -108,7 +108,7 @@ def get_pushdata_hash_for_keystore_key_data(keystore: KeyStore, key_data: KeyDat
         return get_pushdata_hash_for_public_keys(script_type, public_keys)
     elif keystore.type() == KeystoreType.MULTISIG:
         assert script_type in MULTI_SIGNER_SCRIPT_TYPES
-        assert key_data.derivation_type == DerivationType.BIP32_SUBPATH
+        assert DerivationType(key_data.derivation_type) == DerivationType.BIP32_SUBPATH
         assert key_data.derivation_data2 is not None
         derivation_path = unpack_derivation_path(key_data.derivation_data2)
 

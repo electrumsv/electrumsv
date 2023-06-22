@@ -90,8 +90,10 @@ class SendView(QWidget):
     invoice_deleted_signal = pyqtSignal(int)
     fee_quotes_finished = pyqtSignal(object)
 
-    _account_id: int|None = None
-    _account: AbstractAccount|None = None
+    _payto_e: PayToEdit
+    amount_e: BTCAmountEdit
+    _fiat_send_e: AmountEdit
+    _account: AbstractAccount
 
     def __init__(self, main_window: ElectrumWindow, account_id: int) -> None:
         super().__init__(main_window)
@@ -452,7 +454,7 @@ class SendView(QWidget):
             # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
             # - A DPP invoice will provide a list of transactions and outputs in each transaction
             #   that the payer must fund. This requires rewriting the output-related logic here.
-            raise NotImplementedError("DPP multi-transaction")
+            pass
             # tx = self._get_transaction_for_invoice()
             # if tx is not None:
             #     if preview or not tx.is_complete():
@@ -495,13 +497,14 @@ class SendView(QWidget):
         if self._invoice_terms and self._invoice_terms.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return None
-        label = self._message_e.text()
 
         outputs: list[XTxOutput]
         if self._invoice_terms:
             # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
             # - A DPP invoice will provide a list of transactions and outputs in each transaction
             #   that the payer must fund. This requires rewriting the output-related logic here.
+            # self._invoice_terms.transactions
+            # self._invoice_terms.transaction_policies
             raise NotImplementedError("TODO 1.4.0")
             # outputs = self._payment_request.get_outputs()
         else:
@@ -523,7 +526,8 @@ class SendView(QWidget):
             return None
 
         coins = self._get_coins()
-        return outputs, label, coins
+        description = self._message_e.text()
+        return outputs, description, coins
 
     def _get_coins(self) -> list[TransactionOutputSpendableProtocol]:
         if self.pay_from:

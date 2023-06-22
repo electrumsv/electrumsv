@@ -102,7 +102,6 @@ from .util import (Buttons, CancelButton, CloseButton, ColorScheme,
 from .wallet_api import WalletAPI
 
 if TYPE_CHECKING:
-    from .coinsplitting_tab import CoinSplittingTab
     from .history_list import HistoryView
     from .transaction_dialog import TxDialog
     from .wallet_navigation_view import WalletNavigationView
@@ -300,9 +299,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_tab_changed(self, to_tab_index: int) -> None:
         # Some tabs may want to be refreshed to show current state when selected.
         current_tab = self._tab_widget.currentWidget()
-        if current_tab is self.coinsplitting_tab:
-            self.coinsplitting_tab.on_tab_activated()
-        elif current_tab is self.send_tab and self.is_send_view_active():
+        if current_tab is self.send_tab and self.is_send_view_active():
             assert isinstance(self._send_view, SendView)
             self._send_view.on_tab_activated()
 
@@ -313,7 +310,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.receive_tab = self._create_receive_tab()
         self.keys_tab = self.create_keys_tab()
         self.utxo_tab = self.create_utxo_tab()
-        self.coinsplitting_tab = self.create_coinsplitting_tab()
 
         history_view = self.create_history_tab()
 
@@ -329,8 +325,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
-        self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
-            _("Coin Splitting"), "coinsplitter", True)
 
     def _add_optional_tab(self, tabs: QTabWidget, tab: QWidget, icon: QIcon, description: str,
             name: str, default: bool=False) -> None:
@@ -771,7 +765,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.keys_tab)
         add_toggle_action(view_menu, self.utxo_tab)
-        add_toggle_action(view_menu, self.coinsplitting_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
@@ -1692,10 +1685,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         return future
 
-    def create_coinsplitting_tab(self) -> "CoinSplittingTab":
-        from .coinsplitting_tab import CoinSplittingTab
-        return CoinSplittingTab(self)
-
     def create_list_tab(self, list_widget: QWidget) -> TabWidget:
         top_button_layout: TableTopButtonLayout|None = None
 
@@ -2541,9 +2530,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if isinstance(send_view, SendView):
                 send_view.clean_up()
         self._send_views.clear()
-
-        if self.coinsplitting_tab:
-            self.coinsplitting_tab.clean_up()
 
         if self.key_view:
             self.key_view.clean_up()

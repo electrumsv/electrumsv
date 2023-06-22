@@ -187,6 +187,7 @@ class PolicyDict(TypedDict):
 class PaymentTermsMessage:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
+    _id: int|None = None
     _raw_json: str|None = None
     creation_timestamp: int
     expiration_timestamp: int|None = None
@@ -375,35 +376,37 @@ class PaymentTermsMessage:
                     inputs.append(XTxInput(prev_hash=prev_hash, # type: ignore[call-arg]
                         prev_idx=prev_idx, script_sig=script, sequence=nSequence))
 
-            outputs_list = cast(list[dict[str, Any]], transaction_dict["outputs"])
-            if len(outputs_list) < 1:
-                raise DPPRemoteException("Missing entries for "
+            outputs_dict = cast(dict[str, list[dict[str, Any]]], transaction_dict["outputs"])
+            if len(outputs_dict) != 1:
+                raise DPPRemoteException("Only 'native' entries should be in "
                     f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs'")
 
+            if "native" not in outputs_dict or type(outputs_dict["native"]) is not list:
+                raise DPPRemoteException("Missing list typed key "
+                    f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native'")
+
             outputs: list[XTxOutput] = []
-            for j, output_dict in enumerate(outputs_list):
-                if "native" not in output_dict or type(output_dict["native"]) is not dict:
+            for j, output_dict in enumerate(outputs_dict["native"]):
+                if type(output_dict) is not dict:
                     raise DPPRemoteException("Missing object typed key "
-                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native'")
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs.native[{j}]'")
 
-                if "satoshis" not in output_dict["native"] or \
-                        type(output_dict["native"]["satoshis"]) is not int:
+                if "amount" not in output_dict or type(output_dict["amount"]) is not int:
                     raise DPPRemoteException("Missing int typed key "
-                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
-                        ".satoshis'")
-                value = output_dict["native"]["satoshis"]
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs.native[{j}]"
+                        ".amount'")
+                value = output_dict["amount"]
 
-                if "script" not in output_dict["native"] or \
-                        type(output_dict["native"]["script"]) is not str:
+                if "script" not in output_dict or type(output_dict["script"]) is not str:
                     raise DPPRemoteException("Missing string typed key "
-                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs.native[{j}]"
                         ".script'")
-                script_hex = output_dict["native"]["script"]
+                script_hex = output_dict["script"]
                 try:
                     script = Script.from_hex(script_hex)
                 except ValueError:
                     raise DPPRemoteException("Key "
-                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs[{j}].native"
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs.native[{j}]"
                         ".script' is not valid hex")
 
                 # NOTE(rt12) This is someone else's payment script. We do not care what it is,
@@ -486,7 +489,7 @@ class PaymentTermsMessage:
                 payment_value += output.value
         return payment_value
 
-    def get_id(self) -> int | None:
+    def get_id(self) -> int|None:
         return self._id
 
     def set_id(self, invoice_id: int) -> None:
