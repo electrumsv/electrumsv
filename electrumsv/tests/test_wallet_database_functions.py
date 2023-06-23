@@ -98,7 +98,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
     mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     # Make sure we do not overwrite the original wallet database.
-    wallet_filename = "29_regtest_standard_spending_wallet_paytomany.sqlite"
+    wallet_filename = "26_regtest_standard_spending_wallet_paytomany.sqlite"
     temp_dir = tempfile.mkdtemp()
     # A subdirectory is used to avoid being picked up by the `test_legacy_wallet_loading` test
     source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)

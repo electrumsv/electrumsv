@@ -1,0 +1,39 @@
+{
+    "account_descriptions": [
+        [
+            1,
+            "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e",
+            "funding tx"
+        ]
+    ],
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "seed",
+                    "sibling base lady quiz ship nice margin library cargo much impose front"
+                ],
+                [
+                    "xprv",
+                    "tprv8ZgxMBicQKsPeFn3SQzDoVCTaTBW1Ui4fjZvykqgEFqtvF2vP69cjwQVSvp5Do45CxWvAzXf1evCrynhoASFSnsGPwGWhntgWYiVasz6tp1"
+                ],
+                [
+                    "xpub",
+                    "tpubD6NzVbkrYhZ4XioqL4epCtra9UhSAotyF3AiGGsyeXeHkjHh1UyCvS2Md3BUNUQGzsaVngY8DkkzfJb4swA5mEqpDTZwMzSDPDwbmH6zBHN"
+                ]
+            ]
+        ]
+    },
+    "transactions": [
+        {
+            "transaction_id": "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 114,
+            "block_position": 1,
+            "fee_value": 300,
+            "version": 1,
+            "locktime": 113
+        }
+    ]
+}
