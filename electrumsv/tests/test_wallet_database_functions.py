@@ -137,7 +137,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         # 2) Check that for a specified transaction hash that does exist the correct record is
         #    returned.
         tx_hash_should_exist = hex_str_to_hash(
-            "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063")
+            "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e")
 
         testdata_object: list[dict] = []
         context_text = 'transaction_exists'
@@ -164,7 +164,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         #    d) Check count=N+1 returns all N entries in correct order.
         COUNT_OF_ROWS_FOR_TX = 3
         tx_hash_should_exist = hex_str_to_hash(
-            "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063")
+            "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e")
 
         # (a)
         testdata_object: list[dict] = []
