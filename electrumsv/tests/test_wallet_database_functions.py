@@ -87,14 +87,14 @@ def test_read_history_for_outputs(mock_wallet_app_state, limit_count, skip, expe
     finally:
         Net.set_to(SVMainnet)
 
-# TODO(1.4.0) Database not fixed. This is a 29 database and that migration is changing.
-@pytest.mark.xfail(reason="We do not currently have post 1.4.0 databases")
+
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -> None:
     """
     Verify that the SQL for the `read_history_for_outputs` database function is correct
     """
     password = "123456"
+    password_token = PasswordToken(password)
     mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     # Make sure we do not overwrite the original wallet database.
@@ -106,6 +106,11 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
     shutil.copyfile(source_wallet_path, wallet_path)
 
     storage = WalletStorage(wallet_path)
+    with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+        migration29_app_state.headers = mock_headers()
+        storage.upgrade(True, password_token)
 
     # SECTION: The test preparation.
     db_context = storage.get_db_context()
