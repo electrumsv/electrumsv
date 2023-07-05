@@ -36,7 +36,7 @@ import typing
 from typing import cast
 
 import bitcoinx
-from bitcoinx import Headers, Network, double_sha256, Chain, MissingHeader, hash_to_hex_str
+from bitcoinx import Headers, Network
 
 from .logs import logs
 
@@ -61,8 +61,9 @@ def write_cached_headers(headers: Headers, cursor: HeaderPersistenceCursor,
 
 
 def read_cached_headers(coin: Network, file_path: str) -> tuple[Headers, HeaderPersistenceCursor]:
-    # See app_state._migrate. A 'headers3' file should always be present.
-    assert os.path.exists(file_path)
+    # See app_state._migrate. A 'headers3' file should always be present on mainnet
+    if coin.name == 'mainnet':
+        assert os.path.exists(file_path)
     logger.debug("New headers storage file: %s found", file_path)
     with open(file_path, "rb") as f:
         raw_headers = f.read()

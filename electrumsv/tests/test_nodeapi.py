@@ -286,7 +286,7 @@ def test_get_wallet_from_request_explicit_success(app_state_nodeapi: AppStatePro
     assert dummy_wallet is wallet
 
 async def test_nodeapi_startup_async() -> None:
-    server = nodeapi.NodeAPIServer()
+    server = nodeapi.NodeAPIServer(host="0.0.0.0")
     asyncio.create_task(server.run_async())
     try:
         # This will raise an `asyncio.TimeoutError` if it does not succeed leading to a test fail.
