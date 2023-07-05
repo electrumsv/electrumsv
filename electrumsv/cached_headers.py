@@ -64,6 +64,8 @@ def read_cached_headers(coin: Network, file_path: str) -> tuple[Headers, HeaderP
     # See app_state._migrate. A 'headers3' file should always be present on mainnet
     if coin.name == 'mainnet':
         assert os.path.exists(file_path)
+    elif not os.path.exists(file_path):
+        open(file_path, 'wb').close()
     logger.debug("New headers storage file: %s found", file_path)
     with open(file_path, "rb") as f:
         raw_headers = f.read()
