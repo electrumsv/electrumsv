@@ -557,42 +557,6 @@ class AbstractAccount:
             value              = row.value,
         )
 
-    def get_history(self, keyinstance_ids: Sequence[int]|None=None) -> list[HistoryListEntry]:
-        """
-        Return the list of transactions in the account kind of sorted from newest to oldest.
-
-        Sorting is nuanced, in that transactions that are in a block are sorted by both block
-        height and position. Transactions that are not in a block are ordered according to when
-        they were added to the account.
-
-        This is called for three uses:
-        - The transaction list in the history tab.
-        - The transaction list in the key usage window.
-        - Exporting the account history.
-        """
-        assert app_state.headers is not None
-
-        history_raw: list[HistoryListEntry] = []
-        for row in self._wallet.data.read_payment_history(self._id, keyinstance_ids):
-            # TODO(1.4.0) Payments. Ordering in the history list.
-            # block_height = row.block_height
-            # if block_height <= BlockHeight.MEMPOOL:
-            #     # This will list local transactions then unconfirmed then confirmed.
-            #     sort_key = (-block_height + 100000000000, row.date_created)
-            # else:
-            #     assert row.block_position is not None
-            #     sort_key = (row.block_height, row.block_position)
-            sort_key = (row.date_relevant, 0)
-            history_raw.append(HistoryListEntry(sort_key, row, 0))
-        history_raw.sort(key=lambda t: t.sort_key)
-
-        balance = 0
-        for entry in history_raw:
-            balance += entry.row.value_delta
-            entry.balance = balance
-        history_raw.reverse()
-        return history_raw
-
     # TODO(1.4.0) Payments. Export history.
     # def export_history(self, from_datetime: datetime|None=None, to_datetime: datetime|None=None) \
     #         -> list[AccountExportEntry]:
@@ -2900,6 +2864,35 @@ class Wallet:
     #     micro-payment support in the servers or the wallet itself yet.
     def get_visible_accounts(self) -> list[AbstractAccount]:
         return [ account for account in self._accounts.values() if not account.is_petty_cash() ]
+
+    def get_history(self, account_id: int|None=None, keyinstance_ids: Sequence[int]|None=None) \
+            -> list[HistoryListEntry]:
+        """
+        Return the list of transactions in the account kind of sorted from newest to oldest.
+
+        Sorting is nuanced, in that transactions that are in a block are sorted by both block
+        height and position. Transactions that are not in a block are ordered according to when
+        they were added to the account.
+
+        This is called for three uses:
+        - The transaction list in the history tab.
+        - The transaction list in the key usage window.
+        - Exporting the account history.
+        """
+        assert app_state.headers is not None
+
+        history_raw: list[HistoryListEntry] = []
+        for row in self.data.read_payment_history(account_id, keyinstance_ids):
+            sort_key = (row.date_relevant, 0)
+            history_raw.append(HistoryListEntry(sort_key, row, 0))
+        history_raw.sort(key=lambda t: t.sort_key)
+
+        balance = 0
+        for entry in history_raw:
+            balance += entry.row.value_delta
+            entry.balance = balance
+        history_raw.reverse()
+        return history_raw
 
     def get_xpubs_by_fingerprint(self) -> dict[bytes, str]:
         bip32_keystores: list[BIP32_KeyStore] = []

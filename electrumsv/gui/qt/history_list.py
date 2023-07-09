@@ -26,6 +26,7 @@
 from __future__ import annotations
 import concurrent.futures
 import enum
+import time
 from typing import cast, Sequence, TYPE_CHECKING
 import weakref
 
@@ -43,8 +44,7 @@ from ...logs import logs
 from ...platform import platform
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import TransactionContext
-from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
-    profiler
+from ...util import format_posix_timestamp, posix_timestamp_to_datetime, profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.types import AccountPaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
@@ -125,15 +125,18 @@ class HistoryList(MyTreeWidget):
     ACCOUNT_ROLE = Qt.ItemDataRole.UserRole
     PAYMENT_ROLE = Qt.ItemDataRole.UserRole + 2
 
-    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow, for_account: bool=True) \
+            -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], Columns.DESCRIPTION)
 
         self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self._account_id: int|None = None
         self._account: AbstractAccount|None = None
         self._wallet = main_window._wallet
+        self._for_account = for_account
 
-        self._main_window.account_change_signal.connect(self._on_account_change)
+        if for_account:
+            self._main_window.account_change_signal.connect(self._on_account_change)
 
         self.update_tx_headers()
 
@@ -151,6 +154,7 @@ class HistoryList(MyTreeWidget):
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount,
             startup: bool) -> None:
+        assert self._for_account
         self.clear()
         self._account_id = new_account_id
         self._account = new_account
@@ -184,7 +188,7 @@ class HistoryList(MyTreeWidget):
         item = self.currentItem()
         current_pid = item.data(Columns.STATUS, self.PAYMENT_ROLE) if item else None
         self.clear()
-        if self._account is None:
+        if self._for_account and self._account is None:
             logger.debug("History list not updated due to no currently selected account")
             return
 
@@ -193,11 +197,11 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
 
         local_height = self._wallet.get_local_height()
-        current_time = get_posix_timestamp()
+        current_time = int(time.time())
 
         items = []
         line: list[str]
-        for entry in self._account.get_history(self.get_filter_keyinstance_ids()):
+        for entry in self._wallet.get_history(self._account_id, self.get_filter_keyinstance_ids()):
             row = entry.row
             # tx_id = hash_to_hex_str(row.tx_hash)
             tx_id = "?txid"
@@ -530,7 +534,8 @@ def get_tx_icon(status: TxStatus) -> QIcon|None:
 
 
 class HistoryView(QWidget):
-    def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
+    def __init__(self, parent: QWidget, main_window: ElectrumWindow, for_account: bool=True) \
+            -> None:
         super().__init__(parent)
 
         self._main_window = weakref.proxy(main_window)
@@ -538,7 +543,7 @@ class HistoryView(QWidget):
         self._account_id: int|None = None
         self._account: AbstractAccount|None = None
 
-        self.list = HistoryList(parent, main_window)
+        self.list = HistoryList(parent, main_window, for_account=for_account)
         self._top_button_layout = TableTopButtonLayout()
         self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
         self._top_button_layout.filter_signal.connect(self.filter_tx_list)
@@ -553,7 +558,8 @@ class HistoryView(QWidget):
         vbox.addWidget(self.list, 1)
         self.setLayout(vbox)
 
-        main_window.account_change_signal.connect(self._on_account_changed)
+        if for_account:
+            main_window.account_change_signal.connect(self._on_account_changed)
 
     def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount,
             startup: bool) -> None:

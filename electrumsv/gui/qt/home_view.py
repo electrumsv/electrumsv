@@ -35,14 +35,15 @@
 # THE SOFTWARE.
 
 from __future__ import annotations
+import dataclasses
 from datetime import datetime
 from typing import TYPE_CHECKING
 import weakref
 
-from PyQt6.QtCore import pyqtSignal, QItemSelection, Qt
-from PyQt6.QtGui import QContextMenuEvent, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QAbstractItemView, QGroupBox, QHeaderView, QHBoxLayout, \
-    QLabel, QSizePolicy, QTableWidget, QVBoxLayout, QWidget
+from PyQt6.QtCore import pyqtSignal, QItemSelection, QSize, Qt
+from PyQt6.QtGui import QAction, QContextMenuEvent, QIcon, QKeyEvent, QPixmap
+from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QHBoxLayout, QTableWidget, QToolBar, \
+    QVBoxLayout, QWidget
 
 from ...app_state import app_state
 from ...i18n import _
@@ -60,7 +61,6 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("home-view")
 
-
 class HealthTable(QTableWidget):
     key_activation_signal = pyqtSignal()
     refresh_signal = pyqtSignal()
@@ -71,7 +71,9 @@ class HealthTable(QTableWidget):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
-        self.horizontalHeader().setStretchLastSection(True)
+        hh = self.horizontalHeader()
+        hh.setStretchLastSection(True)
+        hh.setDefaultSectionSize(hh.minimumSectionSize())
         self.setColumnCount(1)
 
         verticalHeader = self.verticalHeader()
@@ -86,7 +88,7 @@ class HealthTable(QTableWidget):
                 font-weight: bold;
             }
         """)
-        self.setHorizontalHeaderLabels([ "Health report" ])
+        self.setHorizontalHeaderLabels([ "Status" ])
 
         # Tab by default in QTableWidget, moves between list items. The arrow keys also perform
         # the same function, and we want tab to allow exiting the table instead.
@@ -110,178 +112,99 @@ class HealthTable(QTableWidget):
             -> None:
         pass
 
+    def sizeHint(self) -> QSize:
+        # RT: StackOverflow gold. Why does QTableWidget default to 256 wide and how to fix it.
+        # https://stackoverflow.com/a/8563372
+        size = super().sizeHint()
+        mw = 0
+        for y in range(self.rowCount()):
+            widget = self.cellWidget(y, 0)
+            width = widget.sizeHint().width() + self.frameWidth() + 2
+            mw = width if width > mw else mw
+        size.setWidth(mw)
+        return size
+
+
+@dataclasses.dataclass
+class IconStates:
+    gray_pixmap: QPixmap
+    red_pixmap: QPixmap
+    green_pixmap: QPixmap
+
 
 class HomeView(QWidget):
-    _offline_row: int | None = None
-    _offline_icon_label: QLabel | None = None
-    _offline_text_label: QLabel | None = None
-
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__()
 
         self._main_window_proxy: ElectrumWindow = weakref.proxy(main_window)
         self._wallet_proxy = weakref.proxy(wallet)
 
-        health_icon_path_1 = icon_path("icons8-high-priority-96-windows.png")
-        self._health_pixmap_base = QPixmap(health_icon_path_1)
+        icon_filenames = {
+            "backup":  "icons8-backup-96-windows.png",
+            "update":  "icons8-update-96-windows.png",
+            "servers": "icons8-reception-96-windows.png",
+            "offline": "icons8-offline-96-windows.png",
+        }
 
-        self._health_pixmap_gray = QPixmap(self._health_pixmap_base.size())
-        self._health_pixmap_gray.fill(Qt.GlobalColor.lightGray)
-        self._health_pixmap_gray.setMask(
-            self._health_pixmap_base.createMaskFromColor(Qt.GlobalColor.transparent))
+        self._pixmaps: dict[str, IconStates] = {}
+        for key, icon_filename in icon_filenames.items():
+            base_pixmap = QPixmap(icon_path(icon_filename))
 
-        self._health_pixmap_red = QPixmap(self._health_pixmap_base.size())
-        self._health_pixmap_red.fill(Qt.GlobalColor.red)
-        self._health_pixmap_red.setMask(
-            self._health_pixmap_base.createMaskFromColor(Qt.GlobalColor.transparent))
+            gray_pixmap = QPixmap(base_pixmap.size())
+            gray_pixmap.fill(Qt.GlobalColor.lightGray)
+            gray_pixmap.setMask(base_pixmap.createMaskFromColor(Qt.GlobalColor.transparent))
 
-        self._health_pixmap_green = QPixmap(self._health_pixmap_base.size())
-        self._health_pixmap_green.fill(Qt.GlobalColor.darkGreen)
-        self._health_pixmap_green.setMask(
-            self._health_pixmap_base.createMaskFromColor(Qt.GlobalColor.transparent))
+            red_pixmap = QPixmap(base_pixmap.size())
+            red_pixmap.fill(Qt.GlobalColor.red)
+            red_pixmap.setMask(base_pixmap.createMaskFromColor(Qt.GlobalColor.transparent))
 
-        summary_layout = QHBoxLayout()
-        summary_box = QGroupBox()
-        summary_box.setTitle(_('Account summary'))
-        summary_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary_box.setLayout(summary_layout)
+            green_pixmap = QPixmap(base_pixmap.size())
+            green_pixmap.fill(Qt.GlobalColor.darkGreen)
+            green_pixmap.setMask(base_pixmap.createMaskFromColor(Qt.GlobalColor.transparent))
 
-        summary_label = QLabel(_("This might give an overview of all your account balances "
-            "and the committed and available funds within them."))
-        summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary_label.setWordWrap(True)
-        summary_layout.addWidget(summary_label)
+            self._pixmaps[key] = IconStates(gray_pixmap, red_pixmap, green_pixmap)
 
-        self.health_table = HealthTable()
-        size_policy = QSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.MinimumExpanding)
-        self.health_table.setSizePolicy(size_policy)
-        self.health_table.setContentsMargins(0, 0, 0, 0)
-        self.health_table.doubleClicked.connect(self._on_health_key_activation)
-        self.health_table.key_activation_signal.connect(self._on_health_key_activation)
+        toolbar = self._health_toolbar = QToolBar()
+        icon_size = int(app_state.app_qt.dpi / 5.8)
+        toolbar.setOrientation(Qt.Orientation.Vertical)
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        toolbar.setIconSize(QSize(icon_size, icon_size))
 
-        notification_layout = QHBoxLayout()
-        notification_box = QGroupBox()
-        notification_box.setTitle(_('Notifications'))
-        notification_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        notification_box.setLayout(notification_layout)
-
-        notification_label = QLabel(_("This will contain all the outstanding notifications "
-            "received for any account in the wallet."))
-        notification_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        notification_label.setWordWrap(True)
-        notification_layout.addWidget(notification_label)
+        from .history_list import HistoryView
+        self._history_view = HistoryView(self, self._main_window_proxy.reference(),
+            for_account=False)
+        # TODO(nocheckin) Payments. Should ensure that any update that could update any account
+        #     view updated this wallet view.
+        self._history_view.update_tx_list()
 
         row_layout = QVBoxLayout()
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(2)
         column_layout = QHBoxLayout()
         column_layout.setContentsMargins(0, 0, 0, 0)
-        column1_layout = QVBoxLayout()
-        column1_layout.setContentsMargins(0, 0, 0, 0)
-        column2_layout = QVBoxLayout()
-        column2_layout.setContentsMargins(0, 0, 0, 0)
-        column_layout.addLayout(column1_layout)
-        column_layout.addLayout(column2_layout)
+        column_layout.addWidget(self._history_view, 1)
+        column_layout.addWidget(self._health_toolbar) # self._health_table)
         row_layout.addLayout(column_layout)
-
-        column1_layout.addWidget(summary_box)
-        column1_layout.addWidget(notification_box)
-        column2_layout.addWidget(self.health_table)
-
         self.setLayout(row_layout)
 
         self._main_window_proxy.update_required_signal.connect(self._on_update_required)
 
     def update_health_report(self) -> None:
-        self.health_table.clearContents()
-        self._next_row_index = 0
+        toolbar = self._health_toolbar
+        toolbar.clear()
 
         if self._wallet_proxy._network is None:
-            pixmap, subtitle_text = self._get_state_for_offline_entry()
-            self._offline_row, self._offline_icon_label, self._offline_text_label = \
-                self._add_health_report_entry(pixmap, _("Offline mode"), subtitle_text)
+            action = QAction(QIcon(self._pixmaps["offline"].green_pixmap), _("Offline mode"), self)
+            toolbar.addAction(action)
 
-        pixmap, subtitle_text = self._get_state_for_backup_entry()
-        self._backup_row, self._backup_icon_label, self._backup_text_label = \
-            self._add_health_report_entry(pixmap, _("Wallet backup"), subtitle_text)
+        icon = QIcon(self._pixmaps["backup"].red_pixmap)
+        action = QAction(icon, _("Backup"), self)
+        toolbar.addAction(action)
+        def callback() -> None:
+            self._main_window_proxy.show_warning("Not yet implemented")
+        action.triggered.connect(callback)
 
-        pixmap, subtitle_text = self._get_state_for_server_entry()
-        self._server_row, self._server_icon_label, self._server_text_label = \
-            self._add_health_report_entry(pixmap, _("Manage your server usage"), subtitle_text)
-
-        pixmap, subtitle_text = self._get_state_for_update_entry()
-        self._update_row, self._update_icon_label, self._update_text_label = \
-            self._add_health_report_entry(pixmap, _("Update ElectrumSV"), subtitle_text)
-
-    def _add_health_report_entry(self, pixmap: QPixmap, title_text: str, subtitle_text: str) \
-            -> tuple[int, QLabel, QLabel]:
-        current_row = self._next_row_index
-        self._next_row_index += 1
-
-        self.health_table.insertRow(current_row)
-
-        update_widget = QWidget()
-        update_row_layout = QHBoxLayout()
-        update_row_layout.setSpacing(0)
-
-        update_icon_label = QLabel()
-        update_icon_label.setPixmap(pixmap.scaledToWidth(30,
-            Qt.TransformationMode.SmoothTransformation))
-        update_icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter)
-        contentsMargins = update_icon_label.contentsMargins()
-        contentsMargins.setRight(10)
-        update_icon_label.setContentsMargins(contentsMargins)
-
-        update_text_label = QLabel(self._format_report_entry_text(title_text, subtitle_text))
-        update_text_label.setTextFormat(Qt.TextFormat.RichText)
-
-        update_row_layout.addWidget(update_icon_label)
-        update_row_layout.addWidget(update_text_label)
-        update_row_layout.addStretch(1)
-
-        update_widget.setLayout(update_row_layout)
-        self.health_table.setCellWidget(current_row, 0, update_widget)
-        return current_row, update_icon_label, update_text_label
-
-    def _format_report_entry_text(self, title_text: str, subtitle_text: str) -> str:
-        return title_text +"<br/><font color='grey'>"+ subtitle_text +"</font>"
-
-    def _on_health_key_activation(self) -> None:
-        selected_indexes = self.health_table.selectedIndexes()
-        if len(selected_indexes):
-            selected_row = selected_indexes[0].row()
-            if selected_row == self._backup_row:
-                self._main_window_proxy.show_warning("Not yet implemented")
-            elif selected_row == self._server_row:
-                from importlib import reload
-                reload(server_selection_wizard)
-                wizard = server_selection_wizard.ServerSelectionWizard(self,
-                    self._wallet_proxy.reference())
-                wizard.setModal(True)
-                wizard.raise_()
-                wizard.show()
-            elif selected_row == self._update_row:
-                self._main_window_proxy.show_update_check()
-            else:
-                logger.error("_on_health_key_activation, unknown row %d", selected_row)
-
-    def _on_update_required(self) -> None:
-        pixmap, subtitle_text = self._get_state_for_update_entry()
-        self._set_update_entry_state(pixmap, subtitle_text)
-
-    def _set_update_entry_state(self, pixmap: QPixmap, subtitle_text: str) -> None:
-        self._update_icon_label.setPixmap(pixmap.scaledToWidth(30,
-            Qt.TransformationMode.SmoothTransformation))
-        self._update_text_label.setText(self._format_report_entry_text(_("Update ElectrumSV"),
-            subtitle_text))
-
-    def _get_state_for_offline_entry(self) -> tuple[QPixmap, str]:
-        return self._health_pixmap_green, _("ElectrumSV is in offline mode")
-
-    def _get_state_for_backup_entry(self) -> tuple[QPixmap, str]:
-        return self._health_pixmap_red, _("Your wallet contents have changed")
-
-    def _get_state_for_server_entry(self) -> tuple[QPixmap, str]:
         account_row = self._wallet_proxy._petty_cash_account.get_row()
         existing_blockchain_server_key: ServerAccountKey | None = None
         existing_messagebox_server_key: ServerAccountKey | None = None
@@ -291,10 +214,34 @@ class HomeView(QWidget):
             if server.server_id == account_row.blockchain_server_id:
                 existing_blockchain_server_key = server.key
         if existing_blockchain_server_key is None or existing_messagebox_server_key is None:
-            return self._health_pixmap_red, _("Wallet functionality restricted")
-        return self._health_pixmap_gray, _("Everything looks okay")
+            icon = QIcon(self._pixmaps["servers"].red_pixmap)
+        else:
+            icon = QIcon(self._pixmaps["servers"].gray_pixmap)
+        action = QAction(icon, _("Servers"), self)
+        toolbar.addAction(action)
+        def callback1() -> None:
+            wizard = server_selection_wizard.ServerSelectionWizard(self,
+                self._wallet_proxy.reference())
+            wizard.setModal(True)
+            wizard.raise_()
+            wizard.show()
+        action.triggered.connect(callback1)
 
-    def _get_state_for_update_entry(self) -> tuple[QPixmap, str]:
+        icon = QIcon(self._get_state_for_update_entry())
+        action = self._servers_action = QAction(icon, _("Update"), self)
+        toolbar.addAction(action)
+        def callback2() -> None:
+            self._main_window_proxy.show_update_check()
+        action.triggered.connect(callback2)
+
+    def _format_report_entry_text(self, title_text: str, subtitle_text: str) -> str:
+        return title_text +"<br/><font color='grey'>"+ subtitle_text +"</font>"
+
+    def _on_update_required(self) -> None:
+        icon = QIcon(self._get_state_for_update_entry())
+        self._servers_action.setIcon(icon)
+
+    def _get_state_for_update_entry(self) -> QPixmap:
         last_update_check_time: float | None = None
         last_update_check_time_text = app_state.config.get('last_update_check_time')
         if last_update_check_time_text is not None:
@@ -304,9 +251,9 @@ class HomeView(QWidget):
             assert check_result is not None and "stable" in check_result
             version_text = check_result["stable"]["version"]
 
-            pixmap = self._health_pixmap_red
-            subtitle_text = _("Please update to version {version}").format(version=version_text)
+            pixmap = self._pixmaps["update"].red_pixmap
+            # subtitle_text = _("Please update to version {version}").format(version=version_text)
         else:
-            pixmap = self._health_pixmap_gray
-            subtitle_text = _("No new update was detected")
-        return pixmap, subtitle_text
+            pixmap = self._pixmaps["update"].gray_pixmap
+            # subtitle_text = _("No new update was detected")
+        return pixmap

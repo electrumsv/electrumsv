@@ -58,7 +58,6 @@ from ...logs import logs
 from ...platform import platform
 from ...wallet import (AbstractAccount, ImportedAddressAccount, ImportedPrivkeyAccount,
     MultisigAccount, Wallet)
-from ...wallet_database.types import WalletBalance
 
 from .account_dialog import AccountDialog
 from .constants import RestorationDialogRole
@@ -205,7 +204,6 @@ class WalletNavigationView(QSplitter):
         should update the empty balances when the first quote arrives.
         """
         self._update_tree_headers()
-        self._update_tree_balances()
 
     def _on_current_item_changed(self, item: QTreeWidgetItem, last_item: QTreeWidgetItem) -> None:
         if item is self._home_item:
@@ -270,7 +268,6 @@ class WalletNavigationView(QSplitter):
         self._accounts_item.setIcon(TreeColumns.MAIN,
             read_QIcon("icons8-merchant-account-80-blueui.png"))
         self._accounts_item.setText(TreeColumns.MAIN, _("Accounts"))
-        self._accounts_item.setText(TreeColumns.BSV_VALUE, "")
         self._accounts_item.setToolTip(TreeColumns.MAIN,
             _("The accounts in this wallet"))
         self._selection_tree.addTopLevelItem(self._accounts_item)
@@ -314,57 +311,13 @@ class WalletNavigationView(QSplitter):
 
     def _update_tree_headers(self) -> None:
         headers = BASE_TREE_HEADERS[:]
-        headers.append(app_state.base_unit())
-        fx = app_state.fx
-        if fx and fx.is_enabled():
-            headers.append(fx.ccy)
 
         self._selection_tree.setColumnCount(len(headers))
         self._selection_tree.setHeaderLabels(headers)
-        self._selection_tree.header().setStretchLastSection(False)
         self._selection_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self._selection_tree.header().setSectionResizeMode(TreeColumns.MAIN,
             QHeaderView.ResizeMode.Stretch)
-        for column in range(1, len(headers)):
-            self._selection_tree.header().setSectionResizeMode(column,
-                QHeaderView.ResizeMode.ResizeToContents)
-
-    def _update_tree_balances(self) -> None:
-        fx = app_state.fx
-        align_flags = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-
-        def update_tree_item(item: QTreeWidgetItem, balance: WalletBalance) -> None:
-            nonlocal fx
-            # TODO(1.4.0) User experience, issue#909. WRT balances. There is an unresolved decision
-            #     about what balance to display where. The user gets confused if their balance is
-            #     not shown, but they don't have the full balance to spend, as only confirmed and
-            #     maybe unconfirmed (depending on preferences) are available and not allocated or
-            #     unmatured. We would probably benefit from some easy way for users to see what
-            #     coins are available for spending and why. One idea would be to add a table of
-            #     available balances on the dashboard.
-
-            # This is the correct balance to display for the navigation pane summaries. It should
-            # match the sum of the balances in all the accounts history tabs, and this will of
-            # course include the unspendable amounts like those unmatured or allocated.
-            value = sum(balance)
-            item.setText(TreeColumns.BSV_VALUE, app_state.format_amount(value, whitespaces=True))
-            item.setTextAlignment(TreeColumns.BSV_VALUE, align_flags)
-            item.setFont(TreeColumns.BSV_VALUE, self._monospace_font)
-
-            if fx and fx.is_enabled():
-                item.setText(TreeColumns.FIAT_VALUE, fx.format_amount(balance.confirmed))
-                item.setTextAlignment(TreeColumns.FIAT_VALUE, align_flags)
-                item.setFont(TreeColumns.FIAT_VALUE, self._monospace_font)
-
-        wallet_balance = WalletBalance()
-        for account in self._main_window_proxy._wallet.get_visible_accounts():
-            account_id = account.get_id()
-            account_balance = account.get_balance()
-            wallet_balance += account_balance
-            update_tree_item(self._account_tree_items[account_id], account_balance)
-
-        update_tree_item(self._accounts_item, wallet_balance)
 
     def _add_account_to_tree(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
@@ -402,7 +355,6 @@ class WalletNavigationView(QSplitter):
         item.setIcon(TreeColumns.MAIN, read_QIcon(icon_filename.format(icon_state)))
         item.setData(TreeColumns.MAIN, Qt.ItemDataRole.UserRole, account_id)
         item.setText(TreeColumns.MAIN, account.display_name())
-        item.setText(TreeColumns.BSV_VALUE, "0")
         item.setToolTip(TreeColumns.MAIN, tooltip_text)
 
         # Accounts are by default ordered in the order of creation, with the exception of petty
