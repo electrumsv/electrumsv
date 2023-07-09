@@ -87,18 +87,18 @@ def test_read_history_for_outputs(mock_wallet_app_state, limit_count, skip, expe
     finally:
         Net.set_to(SVMainnet)
 
-# TODO(1.4.0) Database not fixed. This is a 29 database and that migration is changing.
-@pytest.mark.xfail(reason="We do not currently have post 1.4.0 databases")
+
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -> None:
     """
     Verify that the SQL for the `read_history_for_outputs` database function is correct
     """
     password = "123456"
+    password_token = PasswordToken(password)
     mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     # Make sure we do not overwrite the original wallet database.
-    wallet_filename = "29_regtest_standard_spending_wallet_paytomany.sqlite"
+    wallet_filename = "26_regtest_standard_spending_wallet_paytomany.sqlite"
     temp_dir = tempfile.mkdtemp()
     # A subdirectory is used to avoid being picked up by the `test_legacy_wallet_loading` test
     source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
@@ -106,6 +106,11 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
     shutil.copyfile(source_wallet_path, wallet_path)
 
     storage = WalletStorage(wallet_path)
+    with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+        migration29_app_state.headers = mock_headers()
+        storage.upgrade(True, password_token)
 
     # SECTION: The test preparation.
     db_context = storage.get_db_context()
@@ -132,7 +137,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         # 2) Check that for a specified transaction hash that does exist the correct record is
         #    returned.
         tx_hash_should_exist = hex_str_to_hash(
-            "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063")
+            "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e")
 
         testdata_object: list[dict] = []
         context_text = 'transaction_exists'
@@ -159,7 +164,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         #    d) Check count=N+1 returns all N entries in correct order.
         COUNT_OF_ROWS_FOR_TX = 3
         tx_hash_should_exist = hex_str_to_hash(
-            "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063")
+            "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e")
 
         # (a)
         testdata_object: list[dict] = []

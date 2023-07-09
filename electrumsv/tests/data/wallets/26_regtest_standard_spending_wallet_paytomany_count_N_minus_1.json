@@ -1,0 +1,26 @@
+[
+    {
+        "txo_index": 1,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -50000000,
+        "block_height": 114,
+        "block_position": 1,
+        "date_created": 1687503086,
+        "tx_id": "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e",
+        "block_id": null,
+        "script_pubkey_hex": "76a914c4f5eef2b4f2db57fc876480b954d43f7fc8959f88ac"
+    },
+    {
+        "txo_index": 2,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -200000000,
+        "block_height": 114,
+        "block_position": 1,
+        "date_created": 1687503086,
+        "tx_id": "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e",
+        "block_id": null,
+        "script_pubkey_hex": "76a914a729017b0d52f47907619a60a0a3d63f1ffe346b88ac"
+    }
+]
