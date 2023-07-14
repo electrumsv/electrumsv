@@ -62,8 +62,8 @@ parent wallet and accounts.
 
 :Method: POST
 :Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/load_wallet``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/load_wallet``
 
 **Sample Response**
 
@@ -332,6 +332,19 @@ Additional outputs for leftover change will be created automatically.
 .. code-block::
 
     {
+        "utxos": [
+            {
+                "value": 100,
+                "script_pubkey": "76a914884f1ca934bc8cca71aff46d04755422198376da88ac",
+                "script_type": 2,
+                "tx_hash": "098fab209ec4a31aa69a4e486fb9660d2aeba708bef0385c24ff9e4c8b19bd82",
+                "out_index": 0,
+                "keyinstance_id": 5,
+                "address": "1DRjftGzwgNQpujPAjX3LUcqDbgGbmDSw2",
+                "is_coinbase": false,
+                "flags": 0
+            }
+        ],
         "outputs": [
             {"script_pubkey":"006a0b68656c6c6f20776f726c64", "value": 0}
         ],
