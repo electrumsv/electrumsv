@@ -26,15 +26,30 @@ Starting in the top-level directory of the electrumsv repository...
 
 In windows cmd.exe::
 
-    $ set PYTHONPATH=examples/applications
+    > set PYTHONPATH=examples/applications
+
+In windows terminal / powershell::
+
+    > $env:PYTHONPATH='examples/applications'
+
 
 In linux bash::
 
-    $ export PYTHONPATH=examples/applications
+    > export PYTHONPATH=examples/applications
 
 Then start the ElectrumSV daemon application with::
 
-    $ py -3.7 electrum-sv --restapi --testnet daemon -dapp restapi
+    > py -3.9 electrum-sv --restapi daemon -dapp restapi
+
+To disable basic authentication::
+
+    > py -3.9 electrum-sv --restapi daemon -dapp restapi --restapi-password=
+
+Otherwise, the basic auth credentials can be found in the json config file and will include a randomly generated,
+base64 encoded password for example::
+
+    "restapi_password": "GRmGKV_YWfx1mWaPEaXBGA=="
+    "restapi_username": "user"
 
 Note: **--restapi** and **--testnet** are global configuration flags to 'activate' the restapi and run on testnet
 (whether running a daemon app or in GUI wallet mode). These arguments can be placed in any order (i.e. they could come last).
@@ -42,11 +57,6 @@ Note: **--restapi** and **--testnet** are global configuration flags to 'activat
 Whereas, **-dapp restapi** loads up a daemon app (in this case called 'restapi') and will cause its additional
 endpoints to be registered onto the activated restapi. These commands are **specific to running ESV in daemon mode**, so
 must follow the **"daemon"** command.
-
-Set your REST API username and password (not implemented yet)::
-
-    $ electrum-sv setconfig restuser my_rest_username
-    $ electrum-sv setconfig restpassword my_rest_password
 
 This runs ElectrumSV as a daemon providing an extended REST API. Early stage documentation can be
 found here_:
