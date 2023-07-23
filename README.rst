@@ -105,6 +105,8 @@ MacOS::
 Linux::
 
     sudo apt-get install python3-pyqt5
+    pip3 install wheel
+    pip3 install cython==0.29.36
     pip3 install --user -r contrib/deterministic-build/linux-py3.9-requirements-electrumsv.txt
 
 Your should now be able to run ElectrumSV::
@@ -140,7 +142,7 @@ Errors relating to "libusb" installing the pip3 requirements
 
 Install the following::
 
-    sudo apt install libusb-1.0.0-dev libudev-dev
+    sudo apt-get install libusb-1.0.0-dev libudev-dev
 
 Errors relating to "Python.h"
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
