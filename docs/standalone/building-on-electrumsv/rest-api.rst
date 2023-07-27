@@ -5,7 +5,22 @@ Technically, the restapi is an example 'dapp' (daemon application). But is never
 provided in a format that aims to eventually cover the majority of basic use cases.
 
 This RESTAPI may be subject to slight changes but the example dapp source code is there for users to modify
-to suit your own specific needs.
+to suit your own specific needs. See ``examples/applications/README.rst`` for instructions.
+
+
+Wallet Creation (without using the GUI)
+#######################################
+At this time, wallet creation via the REST API is only supported on the RegTest network.
+To create a wallet and account programmatically, shutdown the ElectrumSV daemon and
+run these commands on the command-line:
+
+.. code-block::
+
+    python3 electrum-sv create_wallet -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+    python3 electrum-sv create_account -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+
+This will create a wallet called ``mywallet.sqlite`` with a wallet password of ``test`` and will add a standard BIP32
+account which uses P2PKH output scripts for receiving payments.
 
 Endpoints
 ##########

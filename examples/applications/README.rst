@@ -63,6 +63,20 @@ found here_:
 
 .. _here: https://documenter.getpostman.com/view/9976147/SWLib6gk?version=latest
 
+
+Creating a Wallet
+-----------------
+At this time, wallet creation via the REST API is only supported on the RegTest network.
+To create a wallet and account programmatically, shutdown the ElectrumSV daemon and
+run these commands on the command-line:
+
+    python3 electrum-sv create_wallet -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+    python3 electrum-sv create_account -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+
+This will create a wallet called "mywallet.sqlite" with a wallet password of "test" and will add a standard BIP32
+account which uses P2PKH output scripts for receiving payments.
+
+
 Future possibilities include:
 - Dedicated B and BCAT handlers for ease of file uploads.
 - Websockets to ElectrumX subscriptions
