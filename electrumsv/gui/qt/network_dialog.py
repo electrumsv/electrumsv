@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 from __future__ import annotations
+import concurrent.futures
 import dataclasses
 import datetime
 import enum
@@ -56,6 +57,7 @@ from ...network_support.headers import HeaderServerState, ServerConnectivityMeta
 from ...types import ServerAccountKey
 from ...util import get_posix_timestamp
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
+from ...wallet_database.exceptions import DatabaseUpdateError
 from ...wallet_database.types import NetworkServerRow
 
 from .table_widgets import TableTopButtonLayout
@@ -870,8 +872,10 @@ class EditServerDialog(WindowModalDialog):
         assert self._is_form_valid(), "should only get here if the form is valid and it is not"
 
         server_type = self._get_server_type()
-        # We normalise the url and remove the suffix to ensure less change of duplicates.
-        server_url = self._server_url_edit.text().strip().lower().removesuffix("/")
+        # We normalise the url to always end with "/" to reduce the chance of duplicates
+        server_url = self._server_url_edit.text().strip().lower()
+        if not server_url.endswith("/"):
+            server_url += "/"
 
         if server_type in API_SERVER_TYPES:
             self._save_api_server(server_type, server_url)
@@ -1277,6 +1281,17 @@ class ServersListWidget(QTableWidget):
                 self):
             return
 
+        def done_callback(future: concurrent.futures.Future[list[NetworkServerRow]]) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            try:
+                future.result()
+            except DatabaseUpdateError as e:
+                self._main_window_weakref.show_error(e.args[0])
+
+            self.server_disconnected_signal.emit()
+
         if entry.data_api is not None:
             # Delete this server completely from any loaded wallets.
             base_server_key = ServerAccountKey(entry.url, entry.server_type, None)
@@ -1289,9 +1304,10 @@ class ServersListWidget(QTableWidget):
                     delete_server_keys.append(ServerAccountKey(entry.url,
                         entry.server_type, account_id))
                 future = self._wallet_weakref.update_network_servers([], [], delete_server_keys, {})
+                future.add_done_callback(done_callback)
                 future.result()
-
-            self._parent_tab.update_servers()
+            else:
+                self._parent_tab.update_servers()
         else:
             raise NotImplementedError(f"Unsupported server type {entry.server_type}")
 

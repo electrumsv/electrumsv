@@ -79,8 +79,8 @@ async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp
                 raise ServiceUnavailableError("The Header API is not enabled for this server")
 
             if response.status != http.HTTPStatus.OK:
-                error_message = f"get_chain_tips failed with status: {response.status}, " \
-                                f"reason: {response.reason}"
+                error_message = f"get_chain_tips failed for {url} with status: " \
+                                f"{response.status}, reason: {response.reason}"
                 logger.error(error_message)
                 raise HeaderResponseError(error_message)
 

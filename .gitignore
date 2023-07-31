@@ -51,8 +51,7 @@ libzbar-0.dll
 # Mypy
 .mypy*
 *.log
-electrum_sv_data
-electrum_sv_data/regtest/*
+electrum_sv_data/*
 electrumsv1/*
 contrib/functional_tests/stresstesting/.benchmarks/*
 electrum-sv-regtest.py

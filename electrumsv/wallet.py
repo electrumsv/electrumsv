@@ -3251,6 +3251,7 @@ class Wallet:
             for specific_server_key in deleted_server_keys:
                 server = self._servers[specific_server_key.to_base_key()]
                 server.clear_server_account_usage(specific_server_key)
+                del self._servers[specific_server_key.to_base_key()]
 
         # The `added_server_rows` do not yet have an assigned primary key value, and are not
         # representative of the actual added rows.
