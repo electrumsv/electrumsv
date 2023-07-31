@@ -1,7 +1,7 @@
 [
   {
         "id": 20000,
-        "url": "https://x.bitcoinsv.io/",
+        "url": "https://www.conduit-db.com/",
         "type": "GENERAL",
         "capabilities": [
             "HEADERS",
@@ -34,7 +34,7 @@
     {
         "id": 30001,
         "type": "DPP_PROXY",
-        "url": "https://x.bitcoinsv.io/dpp-proxy/",
+        "url": "https://www.conduit-db.com/dpp-proxy/",
         "api_key_required": false,
         "static_data_date": "2021-07-6T04:45:05+0000"
     }
