@@ -17,7 +17,8 @@ import aiohttp
 from aiohttp.test_utils import TestClient
 from aiohttp import web
 import bitcoinx
-from bitcoinx import Chain, Header, hash_to_hex_str, hex_str_to_hash
+from bitcoinx import Chain, Header, Headers, hash_to_hex_str, hex_str_to_hash, Bitcoin, \
+    BitcoinRegtest, MissingHeader
 import pytest
 
 from electrumsv.app_state import AppStateProxy
@@ -25,7 +26,6 @@ from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTe
     ScriptType, TransactionOutputFlag, TxFlag
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
-from electrumsv.networks import SVRegTestnet
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
 from electrumsv.nodeapi import RPCError
@@ -43,6 +43,7 @@ from .conftest import get_small_tx
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
 from ..bitcoin import COIN
+from ..cached_headers import read_cached_headers
 
 TEST_NODEAPI_PATH = os.path.join(TEST_DATA_PATH, "node_api")
 TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
@@ -285,7 +286,7 @@ def test_get_wallet_from_request_explicit_success(app_state_nodeapi: AppStatePro
     assert dummy_wallet is wallet
 
 async def test_nodeapi_startup_async() -> None:
-    server = nodeapi.NodeAPIServer()
+    server = nodeapi.NodeAPIServer(host="0.0.0.0")
     asyncio.create_task(server.run_async())
     try:
         # This will raise an `asyncio.TimeoutError` if it does not succeed leading to a test fail.
@@ -902,7 +903,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
         },
     ),
     # Note: Block hash 425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8 is known
-    # to be on the longest chain at height 13 for headers2_paytomany bitcoinx.Headers store
+    # to be on the longest chain at height 13 for headers3_paytomany bitcoinx.Headers store
     (['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], {
                 'amount': 0.5,
                 'blockhash': '425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8',
@@ -953,7 +954,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
         },
     ),
     # Note: Block hash 639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f is known
-    # to be on the longest chain at height 50 for headers2_paytomany bitcoinx.Headers store
+    # to be on the longest chain at height 50 for headers3_paytomany bitcoinx.Headers store
     (["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"], {
             'amount': 3.0,
             'blockhash': '639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f',
@@ -1006,17 +1007,25 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
     wallet.get_local_height.side_effect = get_local_height
 
     MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
-    headers = bitcoinx.Headers(network=bitcoinx.BitcoinRegtest,
-        file_path=str(MODULE_DIR / "data" / "headers" / "headers2_paytomany"),
-        checkpoint=SVRegTestnet.CHECKPOINT)
+    file_path = str(MODULE_DIR / "data" / "headers" / "headers3_paytomany")
+    headers, cursor = read_cached_headers(BitcoinRegtest, file_path)
 
     # This is not mocking and I don't know why!
     wallet.get_current_chain.side_effect = headers.longest_chain
 
     def lookup_header_for_hash(block_hash: bytes) -> tuple[Header, Chain] | None:
-        return headers.lookup(block_hash)
+        # The bitcoinx Headers.lookup method API has changed in v0.8
+        # it used to return a tuple[Header, Chain] and raise MissingHeader if no header
+        # was found. This allows us to expose the same API from app_state.lookup as before.
+        chain: Chain
+        chain, height = headers.lookup(block_hash)
+        if chain is None:
+            raise MissingHeader(f"No header found for hash: "
+                                f"{hash_to_hex_str(block_hash)}")
+        header = chain.header_at_height(height)
+        return header, chain
 
-    wallet.lookup_header_for_hash = lookup_header_for_hash
+    wallet.lookup_header_for_hash.side_effect = lookup_header_for_hash
 
     def get_transaction(transaction_hash: bytes) -> Transaction:
         if transaction_hash == \
@@ -1151,17 +1160,25 @@ async def test_call_listtransaction_success_async(app_state_nodeapi: AppStatePro
     wallet.get_local_height.side_effect = get_local_height
 
     MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
-    headers = bitcoinx.Headers(network=bitcoinx.BitcoinRegtest,
-        file_path=str(MODULE_DIR / "data" / "headers" / "headers2_paytomany"),
-        checkpoint=SVRegTestnet.CHECKPOINT)
+    headers, cursor = read_cached_headers(BitcoinRegtest,
+        file_path=str(MODULE_DIR / "data" / "headers" / "headers3_paytomany"))
 
     # This is not mocking and I don't know why!
     wallet.get_current_chain.side_effect = headers.longest_chain
 
     def lookup_header_for_hash(block_hash: bytes) -> tuple[Header, Chain] | None:
-        return headers.lookup(block_hash)
+        # The bitcoinx Headers.lookup method API has changed in v0.8
+        # it used to return a tuple[Header, Chain] and raise MissingHeader if no header
+        # was found. This allows us to expose the same API from app_state.lookup as before.
+        chain: Chain
+        chain, height = headers.lookup(block_hash)
+        if chain is None:
+            raise MissingHeader(f"No header found for hash: "
+                                f"{hash_to_hex_str(block_hash)}")
+        header = chain.header_at_height(height)
+        return header, chain
 
-    wallet.lookup_header_for_hash = lookup_header_for_hash
+    wallet.lookup_header_for_hash.side_effect = lookup_header_for_hash
 
     def get_transaction(transaction_hash: bytes) -> Transaction:
         if transaction_hash == \

@@ -7,16 +7,15 @@ from typing import AsyncIterable, cast, Optional
 
 import aiohttp
 import bitcoinx
-from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header
+from bitcoinx import (Chain, deserialized_header, double_sha256,
+                      hash_to_hex_str, Header)
 
 from ..app_state import app_state
 from ..exceptions import ServiceUnavailableError
 from ..logs import logs
-from ..networks import Net
 from ..types import ServerAccountKey
-
-from .types import TipResponse
 from .exceptions import HeaderNotFoundError, HeaderResponseError
+from .types import TipResponse
 
 logger = logs.get_logger("header-client")
 
@@ -94,7 +93,7 @@ async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp
                 raw_header = stream.read(80)
                 height = bitcoinx.le_bytes_to_int(stream.read(4))
                 # TODO(technical-debt) Look into why this is not `Net.COIN`?
-                block_headers.append(Net._net.COIN.deserialized_header(raw_header, height))
+                block_headers.append(deserialized_header(raw_header, height))
             return block_headers
     except aiohttp.ClientConnectionError:
         raise ServiceUnavailableError(f"Cannot connect to header API at {url}")
@@ -152,9 +151,9 @@ def get_longest_valid_chain() -> Chain:
     # TODO(1.4.0) Networking UI, issue#905. This should filter out chains the user wants to ignore.
     #     It is envisaged that this will be done through the network dialog.
     assert app_state.headers is not None
-    chains = cast(list[Chain], app_state.headers.chains())
+    chains = list(app_state.headers.chains())
     longest_chain = chains[0]
     for chain in chains:
-        if chain.work > longest_chain.work:
+        if chain.chainwork > longest_chain.chainwork:
             longest_chain = chain
     return longest_chain

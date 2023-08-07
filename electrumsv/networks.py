@@ -32,11 +32,11 @@
 import json
 from typing import Any, Literal, Type
 
-from bitcoinx import Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, BitcoinRegtest, CheckPoint
+from bitcoinx import (
+    Bitcoin, BitcoinRegtest, BitcoinScalingTestnet, BitcoinTestnet
+)
 
 from .util import resource_path
-
-
 
 NetworkNames = Literal["mainnet", "testnet", "scalingtestnet", "regtest"]
 TEST_NETWORK_NAMES: set[NetworkNames] = { "regtest", "testnet", "scalingtestnet" }
@@ -67,12 +67,6 @@ class SVMainnet(object):
     )
 
     COIN = Bitcoin
-
-    # A post-split SV checkpoint.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c'
-    ), height=0, prev_work=0)
     VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 0
@@ -119,13 +113,6 @@ class SVTestnet(object):
     )
 
     COIN = BitcoinTestnet
-
-    # A post-split SV checkpoint.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '00000020b9ea0b497adc73aff2e3d2c3663db12bdf4f8d612d3317e76700000000000000b1e1eda1'
-        '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
-    ), height=1377549, prev_work=0xade538ee77b27b019d)
-
     VERIFICATION_BLOCK_MERKLE_ROOT: str | None = (
         'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
     )
@@ -179,22 +166,6 @@ class SVScalingTestnet(object):
     # )
 
     COIN = BitcoinScalingTestnet
-
-    # Replace after sufficient time has passed after a chain reset.
-    # CHECKPOINT = CheckPoint(bytes.fromhex(
-    #     '0000002050c936fce8c10522b399a9feee9c48fba7c409561d0553369fd6dc0a00000000735d99a4'
-    #     '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
-    # ), height=15789, prev_work=0x12c8202e00871)
-
-    # VERIFICATION_BLOCK_MERKLE_ROOT: str | None = (
-    #     '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
-    # )
-
-    # Use the following for a chain reset.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
-    ), height=0, prev_work=0)
     VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 1
@@ -227,7 +198,6 @@ class SVScalingTestnet(object):
 
 
 class SVRegTestnet(object):
-    MIN_CHECKPOINT_HEIGHT = 0
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
@@ -239,12 +209,6 @@ class SVRegTestnet(object):
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
     COIN = BitcoinRegtest
-
-    # Use the following for a chain reset.
-    CHECKPOINT = CheckPoint(bytes.fromhex(
-        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000'
-    ), height=0, prev_work=0)
     VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 1

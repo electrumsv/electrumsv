@@ -43,10 +43,12 @@ import time
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
 
-from bitcoinx import Chain, Header, MissingHeader
+from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
 
 from .async_ import ASync
-from .cached_headers import close_headers_object, read_cached_headers, write_cached_headers
+from .cached_headers import (
+    HeaderPersistenceCursor, read_cached_headers, write_cached_headers
+)
 from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
@@ -116,6 +118,7 @@ class AppStateProxy(object):
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
         self.headers: Headers | None = None
+        self.headers_cursor: HeaderPersistenceCursor = {}
         self._headers_lock = threading.RLock()
         self._last_headers_save: float|None = time.time()
         # Not entirely sure these are worth caching, but preserving existing method for now
@@ -137,14 +140,16 @@ class AppStateProxy(object):
         if os.path.exists(checkpointed_headers_filepath):
             os.remove(checkpointed_headers_filepath)
 
+        # Remove headers2 file that has metadata at the beginning of the file (bitcoinx <=0.7.1)
         headers2_filepath = os.path.join(self.config.path, "headers2")
-        if Net.is_mainnet() and not os.path.exists(headers2_filepath):
-            base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
-            shutil.copyfile(base_headers2_filepath, headers2_filepath)
+        if os.path.exists(headers2_filepath):
+            os.remove(headers2_filepath)
 
-            if os.path.exists(base_headers2_filepath +".chain_data"):
-                shutil.copyfile(base_headers2_filepath +".chain_data",
-                    headers2_filepath +".chain_data")
+        # 3.x versions are a plain raw headers dump (bitcoinx >= 0.8)
+        headers3_filepath = os.path.join(self.config.path, "headers3")
+        if Net.is_mainnet() and not os.path.exists(headers3_filepath):
+            base_headers3_filepath = os.path.join(package_dir, "data", "headers3_mainnet")
+            shutil.copyfile(base_headers3_filepath, headers3_filepath)
 
     def shutdown(self) -> None:
         self.credentials.close()
@@ -172,11 +177,10 @@ class AppStateProxy(object):
 
     def headers_filename(self) -> str:
         # 1.3.13 and earlier was "headers", renamed due to stopping checkpointing.
-        return os.path.join(self.config.path, 'headers2')
+        return os.path.join(self.config.path, 'headers3')
 
     def read_headers(self) -> None:
-        self.headers = read_cached_headers(Net.COIN, self.headers_filename(),
-            Net.CHECKPOINT)
+        self.headers, self.headers_cursor = read_cached_headers(Net.COIN, self.headers_filename())
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.debug("chain #%d: %s", n, chain.desc())
 
@@ -205,7 +209,17 @@ class AppStateProxy(object):
         """
         assert self.headers is not None
         with self._headers_lock:
-            return cast(tuple[Header, Chain], self.headers.lookup(block_hash))
+
+            # The bitcoinx Headers.lookup method API has changed in v0.8
+            # it used to return a tuple[Header, Chain] and raise MissingHeader if no header
+            # was found. This allows us to expose the same API from app_state.lookup as before.
+            chain: Chain
+            chain, height = self.headers.lookup(block_hash)
+            if chain is None:
+                raise MissingHeader(f"No header found for hash: "
+                    f"{hash_to_hex_str(block_hash)}")
+            header = chain.header_at_height(height)
+            return header, chain
 
     def header_at_height(self, chain: Chain, block_height: int) -> Header:
         """
@@ -251,7 +265,7 @@ class AppStateProxy(object):
         """
         with self._headers_lock:
             logger.debug("Writing cached headers state")
-            write_cached_headers(self.headers)
+            self.headers_cursor = write_cached_headers(self.headers, self.headers_cursor, self)
             self._last_headers_save = time.time()
 
     async def _follow_longest_valid_chain(self) -> None:
@@ -265,7 +279,7 @@ class AppStateProxy(object):
         from .network_support.headers import get_longest_valid_chain
 
         current_chain = get_longest_valid_chain()
-        current_tip_header = cast(Header, current_chain.tip)
+        current_tip_header = cast(Header, current_chain.tip())
         while True:
             await self.headers_update_event.wait()
 
@@ -273,7 +287,7 @@ class AppStateProxy(object):
             previous_tip_header = current_tip_header
 
             current_chain = get_longest_valid_chain()
-            current_tip_header = cast(Header, current_chain.tip)
+            current_tip_header = cast(Header, current_chain.tip())
             # It is possible for this to be sent when there is no change.
             if current_tip_header == previous_tip_header:
                 continue
@@ -311,8 +325,6 @@ class AppStateProxy(object):
         if self.headers is not None:
             with self._headers_lock:
                 self.write_cached_headers_state()
-                logger.debug("Closing headers store")
-                close_headers_object(self.headers)
 
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)
