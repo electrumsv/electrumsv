@@ -1296,7 +1296,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     # NOTE(typing) Type is incompatible with same type, who knows? Error message as follows:
     # `Argument 1 to "update" of "TypedDict" has incompatible type "IndexerServerSettings";
     # expected "TypedDict({'tipFilterCallbackUrl'?: str | None})"  [typeddict-item]`
-    indexing_server_state.indexer_settings.update(settings_delta_object) # type: ignore
+    indexing_server_state.indexer_settings.update(settings_delta_object)
     if settings_object != indexing_server_state.indexer_settings:
         # TODO(1.4.0) Unreliable server, issue#841. Differing server indexer settings after setup.
         #     Server unreliability case OR user unreliability with clashing wallets open using
