@@ -61,5 +61,5 @@ Pipfile
 Pipfile.lock
 
 # local data directories
-electrum_sv_data/regtest/*
+electrum_sv_data/*
 instance_*

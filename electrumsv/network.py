@@ -465,7 +465,7 @@ class SVSession(RPCSession):
             self.logger.debug(f'negotiated protocol: {protocol_string}')
             self.ptuple = protocol_tuple(protocol_string)
             assert PROTOCOL_MIN <= self.ptuple <= PROTOCOL_MAX
-        except (AssertionError, ValueError) as e:
+        except (AssertionError, TypeError, ValueError) as e:
             raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
 
     async def _get_checkpoint_headers(self):
