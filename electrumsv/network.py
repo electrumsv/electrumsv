@@ -52,7 +52,7 @@ from .i18n import _
 from .logs import logs
 from .transaction import Transaction
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
-from .networks import Net
+from .networks import Net, SVRegTestnet
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 if TYPE_CHECKING:
@@ -1110,10 +1110,17 @@ class Network(TriggeredCallbacks):
             except Exception:
                 pass
         if not isinstance(main_server, SVServer):
-            logger.info('choosing an SSL server randomly; none in config')
-            main_server = self._random_server_nowait('s')
-            if not main_server:
-                raise RuntimeError('no servers available')
+            if Net._net is not SVRegTestnet:
+                logger.info('choosing an SSL server randomly; none in config')
+                main_server = self._random_server_nowait('s')
+                if not main_server:
+                    raise RuntimeError('no servers available')
+            else:
+                logger.info('choosing an non-SSL server randomly for regtest; none in config')
+                main_server = self._random_server_nowait('t')
+                if not main_server:
+                    raise RuntimeError('no servers available')
+
         proxy = app_state.config.get('proxy', None)
         if isinstance(proxy, str):
             proxy = SVProxy.from_string(proxy)

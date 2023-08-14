@@ -262,7 +262,7 @@ class SVRegTestnet(object):
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
-    DEFAULT_PORTS = {'t': '51001', 's': '51002'}
+    DEFAULT_PORTS = {'t': '51001'}
     DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'regtest'
