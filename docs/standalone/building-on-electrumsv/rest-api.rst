@@ -5,7 +5,22 @@ Technically, the restapi is an example 'dapp' (daemon application). But is never
 provided in a format that aims to eventually cover the majority of basic use cases.
 
 This RESTAPI may be subject to slight changes but the example dapp source code is there for users to modify
-to suit your own specific needs.
+to suit your own specific needs. See ``examples/applications/README.rst`` for instructions.
+
+
+Wallet Creation (without using the GUI)
+#######################################
+At this time, wallet creation via the REST API is only supported on the RegTest network.
+To create a wallet and account programmatically, shutdown the ElectrumSV daemon and
+run these commands on the command-line:
+
+.. code-block::
+
+    python3 electrum-sv create_wallet -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+    python3 electrum-sv create_account -w ~/.electrum-sv/wallets/mywallet.sqlite -wp test --no-password-check
+
+This will create a wallet called ``mywallet.sqlite`` with a wallet password of ``test`` and will add a standard BIP32
+account which uses P2PKH output scripts for receiving payments.
 
 Endpoints
 ##########
@@ -62,8 +77,8 @@ parent wallet and accounts.
 
 :Method: POST
 :Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite``
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/load_wallet``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/load_wallet``
 
 **Sample Response**
 
@@ -332,6 +347,19 @@ Additional outputs for leftover change will be created automatically.
 .. code-block::
 
     {
+        "utxos": [
+            {
+                "value": 100,
+                "script_pubkey": "76a914884f1ca934bc8cca71aff46d04755422198376da88ac",
+                "script_type": 2,
+                "tx_hash": "098fab209ec4a31aa69a4e486fb9660d2aeba708bef0385c24ff9e4c8b19bd82",
+                "out_index": 0,
+                "keyinstance_id": 5,
+                "address": "1DRjftGzwgNQpujPAjX3LUcqDbgGbmDSw2",
+                "is_coinbase": false,
+                "flags": 0
+            }
+        ],
         "outputs": [
             {"script_pubkey":"006a0b68656c6c6f20776f726c64", "value": 0}
         ],

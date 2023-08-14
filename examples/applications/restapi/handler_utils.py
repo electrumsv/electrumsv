@@ -100,7 +100,7 @@ class ExtendedHandlerUtils(HandlerUtils):
     def __init__(self):
         super().__init__()
         self.logger = logs.get_logger("ext-handler-utils")
-        self.wallets_path = os.path.join(app_state.config.electrum_path(), "wallets")
+        self.wallets_path = app_state.config.get_preferred_wallet_dirpath()
         self.all_wallets = self._get_all_wallets(self.wallets_path)
         self.app_state = app_state  # easier to monkeypatch for testing
         self.prev_transaction = ''
