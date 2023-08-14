@@ -153,7 +153,7 @@ class DisconnectSessionError(Exception):
 
     def __init__(self, reason, *, blacklist=False):
         super().__init__(reason)
-        self.blacklist = False
+        self.blacklist = blacklist
 
 
 class SVServerState:
