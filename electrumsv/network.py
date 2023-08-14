@@ -461,9 +461,12 @@ class SVSession(RPCSession):
         args = (PACKAGE_VERSION, [ version_string(PROTOCOL_MIN), version_string(PROTOCOL_MAX) ])
         try:
             server_string, protocol_string = await self.send_request(method, args)
+            assert isinstance(server_string, str)
+            assert isinstance(protocol_string, str)
             self.logger.debug(f'server string: {server_string}')
             self.logger.debug(f'negotiated protocol: {protocol_string}')
             self.ptuple = protocol_tuple(protocol_string)
+            assert len(self.ptuple) in (2, 3)
             assert PROTOCOL_MIN <= self.ptuple <= PROTOCOL_MAX
         except (AssertionError, TypeError, ValueError) as e:
             raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
