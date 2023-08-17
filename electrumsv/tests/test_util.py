@@ -1,7 +1,7 @@
 import pytest
 import unittest
 
-from electrumsv.util import format_satoshis, get_identified_release_signers
+from electrumsv.util import format_satoshis, get_identified_release_signers, protocol_tuple
 from electrumsv.util.cache import LRUCache
 
 from .conftest import get_tx_datacarrier_size, get_tx_small_size
@@ -12,6 +12,38 @@ SIZEOF_TEST_TX_SMALL = get_tx_small_size()
 
 
 class TestUtil(unittest.TestCase):
+    def test_protocol_tuple(self):
+        bad_input1 = ""
+        bad_input2 = "..."
+        bad_input3 = 100
+        bad_input4 = [1, 4, 2]
+        bad_input5 = 1.4
+        bad_input6 = (1, 4, 2)
+        bad_input7 = "letters"
+        bad_input8 = None
+
+        good_input1 = "1.4.2"
+        good_input2 = "1.4"
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input1)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input2)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input3)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input4)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input5)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input6)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input7)
+        with pytest.raises(ValueError):
+            protocol_tuple(bad_input8)
+
+        assert protocol_tuple(good_input1) == (1, 4, 2)
+        assert protocol_tuple(good_input2) == (1, 4)
+
     def test_format_satoshis(self):
         result = format_satoshis(1234)
         expected = "0.00001234"

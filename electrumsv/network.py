@@ -153,7 +153,7 @@ class DisconnectSessionError(Exception):
 
     def __init__(self, reason, *, blacklist=False):
         super().__init__(reason)
-        self.blacklist = False
+        self.blacklist = blacklist
 
 
 class SVServerState:
@@ -461,11 +461,14 @@ class SVSession(RPCSession):
         args = (PACKAGE_VERSION, [ version_string(PROTOCOL_MIN), version_string(PROTOCOL_MAX) ])
         try:
             server_string, protocol_string = await self.send_request(method, args)
+            assert isinstance(server_string, str)
+            assert isinstance(protocol_string, str)
             self.logger.debug(f'server string: {server_string}')
             self.logger.debug(f'negotiated protocol: {protocol_string}')
             self.ptuple = protocol_tuple(protocol_string)
+            assert len(self.ptuple) in (2, 3)
             assert PROTOCOL_MIN <= self.ptuple <= PROTOCOL_MAX
-        except (AssertionError, ValueError) as e:
+        except (AssertionError, TypeError, ValueError) as e:
             raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
 
     async def _get_checkpoint_headers(self):
