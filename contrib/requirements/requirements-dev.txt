@@ -1,3 +1,4 @@
+cython==0.29.36
 mypy
 # 2023-05-01 RT: This requires click>8 and trezor requires click<8, so we just remove this. Install
 #     it yourself. It's only needed for freezing the dependencies.

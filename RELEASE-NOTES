@@ -36,6 +36,11 @@ at first, to yourself, to confirm the network is processing your transactions as
 ElectrumSV
 -----------
 
+# Release 1.3.17
+  * Release guide: https://electrumsv.io/articles/2023/electrumsv-1_3_17.html
+  * Reliability: Make our networking code more resilient so that it does not error unexpectedly
+    leaving users unable to connect to a server.
+
 # Release 1.3.16
   * Release guide: https://electrumsv.io/articles/2023/electrumsv-1_3_16.html
   * Security: Due to the packages we depend on, we bundle the root certificates that are used

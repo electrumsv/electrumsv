@@ -279,7 +279,9 @@ class SVServer:
         return f'SVServer("{self.host}", {self.port}, "{self.protocol}")'
 
     def __str__(self):
-        return str(self.to_json()[:3])
+        if self.protocol == "s":
+            return f"https://{self.host}:{self.port}"
+        return f"http://{self.host}:{self.port}"
 
 
 class SVUserAuth(SOCKSUserAuth):
@@ -989,7 +991,7 @@ class Network(TriggeredCallbacks):
             try:
                 await server.connect(self, n)
             except (OSError, SOCKSError) as e:
-                logger.warning(f'{server} connection error: {e}')
+                logger.warning(f'connection attempt failed for "{server}": {e}')
             finally:
                 self.chosen_servers.remove(server)
 
@@ -1007,7 +1009,7 @@ class Network(TriggeredCallbacks):
         good_servers = [session.server for session in self.sessions
                         if session.server.state.last_good > now - 60]
         if not good_servers:
-            logger.warning(f'no good servers available')
+            logger.warning('no good servers available yet')
         elif self.main_server not in good_servers:
             if self.auto_connect():
                 await self._set_main_server(random.choice(good_servers), reason)
