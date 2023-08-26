@@ -37,6 +37,7 @@ from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.networks import BitcoinRegtest, Net
 from electrumsv.startup import base_dir
+from electrumsv.transaction import TxContext
 from electrumsv.types import KeyStoreResult, TransactionSize
 
 from .handler_utils import ExtendedHandlerUtils, VNAME, WalletInstanceKind, WalletInstancePaths
@@ -549,8 +550,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         # if not attempted_split:
         #     fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
         #     return fault_to_http_response(fault)
-        tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
-        future = account.sign_transaction(tx, password, tx_context)
+        tx = Transaction.from_io([], outputs)
+        tx_context = TxContext(fee_quote=app_state.config.get_fee_estimator())
+        tx, _utxos = account.make_unsigned_tx(tx, tx_context, utxos)
+        future = account.sign_transactions([tx], [tx_context], password)
         if future is not None:
             future.result()
         self.raise_for_duplicate_tx(tx)

@@ -13,7 +13,7 @@ from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey, sh
 from ...bitcoin import scripthash_bytes
 from ...constants import BlockHeight, CHANGE_SUBPATH, DerivationType, \
     DerivationPath, KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType, \
-    TransactionInputFlag, TransactionOutputFlag
+    TXIFlag, TXOFlag
 from ...exceptions import DatabaseMigrationError
 from ...i18n import _
 from ...keystore import (Imported_KeyStore, instantiate_keystore, KeyStore,
@@ -59,7 +59,7 @@ class PossibleScript(NamedTuple):
 class TXOData(NamedTuple):
     key: Outpoint
     value: int
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     exists: bool
 
 class TXIInsertRow(NamedTuple):
@@ -80,7 +80,7 @@ class TXOInsertRow(NamedTuple):
     txo_index: int
     value: int
     keyinstance_id: int | None
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_hash: bytes
     script_type: ScriptType
     script_offset: int
@@ -93,7 +93,7 @@ class TXOInsertRow(NamedTuple):
 class TXOUpdateRow(NamedTuple):
     # These are ordered and aligned with the SQL statement.
     keyinstance_id: int | None
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_hash: bytes
     script_type: ScriptType
     script_offset: int
@@ -230,8 +230,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             raise DatabaseMigrationError("Transaction data mismatch "+ hash_to_hex_str(tx_hash) +
                 " vs "+ hash_to_hex_str(tx.hash()))
 
-        base_txo_flags = TransactionOutputFlag.COINBASE if tx.is_coinbase() \
-            else TransactionOutputFlag.NONE
+        base_txo_flags = TXOFlag.COINBASE if tx.is_coinbase() \
+            else TXOFlag.NONE
 
         # Collect the change to the transaction.
         tx_updates.append((tx.version, tx.locktime, date_updated, tx_hash))
@@ -239,17 +239,17 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         # Create the inputs for the transaction.
         for txi_index, txi in enumerate(tx.inputs):
             txi_inserts[Outpoint(txi.prev_hash, txi.prev_idx)] = TXIInsertRow(tx_hash, txi_index,
-                txi.prev_hash, txi.prev_idx, txi.sequence, TransactionInputFlag.NONE,
+                txi.prev_hash, txi.prev_idx, txi.sequence, TXIFlag.NONE,
                 txi.script_offset, txi.script_length, date_created, date_created)
 
         # Create/update the outputs for the transaction.
         for txo_index, txo in enumerate(tx.outputs):
             script_hash = scripthash_bytes(txo.script_pubkey)
             txo_entry = txo_existing_entries.get((tx_hash, txo_index))
-            txo_flags: TransactionOutputFlag
+            txo_flags: TXOFlag
             if txo_entry is not None:
                 # This flag has been removed.
-                txo_flags = TransactionOutputFlag(
+                txo_flags = TXOFlag(
                     txo_entry.flags & ~TransactionOutputFlag1.USER_SET_FROZEN)
                 txo_updates[Outpoint(tx_hash, txo_index)] = TXOUpdateRow(txo_entry.keyinstance_id,
                     txo_flags, script_hash, ScriptType.NONE, txo.script_offset, txo.script_length,
@@ -407,16 +407,16 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             if txo_update:
                 # The output already exists. So there should already be a positive tx delta also.
                 if txi_spend:
-                    if txo_data.flags & TransactionOutputFlag.SPENT:
+                    if txo_data.flags & TXOFlag.SPENT:
                         assert txo_update.keyinstance_id == keyinstance_id, \
                             "Transaction output spending key does not match"
                     else:
                         # EFFECT: Account for a previously unrecognised spend.
-                        txo_flags |= TransactionOutputFlag.SPENT
+                        txo_flags |= TXOFlag.SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index
                 else:
-                    if txo_data.flags & TransactionOutputFlag.SPENT:
+                    if txo_data.flags & TXOFlag.SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
                 txo_updates[txo_data.key] = txo_update._replace(
                     flags=txo_flags,
@@ -428,7 +428,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 txo_insert = txo_inserts[txo_data.key]
                 txo_flags = txo_data.flags
                 if txi_spend:
-                    txo_flags |= TransactionOutputFlag.SPENT
+                    txo_flags |= TXOFlag.SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index
                 txo_inserts[txo_data.key] = txo_insert._replace(

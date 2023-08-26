@@ -3,7 +3,7 @@ from typing import Literal, TYPE_CHECKING, TypedDict
 
 
 if TYPE_CHECKING:
-    from ..types import FeeQuoteTypeEntry
+    from ..types import FeeQuoteTypeEntry1, FeeQuoteTypeEntry2, FeeQuoteTypeFee
 
 
 # A MAPI fee quote is packaged according to the JSON envelope BRFC.
@@ -16,8 +16,28 @@ class FeeQuote(TypedDict):
     minerId: str
     currentHighestBlockHash: str
     currentHighestBlockHeight: int
-    fees: list[FeeQuoteTypeEntry]
+    fees: list[FeeQuoteTypeEntry1]
 
+
+def convert_mapi_fees(fees: list[FeeQuoteTypeEntry1]) -> FeeQuoteTypeEntry2:
+    """
+    MAPI historically contained a list of fees for two different types, mining and relay.
+
+    Raises `ValueError` if the MAPI fee quote is not correctly structured.
+    """
+    data_fees: FeeQuoteTypeFee|None = None
+    standard_fees: FeeQuoteTypeFee|None = None
+    for fee_dict in fees:
+        if fee_dict["feeType"] == "data":
+            data_fees = fee_dict["miningFee"]
+        elif fee_dict["feeType"] == "standard":
+            standard_fees = fee_dict["miningFee"]
+
+    if standard_fees is None:
+        raise ValueError("MAPI fee quote is corrupt")
+    if data_fees is None:
+        data_fees = standard_fees
+    return { "data": data_fees, "standard": standard_fees }
 
 class MAPIBroadcastConflict(TypedDict):
     txid: str # Canonical hex transaction id.

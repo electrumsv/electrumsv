@@ -48,8 +48,8 @@ from ..constants import NetworkServerFlag, NetworkServerType, ServerCapability
 from ..i18n import _
 from ..logs import logs
 from ..standards.json_envelope import JSONEnvelope
-from ..standards.mapi import FeeQuote
-from ..types import IndefiniteCredentialId, ServerAccountKey
+from ..standards.mapi import FeeQuote, convert_mapi_fees
+from ..types import FeeQuoteTypeEntry2, IndefiniteCredentialId, ServerAccountKey
 from ..util import get_posix_timestamp
 from ..wallet_database.types import NetworkServerRow
 
@@ -282,12 +282,12 @@ class NewServer:
         self.database_rows[key] = self.database_rows[key]._replace(
             tip_filter_peer_channel_id=peer_channel_id)
 
-    def get_fee_quote(self, credential_id: IndefiniteCredentialId | None) -> FeeQuote | None:
+    def get_fee_quote(self, credential_id: IndefiniteCredentialId|None) -> FeeQuoteTypeEntry2|None:
         access_state = self.api_key_state[credential_id]
         if access_state.last_fee_quote is None or \
                 check_fee_quote_expired(access_state.last_fee_quote, OVERRIDE_EXPIRY_DATE):
             return None
-        return access_state.last_fee_quote
+        return convert_mapi_fees(access_state.last_fee_quote["fees"])
 
     def should_request_fee_quote(self, credential_id: IndefiniteCredentialId | None) \
             -> RequestFeeQuoteResult:

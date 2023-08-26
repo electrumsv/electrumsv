@@ -23,16 +23,20 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 from math import floor, log10
-from typing import Any, Callable, cast, Dict, List, NamedTuple, Sequence, Set, Tuple, TypeVar
+from typing import Any, Callable, cast, NamedTuple, Sequence, TYPE_CHECKING, TypeVar
 
 from bitcoinx import sha256
 
 from .bitcoin import COIN
 from .logs import logs
-from .transaction import Transaction, XTxInput, XTxOutput
-from .types import FeeEstimatorProtocol, TransactionSize
+from .transaction import estimate_fee, Transaction, XTxOutput
+from .types import FeeQuoteTypeEntry2, TransactionSize
 from .exceptions import NotEnoughFunds
+
+if TYPE_CHECKING:
+    from .transaction import XTxInput
 
 
 T = TypeVar("T")
@@ -45,11 +49,11 @@ class Bucket(NamedTuple):
     desc: int
     size: TransactionSize
     value: int
-    coins: List[XTxInput]
+    coins: list[XTxInput]
 
 ScaledFeeEstimator = Callable[[int], int]
-SufficientFundsCheck = Callable[[List[Bucket]], bool]
-BucketPenaltyFunction = Callable[[List[Bucket]], float]
+SufficientFundsCheck = Callable[[list[Bucket]], bool]
+BucketPenaltyFunction = Callable[[list[Bucket]], float]
 
 
 # A simple deterministic PRNG.  Used to deterministically shuffle a
@@ -83,18 +87,18 @@ class PRNG:
     def choice(self, seq: Sequence[T]) -> T:
         return seq[self.randint(0, len(seq))]
 
-    def shuffle(self, x: List[Any]) -> None:
+    def shuffle(self, x: list[Any]) -> None:
         for i in reversed(range(1, len(x))):
             # pick an element in x[:i+1] with which to exchange x[i]
             j = self.randint(0, i+1)
             x[i], x[j] = x[j], x[i]
 
-    def pluck(self, seq: List[T]) -> T:
+    def pluck(self, seq: list[T]) -> T:
         return seq.pop(self.randint(0, len(seq)))
 
 
-def strip_unneeded_coins(bkts: List[Bucket], sufficient_funds: SufficientFundsCheck) \
-        -> List[Bucket]:
+def strip_unneeded_coins(bkts: list[Bucket], sufficient_funds: SufficientFundsCheck) \
+        -> list[Bucket]:
     '''Remove buckets that are unnecessary in achieving the spend amount'''
     bkts = sorted(bkts, key = lambda bkt: bkt.value)
     for i in range(len(bkts)):
@@ -114,15 +118,15 @@ class CoinChooserBase:
             for coin_keyinstance_id in coin_keyinstance_ids)
         return cast(list[int], coin_keyinstance_ids)
 
-    def bucketize_coins(self, coins: List[XTxInput]) -> List[Bucket]:
-        buckets: Dict[int, List[XTxInput]] = {}
+    def bucketize_coins(self, coins: list[XTxInput]) -> list[Bucket]:
+        buckets: dict[int, list[XTxInput]] = {}
         for keyinstance_id, coin in zip(self.keys(coins), coins):
             if keyinstance_id in buckets:
                 buckets[keyinstance_id].append(coin)
             else:
                 buckets[keyinstance_id] = [ coin ]
 
-        def make_Bucket(desc: int, coins: List[XTxInput]) -> Bucket:
+        def make_Bucket(desc: int, coins: list[XTxInput]) -> Bucket:
             size = sum(coin.estimated_size() for coin in coins)
             value = sum(cast(int, coin.value) for coin in coins)
             return Bucket(desc, cast(TransactionSize, size), value, coins)
@@ -130,12 +134,12 @@ class CoinChooserBase:
         return [make_Bucket(key, value) for key, value in buckets.items()]
 
     def create_penalty_function(self, _tx: Transaction) -> BucketPenaltyFunction:
-        def penalty(_candidates: List[Bucket]) -> float:
+        def penalty(_candidates: list[Bucket]) -> float:
             return 0.0
         return penalty
 
-    def change_amounts(self, tx: Transaction, maximum_change_count: int,
-            change_fee_scaler: ScaledFeeEstimator, _dust_threshold: int) -> List[int]:
+    def _change_amounts(self, tx: Transaction, maximum_change_count: int,
+            change_fee_scaler: ScaledFeeEstimator) -> list[int]:
         # Break change up if bigger than max_change
         output_amounts = [output.value for output in tx.outputs]
         # Don't split change of less than 0.02 BTC
@@ -175,17 +179,19 @@ class CoinChooserBase:
 
         # Last change output.  Round down to maximum precision but lose
         # no more than 100 satoshis to fees (2dp)
-        N = pow(10, min(2, zeroes[0]))
-        amount = (remaining // N) * N
-        amounts.append(amount)
-        assert sum(amounts) <= change_amount
+        # N = pow(10, min(2, zeroes[0]))
+        # amount = (remaining // N) * N
+        # amounts.append(amount)
+
+        # Last change output.
+        amounts.append(remaining)
+        assert sum(amounts) == change_amount
         return amounts
 
-    def change_outputs(self, tx: Transaction, available_change_outputs: List[XTxOutput],
+    def change_outputs(self, tx: Transaction, available_change_outputs: list[XTxOutput],
             change_fee_scaler: ScaledFeeEstimator, dust_threshold: int) \
-                -> Tuple[List[XTxOutput], int]:
-        amounts = self.change_amounts(tx, len(available_change_outputs), change_fee_scaler,
-            dust_threshold)
+                -> tuple[list[XTxOutput], int]:
+        amounts = self._change_amounts(tx, len(available_change_outputs), change_fee_scaler)
         assert min(amounts) >= 0
         assert len(available_change_outputs) >= len(amounts)
         # If change is above dust threshold after accounting for the
@@ -202,9 +208,9 @@ class CoinChooserBase:
             logger.debug('not keeping dust %s', dust)
         return change, dust
 
-    def make_tx(self, coins: List[XTxInput], outputs: List[XTxOutput],
-            change_outs: List[XTxOutput], fee_estimator: FeeEstimatorProtocol,
-            dust_threshold: int) -> Transaction:
+    def make_tx(self, tx: Transaction, change_outs: list[XTxOutput], coins: list[XTxInput],
+            fee_quote: FeeQuoteTypeEntry2, dust_threshold: int) \
+                -> tuple[Transaction, list[XTxInput]]:
         """
         Select unspent coins to spend to pay outputs.  If the change is greater than dust_threshold
         (after adding the change output to the transaction) it is kept, otherwise none is sent and
@@ -212,23 +218,25 @@ class CoinChooserBase:
 
         Raises `NotEnoughFunds` if we are not able to find the required amount from the coins.
         """
+        # TODO(1.4.0) Payments. Rewrite this to factor in existing inputs. Do we know how much
+        #     the value of those inputs is, given they assumedly come from an invoice?
         assert len(change_outs) >= 1
 
         # Deterministic randomness from coins
         self.p = PRNG(b''.join(sorted(c.prevout_bytes() for c in coins)))
 
         # Copy the outputs so when adding change we don't modify "outputs".
-        tx = Transaction.from_io([], outputs)
+        tx = Transaction.from_io(tx.inputs, tx.outputs, tx.locktime)
         # Size of the transaction with no inputs and no change.
         base_size = tx.estimated_size()
         spent_amount = tx.output_value()
 
-        def sufficient_funds(buckets: List[Bucket]) -> bool:
+        def sufficient_funds(buckets: list[Bucket]) -> bool:
             '''Given a list of buckets, return True if it has enough value to pay for the
             transaction'''
             total_input_value = sum(bucket.value for bucket in buckets)
             total_size = base_size + cast(TransactionSize, sum(bucket.size for bucket in buckets))
-            return total_input_value >= spent_amount + fee_estimator.estimate_fee(total_size)
+            return total_input_value >= spent_amount + estimate_fee(total_size, fee_quote)
 
         # Collect the coins into buckets, choose a subset of the buckets
         buckets = self.bucketize_coins(coins)
@@ -239,31 +247,31 @@ class CoinChooserBase:
 
         # This takes a count of change outputs and returns a tx fee;
         change_output_size = change_outs[0].estimated_size()
-        fee: ScaledFeeEstimator = \
-            lambda count: fee_estimator.estimate_fee(tx_size + change_output_size * count)
-        change, dust = self.change_outputs(tx, change_outs, fee, dust_threshold)
+        change_fee_scaler: ScaledFeeEstimator = \
+            lambda count: estimate_fee(tx_size + change_output_size * count, fee_quote)
+        change, dust = self.change_outputs(tx, change_outs, change_fee_scaler, dust_threshold)
         tx.outputs.extend(change)
 
         logger.debug("using %d inputs", len(tx.inputs))
         logger.debug("using buckets: %s", [bucket.desc for bucket in buckets])
 
-        return tx
+        return tx, [ coin for coin in coins if coin not in tx.inputs ]
 
-    def choose_buckets(self, buckets: List[Bucket], sufficient_funds: SufficientFundsCheck,
-            penalty_func: BucketPenaltyFunction) -> List[Bucket]:
+    def choose_buckets(self, buckets: list[Bucket], sufficient_funds: SufficientFundsCheck,
+            penalty_func: BucketPenaltyFunction) -> list[Bucket]:
         raise NotImplementedError('To be subclassed')
 
 
 class CoinChooserRandom(CoinChooserBase):
 
-    def create_bucket_groupings(self, buckets: List[Bucket],
-            sufficient_funds_check: SufficientFundsCheck) -> List[List[Bucket]]:
+    def create_bucket_groupings(self, buckets: list[Bucket],
+            sufficient_funds_check: SufficientFundsCheck) -> list[list[Bucket]]:
         """
         Returns a list of bucket sets.
 
         Raises `NotEnoughFunds` if we are not able to find the required amount in the `buckets`.
         """
-        valid_bucket_combinations: Set[Sequence[int]] = set()
+        valid_bucket_combinations: set[Sequence[int]] = set()
 
         # Add all singletons
         for n, bucket in enumerate(buckets):
@@ -289,8 +297,8 @@ class CoinChooserRandom(CoinChooserBase):
         valid_bucket_groupings = [ [ buckets[n] for n in c ] for c in valid_bucket_combinations ]
         return [ strip_unneeded_coins(c, sufficient_funds_check) for c in valid_bucket_groupings ]
 
-    def choose_buckets(self, buckets: List[Bucket], sufficient_funds: SufficientFundsCheck,
-            penalty_func: BucketPenaltyFunction) -> List[Bucket]:
+    def choose_buckets(self, buckets: list[Bucket], sufficient_funds: SufficientFundsCheck,
+            penalty_func: BucketPenaltyFunction) -> list[Bucket]:
         """
         Raises `NotEnoughFunds` if we are not able to find the required amount in the `buckets`.
         """
@@ -316,7 +324,7 @@ class CoinChooserPrivacy(CoinChooserRandom):
         max_change = max(out_values) * 1.5
         spent_amount = sum(out_values)
 
-        def penalty(buckets: List[Bucket]) -> float:
+        def penalty(buckets: list[Bucket]) -> float:
             badness: float = len(buckets) - 1
             total_input = sum(bucket.value for bucket in buckets)
             change = float(total_input - spent_amount)

@@ -13,7 +13,7 @@ from aiohttp import web
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
 from electrumsv.constants import (CHANGE_SUBPATH, CredentialPolicyFlag, DATABASE_EXT,
-    TransactionOutputFlag, TxFlag, unpack_derivation_path, WalletSettings)
+    TXOFlag, TxFlag, unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
 
 # TODO(1.4.0) RESTAPI. Decide what to do with these imports
@@ -24,8 +24,9 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
+from electrumsv.transaction import TxContext
 from electrumsv.types import TransactionSize, Outpoint
-from electrumsv.wallet_database.types import TransactionRow, TransactionOutputSpendableRow
+from electrumsv.wallet_database.types import TransactionRow, UTXORow
 from examples.applications.restapi.constants import WalletEventNames
 
 from .errors import Errors
@@ -214,13 +215,13 @@ class ExtendedHandlerUtils:
 
     # ----- Support functions ----- #
 
-    def utxo_as_dict(self, utxo: TransactionOutputSpendableRow) -> Dict[str, Any]:
+    def utxo_as_dict(self, utxo: UTXORow) -> Dict[str, Any]:
         return {"value": utxo.value,
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
                 "out_index": utxo.txo_index,
                 "keyinstance_id": utxo.keyinstance_id,
-                "is_coinbase": utxo.flags & TransactionOutputFlag.COINBASE != 0,
+                "is_coinbase": utxo.flags & TXOFlag.COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
     def outputs_from_dicts(self, outputs: List[Dict[str, Any]]) -> List[TxOutput]:
@@ -324,7 +325,6 @@ class ExtendedHandlerUtils:
             wallet.events.register_callback(app_state.app.on_triggered_event,
                 [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
                     WalletEventNames.VERIFIED])
-            wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
             wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
 
         return wallet
@@ -359,8 +359,8 @@ class ExtendedHandlerUtils:
         session = await self.app_state.daemon.network._main_session()
         return await session.send_request(method, args)
 
-    def preselect_utxos(self, utxos: List[TransactionOutputSpendableRow], outputs, batch_size=10) \
-            -> List[TransactionOutputSpendableRow]:
+    def preselect_utxos(self, utxos: List[UTXORow], outputs, batch_size=10) \
+            -> List[UTXORow]:
         """Inexact, random pre-selectiion of utxos for performance reasons.
         'make_unsigned_transaction' is slow if it iterates over all utxos.
         - Disabled via {'utxo_preselection': False} in body of request."""
@@ -411,7 +411,7 @@ class ExtendedHandlerUtils:
                 "unmatured_balance": wallet_balance.unmatured,
                 "allocated_balance": wallet_balance.allocated}
 
-    def _utxo_dto(self, utxos: List[TransactionOutputSpendableRow]) -> List[Dict]:
+    def _utxo_dto(self, utxos: List[UTXORow]) -> List[Dict]:
         utxos_as_dicts = []
         for utxo in utxos:
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
@@ -452,7 +452,7 @@ class ExtendedHandlerUtils:
         settled_coins = []
 
         for coin in all_coins:
-            if coin.flags & TransactionOutputFlag.COINBASE:
+            if coin.flags & TXOFlag.COINBASE:
                 if coin.block_height + COINBASE_MATURITY > account._wallet.get_local_height():
                     unmatured_coins.append(coin)
                     continue
@@ -478,7 +478,7 @@ class ExtendedHandlerUtils:
             outputs = vars[VNAME.OUTPUTS]
 
             # TODO(REST-API-FINALISATION) this should pass in ids and lookup values
-            utxos = cast(Optional[List[TransactionOutputSpendableRow]], vars.get(VNAME.UTXOS, None))
+            utxos = cast(Optional[List[UTXORow]], vars.get(VNAME.UTXOS, None))
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)
             assert password is not None
@@ -496,14 +496,16 @@ class ExtendedHandlerUtils:
                 utxos = self.preselect_utxos(utxos, outputs)
 
             # Todo - loop.run_in_executor
-            tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
+            tx = Transaction.from_io([], outputs)
+            tx_context = TxContext(fee_quote=app_state.config.get_fee_estimator())
+            tx, _utxos = account.make_unsigned_tx(tx, tx_context, utxos)
             self.raise_for_duplicate_tx(tx)
-            future = account.sign_transaction(tx, password, tx_context)
+            future = account.sign_transactions([tx], [tx_context], password)
             if future is not None:
                 future.result()
             return tx, account, password
-        except NotEnoughFunds:
-            raise web.HTTPBadRequest(reason="Insufficient coins")
+        except NotEnoughFunds as exc:
+            raise web.HTTPBadRequest(reason=str(exc))
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
@@ -520,7 +522,7 @@ class ExtendedHandlerUtils:
             desired_utxo_count: int = 2000,
             max_utxo_margin: int = 200,
             require_confirmed: bool = True,
-            ) -> Tuple[list[TransactionOutputSpendableRow], list[TxOutput], bool]:
+            ) -> Tuple[list[UTXORow], list[TxOutput], bool]:
 
         INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
         OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))

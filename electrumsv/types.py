@@ -11,8 +11,8 @@ from bitcoinx import Chain, hash_to_hex_str, Header
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationPath, \
-    DerivationType, NetworkServerType, NO_BLOCK_HASH, ScriptType, ImportTransactionFlag, \
-    unpack_derivation_path
+    DerivationType, TxImportFlag, NetworkServerType, NO_BLOCK_HASH, ScriptType, \
+    TxFlag, unpack_derivation_path
 
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from .network_support.api_server import NewServer
     from .standards.mapi import MAPIBroadcastResponse
     from .standards.tsc_merkle_proof import TSCMerkleProof
+    from .transaction import Transaction
     from .wallet_database.types import AccountRow, AccountPaymentRow, \
         AccountTransactionOutputSpendableRow, KeyDataProtocol, MasterKeyRow, \
         MerkleProofRow, NetworkServerRow, TransactionInputSnapshotRow, TransactionRow
@@ -280,31 +281,41 @@ class FeeQuoteTypeFee(TypedDict):
     bytes: int
 
 
-class FeeQuoteTypeEntry(TypedDict):
+class FeeQuoteTypeEntry1(TypedDict):
     feeType: str
     miningFee: FeeQuoteTypeFee
-    relayFee: FeeQuoteTypeFee
+
+class FeeQuoteTypeEntry2(TypedDict):
+    data: FeeQuoteTypeFee
+    standard: FeeQuoteTypeFee
 
 
 @dataclasses.dataclass
-class TransactionImportContext:
-    # If a specified payment is not provided will be created and updated by the database import.
-    payment_id: int|None = None
+class TxImportCtx:
+    # # If a specified payment is not provided will be created and updated by the database import.
+    # payment_id: int|None = None
     # If a specified payment is not provided the created one will be linked to these accounts.
     # After import this will be the list of all accounts the transaction's payment is associated
     # with.
     account_ids: list[int]|None = None
     account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
+    # If not set by the higher level importing code this will be replaced with the current time.
     date_created: int = 0
     # Modifies the imported transaction outputs and links them to existing allocated keyinstances.
     output_key_usage: dict[int, tuple[int, ScriptType]] = dataclasses.field(default_factory=dict)
-    # If the other transactions we spend from are already spent from, do we rollback the import
-    # completely or do we leave it imported and unlinked but mark it as CONFLICTING.
-    rollback_on_spend_conflict: bool = False
-    flags: ImportTransactionFlag = ImportTransactionFlag.UNSET
+    flags: TxImportFlag = TxImportFlag.UNSET
     # Updated by the database import and returned to the caller.
     has_spend_conflicts: bool = False
+    feeQuote: FeeQuoteTypeFee|None = None
 
+
+class TxImportEntry(NamedTuple):
+    tx_hash: bytes
+    tx: Transaction
+    flags: TxFlag
+    block_height: int
+    block_hash: bytes|None
+    block_position: int|None
 
 @dataclasses.dataclass
 class TransactionBroadcastContext:
@@ -316,19 +327,8 @@ class TransactionBroadcastContext:
 @dataclasses.dataclass
 class BroadcastResult:
     success: bool
-    mapi_response: MAPIBroadcastResponse
-
-
-class FeeQuoteCommon(TypedDict):
-    fees: list[FeeQuoteTypeEntry]
-
-
-class FeeEstimatorProtocol(Protocol):
-    def get_mapi_server_hint(self) -> ServerAndCredential | None:
-        ...
-
-    def estimate_fee(self, transaction_size: TransactionSize) -> int:
-        ...
+    mapi_response: MAPIBroadcastResponse|None
+    error_text: str|None
 
 
 IndefiniteCredentialId = uuid.UUID
@@ -340,12 +340,12 @@ class ServerAndCredential(NamedTuple):
 
 
 @dataclasses.dataclass
-class TransactionFeeContext:
+class MAPIFeeContext:
     """
     The selected fee criteria to be used for building a transaction.
     """
 
-    fee_quote: FeeQuoteCommon
+    fee_quote: FeeQuoteTypeEntry2
     server_and_credential: ServerAndCredential
 
 
@@ -357,7 +357,6 @@ class WalletStatusDict(TypedDict):
 
 class DaemonStatusDict(TypedDict):
     blockchain_height: NotRequired[int]
-    fee_per_kb: int
     network: Literal["online", "offline"]
     path: str
     version: str
@@ -449,4 +448,3 @@ class BackupWritingProtocol(Protocol):
         ...
     def convert_entries_to_bytes(self, value: Any) -> bytes:
         ...
-

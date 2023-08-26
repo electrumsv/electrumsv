@@ -42,7 +42,7 @@ from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
 from .networks import Net
-from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyKind
+from .transaction import Transaction, TxContext, XPublicKey, XPublicKeyKind
 from .types import IndefiniteCredentialId, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MasterKeyDataTypes, \
     DatabaseKeyDerivationData
@@ -152,7 +152,7 @@ class KeyStore:
         return False
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: TransactionContext) -> None:
+            context: TxContext) -> None:
         raise NotImplementedError
 
 
@@ -175,7 +175,7 @@ class Software_KeyStore(KeyStore):
         raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: TransactionContext) -> None:
+            context: TxContext) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.
@@ -481,7 +481,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return Xpub.is_signature_candidate(self, x_pubkey)
 
     def sign_transaction_with_credentials(self, tx: Transaction,
-            context: TransactionContext) -> None:
+            context: TxContext) -> None:
         """
         Some keystores do not require the user to manually approve the signing by entering their
         password, which is then used in turn to decrypt their signing key. They store the

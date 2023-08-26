@@ -446,7 +446,6 @@ class Daemon(DaemonThread):
 
         if subcommand == "status":
             status_object: DaemonStatusDict = {
-                "fee_per_kb": self.config.fee_per_kb(),
                 "network": "offline",
                 "path": self.config.path,
                 "version": PACKAGE_VERSION,

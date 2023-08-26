@@ -98,6 +98,8 @@ class PreferencesDialog(QDialog):
 
     def tx_widgets(self, tab: QWidget) -> None:
         app_state_qt = get_app_state_qt()
+
+        # Used to force a fee rate other than the default.
         def on_customfee(_text: str) -> None:
             amt = customfee_e.get_satoshis_per_byte()
             m = int(amt * 1000.0) if amt is not None else None
@@ -105,7 +107,7 @@ class PreferencesDialog(QDialog):
             # NOTE Nothing currently listens to this.
             app_state_qt.app_qt.custom_fee_changed.emit()
 
-        custom_fee_rate = app_state_qt.config.custom_fee_rate()
+        custom_fee_rate = app_state_qt.config.get_optional_type(int, "customfee")
         customfee_e = BTCSatsByteEdit()
         # This display scaling is the same as how `BTCSatsByteEdit` scales for `setAmount`.
         customfee_e.setPlaceholderText(str(round((DEFAULT_FEE/1000.0)*100.0)/100.0))
@@ -126,7 +128,7 @@ class PreferencesDialog(QDialog):
         options_vbox.addWidget(unconf_cb)
 
         form = FormSectionWidget()
-        form.add_row(_('Custom Fee Rate'), customfee_e)
+        form.add_row(_('Forced fee rate'), customfee_e)
         form.add_row(_("Options"), options_box)
 
         vbox = QVBoxLayout()
@@ -360,26 +362,9 @@ class PreferencesDialog(QDialog):
     def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
         app_state_qt = get_app_state_qt()
 
-        use_change_addresses_cb = QCheckBox(_('Use change outputs'))
-        use_change_addresses_cb.setChecked(
-            wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
-        use_change_addresses_cb.setEnabled(
-            app_state_qt.config.is_modifiable(WalletSettings.USE_CHANGE))
-        use_change_addresses_cb.setToolTip(
-            _('Using a different change key each time improves your privacy by '
-              'making it more difficult for others to analyze your transactions.')
-        )
-        def on_usechange(state_value: int) -> None:
-            should_enable = Qt.CheckState(state_value) == Qt.CheckState.Checked
-            if wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) != should_enable:
-                wallet.set_boolean_setting(WalletSettings.USE_CHANGE, should_enable)
-                multiple_change_cb.setEnabled(should_enable)
-        use_change_addresses_cb.stateChanged.connect(on_usechange)
-
         multiple_change_cb = QCheckBox(_('Use multiple change outputs'))
         multiple_change_cb.setChecked(
             wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True))
-        multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         multiple_change_cb.setToolTip('\n'.join([
             _('In some cases, use up to 3 change keys in order to break '
               'up large coin amounts and obfuscate the recipient key.'),
@@ -394,7 +379,6 @@ class PreferencesDialog(QDialog):
         options_box = QGroupBox()
         options_vbox = QVBoxLayout()
         options_box.setLayout(options_vbox)
-        options_vbox.addWidget(use_change_addresses_cb)
         options_vbox.addWidget(multiple_change_cb)
 
         # Todo - add ability here to toggle deactivation of used keys - AustEcon

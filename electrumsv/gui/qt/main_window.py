@@ -58,26 +58,27 @@ from PyQt6 import sip
 
 # TODO this should be a relative import, is that legal?
 import electrumsv
-from ... import bitcoin, commands, dpp_messages, util
+from ... import bitcoin, commands, util
 from ...app_state import app_state
 from ...bitcoin import address_from_string, COIN, script_template_to_string
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
-    NetworkServerFlag, ScriptType, ServerConnectionFlag, ImportTransactionFlag,
-    TransactionOutputFlag, TxFlag, WalletEvent)
-from ...exceptions import UserCancelled
+    NetworkServerFlag, ScriptType, ServerConnectionFlag, TxImportFlag,
+    TXOFlag, TxFlag, WalletEvent)
+from ...dpp_messages import get_payment_terms, is_inv_expired, PaymentTermsMessage
+from ...exceptions import DPPException, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...storage import WalletStorage
-from ...transaction import Transaction, TransactionContext
-from ...types import ExceptionInfoType, Outpoint, TransactionImportContext, WaitingUpdateCallback
+from ...transaction import Transaction, TxContext
+from ...types import BroadcastResult, Outpoint, TxImportCtx, WaitingUpdateCallback
 from ...util import UpdateCheckResultType, format_fee_satoshis, get_identified_release_signers, \
     get_update_check_dates, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlag, Wallet
 from ...wallet_database.types import AccountPaymentDescriptionRow, InvoiceRow, KeyDataProtocol, \
-    TransactionOutputSpendableProtocol
+    UTXOProtocol
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -102,7 +103,9 @@ from .util import (Buttons, CancelButton, CloseButton, ColorScheme,
 from .wallet_api import WalletAPI
 
 if TYPE_CHECKING:
+    from .constants import ViewPaymentMode
     from .history_list import HistoryView
+    from .payment_dialog import PaymentDialog
     from .transaction_dialog import TxDialog
     from .wallet_navigation_view import WalletNavigationView
 
@@ -117,12 +120,6 @@ T1 = TypeVar("T1")
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
-    notify_transactions_signal = pyqtSignal()
-    new_fx_quotes_signal = pyqtSignal()
-    new_fx_history_signal = pyqtSignal()
-    network_signal = pyqtSignal(object, object)
-    history_updated_signal = pyqtSignal()
-    network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
     account_change_signal = pyqtSignal(object, object, bool)
     account_restoration_signal = pyqtSignal(int)
@@ -130,23 +127,31 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     contacts_updated_signal = pyqtSignal(object)
     contacts_deleted_signal = pyqtSignal(object)
     direct_message_received_signal = pyqtSignal(int, str)
+    history_updated_signal = pyqtSignal()
+    payment_success_signal = pyqtSignal(int)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
+    network_status_signal = pyqtSignal()
+    notify_transactions_signal = pyqtSignal()
+    new_fx_quotes_signal = pyqtSignal()
+    new_fx_history_signal = pyqtSignal()
+    network_signal = pyqtSignal(object, object)
     notifications_created_signal = pyqtSignal(object)
     notifications_updated_signal = pyqtSignal(object)
-    transaction_state_signal = pyqtSignal(object, object)
-    transaction_added_signal = pyqtSignal(object, object, object)
+    password_request_signal = pyqtSignal(object, str)
     payment_deleted_signal = pyqtSignal(object, object)
-    transaction_verified_signal = pyqtSignal(object, object, object)
     payment_labels_updated_signal = pyqtSignal(object)
     payment_requests_paid_signal = pyqtSignal(list)
+    show_error_signal = pyqtSignal(str, object)
     show_secured_data_signal = pyqtSignal(object)
+    transaction_state_signal = pyqtSignal(object, object)
+    transaction_added_signal = pyqtSignal(object, object, object)
+    transaction_verified_signal = pyqtSignal(object, object, object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
-    password_request_signal = pyqtSignal(object, str)
-    update_required_signal = pyqtSignal()
     # This signal should only be emitted to. It is just used to dispatch callback execution in
     # the UI thread, without having to do a signal per callback.
     ui_callback_signal = pyqtSignal(object, object)
+    update_required_signal = pyqtSignal()
 
     _scan_account_action: QAction
     _add_account_action: QAction
@@ -173,11 +178,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.cleaned_up = False
         self.tx_notifications: list[Transaction] = []
         self.tx_notify_timer: QTimer|None = None
-        self.tx_dialogs: list[TxDialog] = []
+        self.tx_dialogs: list[QDialog] = []
         self.tl_windows: list[QDialog] = []
 
         self.create_status_bar()
-        self._update_account_specific_event = threading.Event()
+        self._update_payments_event = threading.Event()
         self._update_common_event = threading.Event()
 
         self.fee_unit = self.config.get('fee_unit', 0)
@@ -217,19 +222,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             QShortcut(QKeySequence("Alt+" + str(i + 1)), self,
                       lambda i=i: tabs.setCurrentIndex(i))
 
+        self.account_restoration_signal.connect(self._on_account_restoration_signal)
         self.keys_updated_signal.connect(self._on_keys_updated)
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
-        self.account_restoration_signal.connect(self._on_account_restoration_signal)
-        self.show_secured_data_signal.connect(self._on_show_secured_data)
-        self.payment_labels_updated_signal.connect(self._on_payment_labels_updated_signal)
-        self.transaction_state_signal.connect(self._on_transaction_state_change)
         self.password_request_signal.connect(self._on_password_request)
+        self.payment_labels_updated_signal.connect(self._on_payment_labels_updated_signal)
+        # NOTE(typing) Typing noise due to the way that signals work.
+        self.show_error_signal.connect(self.show_error) # type: ignore[arg-type]
+        self.show_secured_data_signal.connect(self._on_show_secured_data)
+        self.transaction_state_signal.connect(self._on_transaction_state_change)
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
 
         self._last_network_status_change = 0.0
-        self._network_status_loop_task = app_state.async_.spawn(
-            self._update_network_status_loop())
+        self._network_status_loop_task = app_state.async_.spawn(self._network_status_loop())
 
         # network callbacks
         if self.network:
@@ -368,29 +374,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
-            import_context: TransactionImportContext) -> None:
+            import_context: TxImportCtx) -> None:
         # Account ids are the accounts that have changed the balance.
         assert import_context.account_ids is not None
         if self._wallet.get_account_ids() & set(import_context.account_ids) and \
-                import_context.flags & ImportTransactionFlag.PROMPTED == 0:
+                import_context.flags & TxImportFlag.PROMPTED == 0:
             # Always notify of incoming transactions regardless of the active account.
             self.tx_notifications.append(tx)
             self.notify_transactions_signal.emit()
 
-        self._update_account_specific_event.set()
+        self._update_payments_event.set()
         self._update_common_event.set()
         self.transaction_added_signal.emit(tx_hash, tx, set(import_context.account_ids))
 
     # Map the wallet event to a Qt UI signal.
     def _on_payment_deleted(self, event_name: str, account_ids: set[int], payment_id: int) -> None:
-        self._update_account_specific_event.set()
+        self._update_payments_event.set()
         self._update_common_event.set()
         self.payment_deleted_signal.emit(account_ids, payment_id)
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_verified(self, event_name: str, tx_hash: bytes, header: Header,
             tsc_proof: TSCMerkleProof) -> None:
-        self._update_account_specific_event.set()
+        self._update_payments_event.set()
         self.transaction_verified_signal.emit(tx_hash, header, tsc_proof)
         # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
         # to the balance column being dependent on order. Redirected to the `need_update` flow.
@@ -456,7 +462,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
         # care of triggering an update.
-        self._update_account_specific_event.set()
+        self._update_payments_event.set()
         self._update_common_event.set()
 
     def _on_show_secured_data(self, account_id: int) -> None:
@@ -469,7 +475,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.new_fx_history_signal.emit()
 
     def _on_ui_historical_exchange_rates(self) -> None:
-        self.history_view.update_tx_headers()
+        self.update_history_headers()
         self.update_history_view()
 
     def _on_exchange_rate_quotes(self, _event_name: str) -> None:
@@ -531,15 +537,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         override = self.tl_windows[-1] if self.tl_windows else self
         return top_level_window_recurse(override)
 
-    def is_hidden(self) -> bool:
-        return self.isMinimized() or self.isHidden()
-
-    def show_or_hide(self) -> None:
-        if self.is_hidden():
-            self.bring_to_top()
-        else:
-            self.hide()
-
     def bring_to_top(self) -> None:
         self.show()
         self.raise_()
@@ -550,12 +547,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._logger.exception("")
             self.show_error(str(exception))
 
-    def on_error(self, exc_info: ExceptionInfoType) -> None:
-        self.on_exception(exc_info[1])
-
     def on_network(self, event: NetworkEventNames, *args: Any) -> None:
         if event == NetworkEventNames.GENERIC_UPDATE:
-            self._update_account_specific_event.set()
+            self._update_payments_event.set()
             self._update_common_event.set()
             return
 
@@ -1106,9 +1100,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def timer_actions(self) -> None:
         # Note this runs in the GUI thread
-        if self._update_account_specific_event.is_set():
-            self._update_account_specific_event.clear()
-            self._refresh_account_specific_ui()
+        if self._update_payments_event.is_set():
+            self._update_payments_event.clear()
+            self._refresh_payment_ui()
 
         if self._update_common_event.is_set():
             self._update_common_event.clear()
@@ -1155,7 +1149,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         btc_edit.in_event = False
         btc_edit.textChanged.connect(partial(edit_changed, btc_edit))
 
-    async def _update_network_status_loop(self) -> None:
+    async def _network_status_loop(self) -> None:
         while True:
             # Only update the network status once a second (arbitrary amount of time).
             seconds_passed = time.time() - self._last_network_status_change
@@ -1198,17 +1192,25 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     @profiler
     def refresh_wallet_display(self) -> None:
         self._refresh_common_ui()
-        self._refresh_account_specific_ui()
+        self._refresh_payment_ui()
 
     def _refresh_common_ui(self) -> None:
         self.update_status_bar()
         self._navigation_view.refresh_account_balances()
         self._navigation_view.refresh_notifications()
 
-    def _refresh_account_specific_ui(self) -> None:
+    def _refresh_payment_ui(self) -> None:
         if not self.network or self._wallet.is_synchronized() or \
                 not self._wallet.is_connected_to_blockchain_server():
-            self.update_tabs()
+            if self.is_receive_view_active():
+                assert isinstance(self._receive_view, ReceiveView)
+                self._receive_view.update_widgets()
+            if self.is_send_view_active():
+                assert isinstance(self._send_view, SendView)
+                self._send_view.update_widgets()
+            self.utxo_list.update()
+            self.contact_list.update()
+            self.update_history_view(for_account=False)
 
     def update_status_bar(self) -> None:
         "Update the entire status bar."
@@ -1301,17 +1303,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     self.status_bar.set_network_status(_("No connected header sources yet.."),
                         _("There are no header server connections currently."))
 
-    def update_tabs(self, *args: Any) -> None:
-        if self.is_receive_view_active():
-            assert isinstance(self._receive_view, ReceiveView)
-            self._receive_view.update_widgets()
-        if self.is_send_view_active():
-            assert isinstance(self._send_view, SendView)
-            self._send_view.update_widgets()
-        self.utxo_list.update()
-        self.contact_list.update()
-        self.update_history_view()
-
     def _create_navigation_view(self) -> WalletNavigationView:
         from .wallet_navigation_view import WalletNavigationView
         return WalletNavigationView(self, self._wallet)
@@ -1329,22 +1320,36 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d = key_dialog.KeyDialog(self, account.get_id(), key_data, script_type)
         d.exec()
 
+    def show_payment(self, mode: ViewPaymentMode, payment_id: int|None,
+            txs: list[Transaction]|None=None, tx_ctxs: list[TxContext]|None=None,
+            account_id: int|None=None) \
+                -> PaymentDialog:
+        from . import payment_dialog
+        if True:
+            from importlib import reload
+            reload(payment_dialog)
+        dialog = payment_dialog.PaymentDialog(mode, payment_id, txs, tx_ctxs, account_id, self)
+        dialog.finished.connect(partial(self._on_tx_dialog_finished, dialog))
+        self.tx_dialogs.append(dialog)
+        dialog.show()
+        return dialog
+
     def show_transaction(self, account: AbstractAccount|None, tx: Transaction,
-            context: TransactionContext|None=None, prompt_if_unsaved: bool=False,
-            pr: dpp_messages.PaymentTermsMessage|None=None) -> TxDialog:
+            context: TxContext|None=None, prompt_if_unsaved: bool=False,
+            pr: PaymentTermsMessage|None=None) -> TxDialog:
         self._wallet.ensure_incomplete_transaction_keys_exist(tx)
         from . import transaction_dialog
         # from importlib import reload
         # reload(transaction_dialog)
-        tx_dialog = transaction_dialog.TxDialog(account, tx, context, self, prompt_if_unsaved, pr)
-        tx_dialog.finished.connect(partial(self.on_tx_dialog_finished, tx_dialog))
-        self.tx_dialogs.append(tx_dialog)
-        tx_dialog.show()
-        return tx_dialog
+        dialog = transaction_dialog.TxDialog(account, tx, context, self, prompt_if_unsaved, pr)
+        dialog.finished.connect(partial(self._on_tx_dialog_finished, dialog))
+        self.tx_dialogs.append(dialog)
+        dialog.show()
+        return dialog
 
-    def on_tx_dialog_finished(self, tx_dialog: TxDialog, status: int) -> None:
-        tx_dialog.finished.disconnect()
-        self.tx_dialogs.remove(tx_dialog)
+    def _on_tx_dialog_finished(self, dialog: QDialog, status: int) -> None:
+        dialog.finished.disconnect()
+        self.tx_dialogs.remove(dialog)
 
     def is_send_view_active(self) -> bool:
         return bool(self._send_view is not None and self._account is not None and \
@@ -1484,13 +1489,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         "<br/><br/>" + body_text,
                         icon=QMessageBox.Icon.Warning):
                     return False
-            elif dpp_messages.has_expired(invoice_row.date_expires):
+            elif is_inv_expired(invoice_row.date_expires):
                 if not self.question(_("This transaction is associated with an expired invoice.") +
                         "<br/><br/>" + body_text,
                         icon=QMessageBox.Icon.Warning):
                     return False
-            elif (self._send_view._invoice_terms is None or
-                    self._send_view._invoice_terms.get_id() != invoice_row.invoice_id):
+            elif (self._send_view._invoice is None or
+                    self._send_view._invoice.get_id() != invoice_row.invoice_id):
                 self.show_error(_("This transaction is associated with an invoice, but cannot "
                     "be broadcast as it is not active on the send tab. Go to the send tab and "
                     "select it from the invoice list and choose the 'Pay now' option."))
@@ -1498,96 +1503,94 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         return True
 
-    @protected
-    def sign_tx(self, tx: Transaction, callback: Callable[[bool], None], password: str|None=None,
-            window: QWidget|None=None, context: TransactionContext|None=None) -> None:
-        # NOTE(typing) The decorator wrapper will inject a password argument to the decoratee the
-        #   caller of the decorated function does not provide. So we do not require the password
-        #   argument so that typing works, but reject the call if it is not there.
-        assert password is not None
-        self.sign_tx_with_password(tx, callback, password, window=window, context=context)
+    def sign_transactions(self, account: AbstractAccount, txs: list[Transaction],
+            tx_ctxs: list[TxContext], callback: Callable[[int|None], None], password: str,
+            window: QWidget|None=None) -> None:
+        # TODO(1.4.0) Payments. We need to verify that this account is the only account that owns
+        #     all the funds being spent.
+        assert all(account.can_sign(tx) for tx in txs)
 
-    def sign_tx_with_password(self, tx: Transaction, callback: Callable[[bool], None],
-            password: str, window: QWidget|None=None,
-            context: TransactionContext|None=None) -> None:
-        '''Sign the transaction in a separate thread.  When done, calls
-        the callback with a success code of True or False.'''
-        usable_accounts = [ account for account in self._wallet.get_visible_accounts()
-            if account.can_sign(tx) ]
-        assert len(usable_accounts) > 0
-        account = usable_accounts[0]
-
-        def on_done(future: concurrent.futures.Future[None]) -> None:
+        def on_done(future: concurrent.futures.Future[int|None]) -> None:
             try:
-                future.result()
+                payment_id = future.result()
             except Exception as exc:
                 self.on_exception(exc)
-                callback(False)
+                callback(None)
             else:
-                callback(True)
+                callback(payment_id)
 
-        def sign_tx(update_cb: WaitingUpdateCallback) -> None:
-            future = account.sign_transaction(tx, password, context=context)
+        def threaded_sign_txs(update_cb: WaitingUpdateCallback) -> int|None:
+            future = account.sign_transactions(txs, tx_ctxs, password)
+            payment_id: int|None = None
             if future is not None:
-                future.result()
+                payment_id = future.result()
             update_cb(False, _("Done."))
+            return payment_id
 
         window = window or self
-        WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done,
+        WaitingDialog(window, _('Signing transaction...'), threaded_sign_txs, on_done=on_done,
             title=_("Transaction signing"))
 
-    def broadcast_transaction(self, account: AbstractAccount | None, tx: Transaction,
-            context: TransactionContext|None=None,
-            success_text: str|None=None, window: QWidget|None=None) -> None:
-        send_view = cast(SendView, self._send_view)
-        final_success_text = _('Payment sent.') if success_text is None else success_text
+    def show_error_safe(self, msg: str) -> None:
+        """Call in any thread to show an error on the main window."""
+        self.show_error_signal.emit(msg)
+
+    def send_invoice_payment(self, payment_id: int, invoice_terms: PaymentTermsMessage,
+            txs: list[Transaction]) -> bool:
+        """WARNING: This is not expected to be called from the UI thread."""
+        invoice_id = invoice_terms.get_id()
+        assert invoice_id is not None
+        assert invoice_terms.payment_url
+
+        if invoice_terms.has_expired():
+            # TODO(1.4.0) Payments. The transaction is still signed and associated with the
+            # invoice. This should be indicated to the user in the UI, and they can deal with it.
+            self.show_error_safe(_("The invoice cannot be paid as it has expired"))
+            return False
+
+        try:
+            app_state.async_.spawn_and_wait(self._wallet.send_direct_payment_async(invoice_id, txs))
+        except DPPException as exc:
+            self._logger.exception("DPP invoice payment failure")
+            self.show_error_safe(_("The invoice cannot be paid.") +" "+ exc.args[0])
+            return False
+
+        self.payment_success_signal.emit(payment_id)
+        return True
+
+    def broadcast_transactions(self, payment_id: int, txs: list[Transaction],
+            tx_ctxs: list[TxContext], callback: Callable[[list[BroadcastResult]], None],
+            window: QWidget) -> None:
         window = window or self
 
-        def broadcast_tx(update_cb: WaitingUpdateCallback) -> bool:
-            """This all gets run in a thread so blocking is acceptable"""
-            # Ensure we are not in offline mode.
-            assert self.network is not None
+        def worker(update_cb: WaitingUpdateCallback) -> list[BroadcastResult]:
+            assert self.network is not None, "Should never be reached in offline mode"
+            results = app_state.async_.spawn_and_wait(
+                self._wallet.broadcast_transactions_async(txs, tx_ctxs))
+            update_cb(False, _("Done."))
+            return results
 
-            # Non-GUI thread. Is the broadcast done through invoicing payment delivery instead?
-            if send_view.is_invoice_payment():
-                if not send_view.send_invoice_payment(tx):
-                    # The invoice payment delivery either did not happen because the invoice was no
-                    # longer valid, or for some other reason.
-                    return False
-                return True
-            else:
-                broadcast_result = app_state.async_.spawn_and_wait(
-                        self._wallet.broadcast_transaction_async(tx, context))
-                update_cb(False, _("Done."))
-                return broadcast_result.success
-
-        def on_done(future: concurrent.futures.Future[bool]) -> None:
-            assert window is not None
-            # GUI thread
+        def done(future: concurrent.futures.Future[list[BroadcastResult]]) -> None: # GUI thread.
             try:
-                was_broadcast = future.result()
+                results = future.result()
             except concurrent.futures.CancelledError:
-                cast(MessageBoxMixin, window).show_error(
-                    _("Transaction broadcast failed.") +"<br/><br/>"+
-                    _("The most likely reason for this is that there is no available connection "
-                    "to a main server. The signed transaction can be found in the "
-                    "Transactions tab and can be rebroadcast from there."), )
-            except Exception as exception:
-                self._logger.exception('unhandled exception broadcasting transaction')
-                reason = str(exception)
-                d = UntrustedMessageDialog(
-                    window, _("Transaction Broadcast Error"),
-                    _("Your transaction was not sent: ") + reason +".", exception)
-                d.exec()
-            else:
-                if was_broadcast:
-                    tx_id = tx.txid()
-                    assert tx_id is not None
-                    cast(MessageBoxMixin, window).show_message(final_success_text + '\n' + tx_id)
-                    send_view.clear()
+                callback([]) # Indicate cancellation. Caller can clean up.
+                return
 
-        WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
-            on_done=on_done, title=_("Transaction broadcast"))
+            if all(r.success for r in results):
+                cast(MessageBoxMixin, window).show_message(_('Payment sent.'))
+            else:
+                reasons = "\n".join(cast(str, r.error_text) for r in results if not r.success)
+                UntrustedMessageDialog(window, _("Problem sending payment"),
+                    _("A problem was encountered trying to send this payment. There may have been "
+                    "an error on the remote server, the server might not have been connectable or "
+                    "it might have been unable to broadcast one or more of the transactions making "
+                    "up this payment."), untrusted_text=reasons).exec()
+            self.payment_success_signal.emit(payment_id)
+            callback(results)
+
+        WaitingDialog(window, _('Broadcasting the transaction..'), worker, on_done=done,
+            title=_("Transaction broadcast"))
 
     def pay_to_URI(self, URI: str) -> None:
         if not URI:
@@ -1614,10 +1617,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 return
 
             def get_payment_terms_thread() -> None:
-                from ... import dpp_messages
-                from ...exceptions import DPPException
                 try:
-                    request = dpp_messages.get_payment_terms(payment_url, payee_address)
+                    request = get_payment_terms(payment_url, payee_address)
                 except DPPException as e:
                     send_view.payable_invoice_import_error(e.args[0])
                     return
@@ -1680,7 +1681,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # Attempt to make the change.
         future = account.get_wallet().data.update_transaction_output_flags(
-            txo_keys, TransactionOutputFlag.FROZEN)
+            txo_keys, TXOFlag.FROZEN)
         future.add_done_callback(callback)
 
         return future
@@ -1730,7 +1731,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list = l = ContactList(self)
         return l
 
-    def spend_coins(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
+    def spend_coins(self, coins: Iterable[UTXOProtocol]) -> None:
         assert isinstance(self._send_view, SendView)
         self._send_view.set_pay_from(coins)
         self.show_send_tab()
@@ -2219,7 +2220,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_transaction(self._account, tx, tx_context)
 
     def prompt_obtain_transaction_from_text(self, *, ok_text: str | None=None) \
-            -> tuple[Transaction | None, TransactionContext | None]:
+            -> tuple[Transaction | None, TxContext | None]:
         if ok_text is None:
             ok_text = _("View")
         text = text_dialog(self, _('Enter the raw transaction below..'), _("Transaction (hex):"),
@@ -2246,7 +2247,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_transaction(self._account, transaction, transaction_context)
 
     def prompt_obtain_transactions_from_files(self, multiple: bool=False) \
-            -> list[tuple[Transaction, TransactionContext | None]]:
+            -> list[tuple[Transaction, TxContext | None]]:
         if multiple:
             file_names = self.getOpenFileNames(_("Select your transaction files"),
                 "Transactions (*.json *.psbt *.raw *.txn *.txt);;*.*")
@@ -2259,7 +2260,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 return []
             file_names = [ file_name ]
 
-        results: list[tuple[Transaction, TransactionContext | None]] = []
+        results: list[tuple[Transaction, TxContext | None]] = []
         for file_name in file_names:
             if file_name.endswith(".psbt"):
                 # Binary-encoded files.
@@ -2289,7 +2290,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_transaction(self._account, tx, tx_context)
 
     def prompt_obtain_transaction_from_txid(self) \
-            -> tuple[Transaction|None, TransactionContext|None]:
+            -> tuple[Transaction|None, TxContext|None]:
         # We should have disabled this
         assert self.network is not None
         assert self._account is not None
@@ -2409,9 +2410,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_transaction_state_change(self, tx_hash: bytes, new_state: TxFlag) -> None:
         self.update_history_view()
 
-    def update_history_view(self) -> None:
+    def update_history_view(self, for_account: bool=False) -> None:
+        # Update both per-account and home history list contents.
+        if not for_account:
+            self._navigation_view.update_history_list()
         self.history_view.update_tx_list()
         self.history_updated_signal.emit()
+
+    def update_history_headers(self) -> None:
+        # Update both per-account and home history list headers.
+        self._navigation_view.update_history_headers()
+        self.history_view.update_tx_headers()
 
     #
     # Preferences dialog and its signals.
@@ -2421,7 +2430,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_fiat_ccy_changed(self) -> None:
         '''Called when the user changes fiat currency in preferences.'''
-        self.history_view.update_tx_headers()
+        self.update_history_headers()
         self.update_history_view()
         self.update_status_bar()
 
@@ -2444,11 +2453,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             edit.setAmount(amount)
         self.update_status_bar()
         for tx_dialog in self.tx_dialogs:
-            tx_dialog.update()
+            if hasattr(tx_dialog, "update_dialog"):
+                tx_dialog.update_dialog()
 
     # App event broadcast to all wallet windows.
     def on_fiat_history_changed(self) -> None:
-        self.history_view.update_tx_headers()
+        self.update_history_headers()
 
     # App event broadcast to all wallet windows.
     def on_fiat_balance_changed(self) -> None:
@@ -2463,8 +2473,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def ok_to_close(self) -> bool:
         # Close our tx dialogs; return False if any cannot be closed
-        for tx_dialog in list(self.tx_dialogs):
-            if not tx_dialog.close():
+        for dialog in list(self.tx_dialogs):
+            if not dialog.close():
                 return False
         return True
 
@@ -2559,8 +2569,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             "the parent transaction in order to get the fee attached to the "
             "child transaction.")
         vbox.addWidget(WWLabel(_(msg)))
-        msg2 = ("The proposed fee is computed using your "
-            "fee/kB settings, applied to the total size of both child and "
+        msg2 = ("The proposed fee is computed using a fixed 500 satoshis/kB "
+            "fee rate, applied to the total size of both child and "
             "parent transactions. After you broadcast a CPFP transaction, "
             "it is normal to see a new unconfirmed transaction in your history.")
         vbox.addWidget(WWLabel(_(msg2)))
@@ -2582,7 +2592,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             output_amount.setText((app_state.format_amount(a) + ' ' + app_state.base_unit())
                                   if a else '')
         fee_e.textChanged.connect(event_fee_changed)
-        fee1 = math.ceil(self.config.fee_per_kb() * total_size / 1000)
+        # TODO(1.4.0) Payments. This should use the MAPI fee estimate if we support CPFP.
+        #     RT removed the call used here previously.
+        fee_rate = 500
+        fee1 = math.ceil(fee_rate * total_size / 1000)
         fee_e.setAmount(fee1)
         grid.addWidget(QLabel(_('Fee' + ':')), 3, 0)
         grid.addWidget(fee_e, 3, 1)

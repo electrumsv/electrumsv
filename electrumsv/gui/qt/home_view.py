@@ -174,9 +174,9 @@ class HomeView(QWidget):
         from .history_list import HistoryView
         self._history_view = HistoryView(self, self._main_window_proxy.reference(),
             for_account=False)
-        # TODO(nocheckin) Payments. Should ensure that any update that could update any account
-        #     view updated this wallet view.
-        self._history_view.update_tx_list()
+        # The "per account" history view is primed when an account was selected. We need to prime
+        # this "all payments in wallet" history view when it is created
+        self._history_view.update_tx_list(refresh=False)
 
         row_layout = QVBoxLayout()
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -233,6 +233,12 @@ class HomeView(QWidget):
         def callback2() -> None:
             self._main_window_proxy.show_update_check()
         action.triggered.connect(callback2)
+
+    def update_history_list(self) -> None:
+        self._history_view.update_tx_list()
+
+    def update_history_headers(self) -> None:
+        self._history_view.update_tx_headers()
 
     def _format_report_entry_text(self, title_text: str, subtitle_text: str) -> str:
         return title_text +"<br/><font color='grey'>"+ subtitle_text +"</font>"

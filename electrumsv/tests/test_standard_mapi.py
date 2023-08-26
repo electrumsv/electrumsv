@@ -1,11 +1,10 @@
 import pytest
 from typing import cast
 
-from electrumsv.standards.mapi import FeeQuote, MAPIBroadcastResponse, \
-    validate_mapi_broadcast_response
+from electrumsv.standards.mapi import convert_mapi_fees, FeeQuote
 from electrumsv.transaction import Transaction
 from electrumsv.types import TransactionSize
-from electrumsv.wallet import TransactionFeeEstimator
+from electrumsv.wallet import estimate_fee
 
 
 
@@ -26,27 +25,9 @@ def test_calculate_mapi_fee_standard_only() -> None:
             },
         ]
     }
-    fee_quote = cast(FeeQuote, fake_fee_quote)
-    estimator = TransactionFeeEstimator(fee_quote)
+    fee_quote = convert_mapi_fees(cast(FeeQuote, fake_fee_quote)["fees"])
     mapi_tx_size = TransactionSize(100, 1000)
-    assert 550 == estimator.estimate_fee(mapi_tx_size)
-
-
-def test_calculate_mapi_fee_data_only_errors() -> None:
-    fake_fee_quote = {
-        "fees": [
-            {
-                "feeType": "data",
-                "miningFee": {
-                    "satoshis": 500,
-                    "bytes": 1000,
-                },
-            },
-        ]
-    }
-    fee_quote = cast(FeeQuote, fake_fee_quote)
-    with pytest.raises(AssertionError):
-        TransactionFeeEstimator(fee_quote)
+    assert 550 == estimate_fee(mapi_tx_size, fee_quote)
 
 
 def test_calculate_mapi_fee_standard_and_data() -> None:
@@ -68,10 +49,9 @@ def test_calculate_mapi_fee_standard_and_data() -> None:
             },
         ]
     }
-    fee_quote = cast(FeeQuote, fake_fee_quote)
-    estimator = TransactionFeeEstimator(fee_quote)
+    fee_quote = convert_mapi_fees(cast(FeeQuote, fake_fee_quote)["fees"])
     mapi_tx_size = TransactionSize(100, 1000)
-    assert (50 + 2000) == estimator.estimate_fee(mapi_tx_size)
+    assert (50 + 2000) == estimate_fee(mapi_tx_size, fee_quote)
 
 
 def test_calculate_mapi_transaction_size() -> None:

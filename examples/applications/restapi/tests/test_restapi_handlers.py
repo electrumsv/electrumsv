@@ -11,13 +11,13 @@ from bitcoinx import BitcoinTestnet, hex_str_to_hash
 from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlag
+from electrumsv.constants import ScriptType, TXOFlag, TxFlag
 # TODO(1.4.0) RESTAPI. Decide how to cleanup removal of `Fault`
 # from electrumsv.restapi import Fault
 from electrumsv.wallet import AbstractAccount, Wallet
-from electrumsv.transaction import Transaction, TransactionContext
+from electrumsv.transaction import Transaction, TxContext
 from electrumsv.types import TransactionSize
-from electrumsv.wallet_database.types import TransactionOutputSpendableRow
+from electrumsv.wallet_database.types import UTXORow
 from ..errors import Errors
 
 from ..handlers import ExtensionEndpoints
@@ -46,26 +46,26 @@ class Net(metaclass=_CurrentNetMeta):
 
 
 SPENDABLE_UTXOS = [
-    TransactionOutputSpendableRow(
+    UTXORow(
         tx_hash=hex_str_to_hash(
             '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
         txo_index = 0,
         value=100000,
         keyinstance_id=0,
         script_type=ScriptType.P2PKH,
-        flags=TransactionOutputFlag.NONE,
+        flags=TXOFlag.NONE,
         account_id=None,
         masterkey_id=None,
         derivation_type=None,
         derivation_data2=None),
-    TransactionOutputSpendableRow(
+    UTXORow(
         tx_hash=hex_str_to_hash(
              '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
         txo_index=0,
         value=100000,
         keyinstance_id=0,
         script_type=ScriptType.P2PKH,
-        flags=TransactionOutputFlag.NONE,
+        flags=TXOFlag.NONE,
         account_id=None,
         masterkey_id=None,
         derivation_type=None,
@@ -174,15 +174,14 @@ class MockAccount(AbstractAccount):
 
     def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
-                -> List[TransactionOutputSpendableRow]:
+                -> List[UTXORow]:
         return SPENDABLE_UTXOS
 
-    def make_unsigned_transaction(self, utxos=None, outputs=None):
-        return Transaction.from_hex(rawtx), TransactionContext()
+    def make_unsigned_tx(self, tx: Transaction, context: TxContext, utxos=None):
+        return Transaction.from_hex(rawtx), utxos
 
-    def sign_transaction(self, tx: Transaction, password: str,
-            context: Optional[TransactionContext]=None) \
-                -> Optional[FakeFuture]:
+    def sign_transactions(self, txs: list[Transaction], tx_ctxs: list[TxContext],
+            password: str) -> FakeFuture | None:
         return FakeFuture(Transaction.from_hex(rawtx))
 
 

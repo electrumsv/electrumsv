@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QLineEdit, Q
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentRequestFlag
 from electrumsv.i18n import _
-from electrumsv.dpp_messages import has_expired, PaymentTermsMessage
+from electrumsv.dpp_messages import is_inv_expired, PaymentTermsMessage
 from electrumsv.util import format_posix_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
 
@@ -35,7 +35,7 @@ class InvoiceDialog(WindowModalDialog):
 
         state = row.flags & PaymentRequestFlag.MASK_STATE
         # `EXPIRED` is never stored and solely used for extra visual state.
-        if state == PaymentRequestFlag.STATE_UNPAID and has_expired(row.date_expires):
+        if state == PaymentRequestFlag.STATE_UNPAID and is_inv_expired(row.date_expires):
             state = PaymentRequestFlag.STATE_EXPIRED
 
         total_amount = dpp_payment_terms.get_amount()

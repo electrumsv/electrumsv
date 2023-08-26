@@ -27,7 +27,7 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...platform import platform
-from ...transaction import Transaction, TransactionContext
+from ...transaction import Transaction, TxContext
 from ...types import MasterKeyDataHardware
 
 from ..hw_wallet.qt import QtHandlerBase
@@ -503,7 +503,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         except Exception as e:
             self.give_error(str(e))
 
-    def sign_transaction(self, tx: Transaction, password: str, context: TransactionContext) \
+    def sign_transaction(self, tx: Transaction, password: str, context: TxContext) \
             -> None:
         if tx.is_complete():
             return

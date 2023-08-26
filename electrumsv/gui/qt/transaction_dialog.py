@@ -54,9 +54,9 @@ from ...dpp_messages import PaymentTermsMessage
 from ...platform import platform
 from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
 from ...standards.tsc_merkle_proof import TSCMerkleProof
-from ...transaction import (Transaction, TransactionContext, TxFileExtensions,
+from ...transaction import (Transaction, TxContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
-from ...types import Outpoint, WaitingUpdateCallback
+from ...types import BroadcastResult, Outpoint, WaitingUpdateCallback
 from ...wallet import AbstractAccount
 from ... import web
 
@@ -169,7 +169,7 @@ class TxDialog(QDialog, MessageBoxMixin):
     show_error_signal = pyqtSignal(str)
 
     def __init__(self, account: AbstractAccount|None, tx: Transaction,
-            context: TransactionContext|None, main_window: ElectrumWindow,
+            context: TxContext|None, main_window: ElectrumWindow,
             prompt_if_unsaved: bool, invoice_terms: PaymentTermsMessage|None=None) -> None:
         # We want to be a top-level window
         QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
@@ -195,7 +195,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         if context is not None:
             self._context = copy.deepcopy(context)
         else:
-            self._context = TransactionContext()
+            self._context = TxContext()
 
         self._wallet.extend_transaction(self.tx, self._context)
 
@@ -281,7 +281,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         hbox.addStretch(1)
         hbox.addLayout(Buttons(*buttons))
         vbox.addLayout(hbox)
-        self.update()
+        self.update_dialog()
 
         main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
         main_window.transaction_added_signal.connect(self._on_transaction_added)
@@ -302,7 +302,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         """
         # This will happen when the partially signed transaction is fully signed.
         if tx_hash == self._tx_hash:
-            self.update()
+            self.update_dialog()
 
     def _on_button_clicked_import(self) -> None:
         assert self.tx.is_complete()
@@ -322,13 +322,13 @@ class TxDialog(QDialog, MessageBoxMixin):
     def _on_transaction_verified(self, tx_hash: bytes, header: Header, tsc_proof: TSCMerkleProof) \
             -> None:
         if tx_hash == self._tx_hash:
-            self.update()
+            self.update_dialog()
 
     def update_tx_if_in_wallet(self) -> None:
         if self._tx_hash is not None:
             flags = self._wallet.data.read_transaction_flags(self._tx_hash)
             if flags is not None and flags & (TxFlag.STATE_CLEARED | TxFlag.STATE_SETTLED):
-                self.update()
+                self.update_dialog()
 
     def _on_button_clicked_broadcast(self) -> None:
         assert self._account is not None
@@ -337,8 +337,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             mapi_server_hint = self._wallet.get_mapi_broadcast_context(
                 self._account.get_id(), self.tx)
             if mapi_server_hint is None:
-                self._main_window.show_error(_("Unable to broadcast as there are no usable MAPI "
-                    "servers."))
+                self.show_error(_("Unable to broadcast as there are no usable MAPI servers."))
                 return
         else:
             mapi_server_hint = self._context.mapi_server_hint
@@ -351,12 +350,14 @@ class TxDialog(QDialog, MessageBoxMixin):
             return
 
         # The only field we need set for broadcast in this case is the server hint.
-        broadcast_context = TransactionContext()
+        assert self._context.payment_id is not None
+        broadcast_context = TxContext()
         broadcast_context.mapi_server_hint = mapi_server_hint
-        self._main_window.broadcast_transaction(self._account, self.tx, broadcast_context,
-            window=self)
+        def broadcast_done(_results: list[BroadcastResult]) -> None: pass
+        self._main_window.broadcast_transactions(self._context.payment_id, [self.tx],
+            [broadcast_context], broadcast_done, self)
         self._saved = True
-        self.update()
+        self.update_dialog()
 
     def ok_to_close(self) -> bool:
         if self._prompt_if_unsaved and not self._saved:
@@ -381,8 +382,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             event.ignore()
 
     def _on_button_clicked_sign(self) -> None:
-        def sign_done(success: bool) -> None:
-            if not success and self._wallet.data.read_transaction_flags(self.tx.hash()) is not None:
+        def sign_done(payment_id: int|None) -> None:
+            tx_hash = self.tx.hash()
+            if not payment_id and self._wallet.data.read_transaction_flags(tx_hash):
                 # TODO(technical-debt) Clean up the WaitingDialog so we actually receive the
                 #     error that happened during the signing process. For now we manually check
                 #     if the reason we failed was because the transaction had already been signed
@@ -391,25 +393,27 @@ class TxDialog(QDialog, MessageBoxMixin):
 
             if success:
                 # If the signing was successful the hash will have changed.
-                self._tx_hash = self.tx.hash()
+                self._tx_hash = tx_hash
                 self._prompt_if_unsaved = True
                 # If the signature(s) from this wallet complete the transaction, then it is
                 # effectively saved in the local transactions list.
                 self._saved = self.tx.is_complete()
 
-            self.update()
-            self._main_window.pop_top_level_window(self)
+            self.update_dialog()
 
         if self._invoice_terms is not None:
             row = self._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
             assert row is not None
             self._context.payment_id = row.payment_id
 
+        assert self._account is not None
         self.sign_button.setDisabled(True)
-        self._main_window.push_top_level_window(self)
-        self._main_window.sign_tx(self.tx, sign_done, window=self, context=self._context)
-        if not self.tx.is_complete():
-            self.sign_button.setDisabled(False)
+        password = self._main_window.password_dialog(parent=self)
+        if password is not None:
+            self._main_window.sign_transactions(self._account, [self.tx], [self._context],
+                sign_done, password, window=self)
+            return
+        self.sign_button.setEnabled(not self.tx.is_complete())
 
     def _tx_to_text(self, prefer_readable: bool=False) -> str:
         assert not self.tx.is_complete(), "complete transactions are directly encoded from raw"
@@ -427,8 +431,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         """
         self.show_error(text)
 
-    # NOTE(typing) The override checks are just painful, how do they even work?
-    def update(self) -> None: # type: ignore[override]
+    def update_dialog(self) -> None:
         base_unit = app_state.base_unit()
         format_amount = app_state.format_amount
         tx_info = self._get_tx_info(self.tx)
@@ -461,11 +464,11 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if tx_info_fee < 0:
                     tx_info_fee = None
 
-        if len(self._context.account_descriptions) == 0:
+        if len(self._context.account_labels) == 0:
             self.tx_desc.hide()
         else:
             text = ""
-            for account_id, account_description in self._context.account_descriptions.items():
+            for account_id, account_description in self._context.account_labels.items():
                 if len(text) > 0:
                     text += "\n"
                 account = self._wallet.get_account(account_id)
@@ -583,7 +586,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             from ...standards.psbt import serialise_transaction_to_psbt_bytes
             parent_transactions: dict[bytes, bytes] = {}
             if self._account is not None:
-                context = TransactionContext()
+                context = TxContext()
                 self._account.obtain_previous_transactions(self.tx, context)
                 parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
                     for parent_transaction_hash, parent_transaction in
@@ -669,7 +672,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 from ...standards.psbt import serialise_transaction_to_psbt_bytes
                 parent_transactions: dict[bytes, bytes] = {}
                 if self._account is not None:
-                    context = TransactionContext()
+                    context = TxContext()
                     self._account.obtain_previous_transactions(self.tx, context)
                     parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
                         for parent_transaction_hash, parent_transaction in
@@ -840,6 +843,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         #   but other outputs won't. It is not our place to add that metadata, as it should be
         #   done elsewhere, like in the send view or on import processing.
 
+        tx_hash = self.tx.hash()
         tx_output: XTxOutput
         received_value = 0
         for txo_index, tx_output in enumerate(self.tx.outputs):
@@ -850,7 +854,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             account_name = ""
             is_receiving = is_change = is_broken = False
             broken_text = ""
-            key_data = self._context.key_datas_by_txo_index.get(txo_index, None)
+            outpoint = Outpoint(tx_hash, txo_index)
+            key_data = self._context.key_datas_by_received_outpoint.get(outpoint, None)
             if key_data is not None:
                 if key_data.derivation_path:
                     derivation_subpath = key_data.derivation_path[:1]
@@ -924,8 +929,8 @@ class TxDialog(QDialog, MessageBoxMixin):
                     if header_and_chain is not None:
                         date_mined = header_and_chain[0].timestamp
 
-                self._context.account_descriptions.clear()
-                self._context.account_descriptions = {
+                self._context.account_labels.clear()
+                self._context.account_labels = {
                     description_row.account_id: description_row.description
                     for description_row in self._wallet.data.read_transaction_descriptions(
                         tx_hashes=[ self._tx_hash ]) if description_row.description is not None }

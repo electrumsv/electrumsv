@@ -39,35 +39,38 @@ import concurrent.futures
 import random
 import textwrap
 import time
-from typing import Any, cast, Iterable, TYPE_CHECKING
+from typing import Any, cast, Iterable, Sequence, TYPE_CHECKING
 import weakref
 
-from bitcoinx import Address, hash_to_hex_str
+from bitcoinx import Address, classify_output_script, hash_to_hex_str, P2PKH_Address
 
 from PyQt6.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
 from PyQt6.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
     QLabel, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import MAX_VALUE, PaymentRequestFlag
-from ...exceptions import DPPException, ExcessiveFee, NotEnoughFunds
+from ...bitcoin import ScriptTemplate
+from ...constants import DEFAULT_FEE, MAX_VALUE, PaymentRequestFlag
+from ...exceptions import ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
-from ...dpp_messages import has_expired, PaymentTermsMessage
-from ...transaction import Transaction, TransactionContext, XTxOutput
-from ...types import TransactionFeeContext
+from ...dpp_messages import is_inv_expired, PaymentTermsMessage
+from ...networks import Net
+from ...transaction import Transaction, TxContext
+from ...types import BroadcastResult, MAPIFeeContext
 from ...util import format_satoshis_plain
-from ...wallet import AbstractAccount, TransactionCreationContext
-from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableProtocol
+from ...wallet import AbstractAccount
+from ...wallet_database.types import InvoiceRow, UTXOProtocol
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
+from .constants import ViewPaymentMode
 from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
 from .table_widgets import TableTopButtonLayout
 from .types import FrozenEditProtocol
 from .util import (ColorScheme, EnterButton, HelpDialogButton, HelpLabel, MyTreeWidget,
-    UntrustedMessageDialog, update_fixed_tree_height)
+    update_fixed_tree_height)
 
 
 if TYPE_CHECKING:
@@ -85,15 +88,14 @@ class SendView(QWidget):
 
     display_invoice_signal = pyqtSignal(object)
     import_and_display_invoice_signal = pyqtSignal()
-    invoice_error_signal = pyqtSignal(int, bytes, str)
     invoice_import_error_signal = pyqtSignal(object)
     invoice_deleted_signal = pyqtSignal(int)
-    fee_quotes_finished = pyqtSignal(object)
 
     _payto_e: PayToEdit
     amount_e: BTCAmountEdit
     _fiat_send_e: AmountEdit
     _account: AbstractAccount
+    _fee_quote_future: concurrent.futures.Future[list[MAPIFeeContext]] | None = None
 
     def __init__(self, main_window: ElectrumWindow, account_id: int) -> None:
         super().__init__(main_window)
@@ -106,28 +108,28 @@ class SendView(QWidget):
         self._is_max = False
         self._not_enough_funds = False
         self._require_fee_update: float|None = None
-        self._invoice_terms: PaymentTermsMessage|None = None
+        self._payment_id: int|None = None
+        self._invoice: PaymentTermsMessage|None = None
         # If this is an invoice this will be the security address from the "pay:" URL.
         self._invoice_address: Address|None = None
         self._completions = QStringListModel()
-        self._transaction_creation_context = TransactionCreationContext()
-        self._transaction_creation_context.set_account(self._account)
-        self._transaction_creation_context.callbacks.append(self.fee_quotes_finished.emit)
 
         self.setLayout(self.create_send_layout())
 
         self.display_invoice_signal.connect(self._display_invoice)
         self.import_and_display_invoice_signal.connect(self._import_and_display_invoice)
-        self.invoice_error_signal.connect(self._invoice_error)
         self.invoice_import_error_signal.connect(self._invoice_import_error)
         self.invoice_deleted_signal.connect(self._invoice_deleted)
-        self.fee_quotes_finished.connect(self._on_ui_thread_fee_quotes_finished)
 
         app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
+        self._main_window.payment_success_signal.connect(self._on_ui_payment_success)
 
     def clean_up(self) -> None:
+        if self._fee_quote_future is not None:
+            self._fee_quote_future.cancel()
+
         # Disconnect external signals.
         self._main_window.keys_updated_signal.disconnect(self._on_keys_updated)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
@@ -223,10 +225,10 @@ class SendView(QWidget):
         self._main_window.connect_fields(self.amount_e, self._fiat_send_e)
 
         self._help_button = HelpDialogButton(self, "misc", "send-tab", _("Help"))
-        self._preview_button = EnterButton(_("Preview"), self._do_preview, self)
+        self._preview_button = EnterButton(_("Preview"), self.preview_payment, self)
         self._preview_button.setToolTip(
             _('Display the details of your transactions before signing it.'))
-        self._send_button = EnterButton(_("Send"), self._do_send, self)
+        self._send_button = EnterButton(_("Send"), self.send_payment, self)
         if self._main_window.network is None:
             self._send_button.setEnabled(False)
             self._send_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
@@ -249,7 +251,7 @@ class SendView(QWidget):
 
         def reset_max(t: str) -> None:
             # Invoices set the amounts, which invokes this despite them being frozen.
-            if self._invoice_terms is not None:
+            if self._invoice is not None:
                 return
             self._is_max = False
             self._max_button.setEnabled(not bool(t))
@@ -290,11 +292,49 @@ class SendView(QWidget):
         return vbox
 
     def on_tab_activated(self) -> None:
-        if self._main_window.network is None:
+        self._mapi_fee_contexts: list[MAPIFeeContext] = []
+        self._fee_quote_future = None
+
+        # We cannot obtain fee quotes if we are offline.
+        if self._main_window.network is None or self._account is None:
             return
 
-        self._on_ui_thread_fee_quotes_started()
-        self._transaction_creation_context.obtain_fee_quotes()
+        if self._invoice is not None:
+            self._logger.debug("Send view not requesting MAPI fee quotes due to use for invoice %s",
+                self._invoice.get_id())
+            return
+
+        self._send_button.setEnabled(False)
+        self._preview_button.setEnabled(False)
+        self._main_window.status_bar.showMessage(_("Requesting fee quotes from MAPI servers.."))
+
+        account_id = self._account.get_id()
+        self._fee_quote_future = app_state.app_qt.run_coro(
+            self._account._wallet.update_mapi_fee_quotes_async(account_id),
+            on_done=self._on_future_fee_quotes_done)
+
+    def _on_future_fee_quotes_done(self,
+            future: concurrent.futures.Future[list[MAPIFeeContext]]) -> None:
+        if future.cancelled():
+            return
+
+        self._mapi_fee_contexts = future.result()
+        if len(self._mapi_fee_contexts) > 0:
+            message_text = _("Fee quotes obtained from {server_count} MAPI servers.").format(
+                    server_count=len(self._mapi_fee_contexts))
+            # # NOTE(rt12) For now we just pick one at random.
+            # fee_context = random.choice(self._fee_quotes)
+            # self._transaction_creation_context.set_fee_quote(fee_context.fee_quote)
+            # self._transaction_creation_context.set_mapi_broadcast_hint(
+            #     fee_context.server_and_credential)
+            self._send_button.setEnabled(True)
+        else:
+            message_text = _("Unable to obtain fee quotes from any MAPI servers.")
+            self._send_button.setToolTip(_("Unable to broadcast transactions as there no "
+                "available MAPI servers"))
+        self._main_window.status_bar.showMessage(message_text, 5000)
+
+        self._preview_button.setEnabled(True)
 
     # Called externally via the Find menu option.
     def on_search_toggled(self) -> None:
@@ -326,10 +366,10 @@ class SendView(QWidget):
         self.amount_e.setFrozen(flag)
         self._max_button.setEnabled(not flag)
 
-    def set_is_spending_maximum(self, is_max: bool) -> None:
+    def set_spend_maximum(self, is_max: bool) -> None:
         self._is_max = is_max
 
-    def get_is_spending_maximum(self) -> bool:
+    def is_spending_maximum(self) -> bool:
         return self._is_max
 
     def _spend_max(self) -> None:
@@ -341,7 +381,8 @@ class SendView(QWidget):
         # So anything that calls this should follow it with a call to `update_widgets`.
         self._is_max = False
         self._not_enough_funds = False
-        self._invoice_terms = None
+        self._payment_id = None
+        self._invoice = None
         self._payto_e.is_invoice = False
 
         edit_fields: tuple[FrozenEditProtocol, ...] = \
@@ -364,7 +405,7 @@ class SendView(QWidget):
     def update_fee(self) -> None:
         self._require_fee_update = time.monotonic()
 
-    def set_pay_from(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
+    def set_pay_from(self, coins: Iterable[UTXOProtocol]) -> None:
         self.pay_from = list(coins)
         self.redraw_from_list()
 
@@ -385,7 +426,7 @@ class SendView(QWidget):
         self._from_label.setHidden(len(self.pay_from) == 0)
         self._from_list.setHidden(len(self.pay_from) == 0)
 
-        def format_utxo(utxo: TransactionOutputSpendableProtocol) -> str:
+        def format_utxo(utxo: UTXOProtocol) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
             return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.keyinstance_id)
 
@@ -405,30 +446,116 @@ class SendView(QWidget):
             self.do_update_fee()
             self._require_fee_update = None
 
+    def _make_base_transactions(self) -> tuple[list[Transaction], list[TxContext]]:
+        """
+        Raises `ValueError` for any unforeseen problems. The contents will be intended for display
+            to the user and therefore are internationalised.
+        """
+        if self._invoice is not None:
+            assert self._payment_id is not None
+            if self._invoice.has_expired():
+                raise ValueError(_("This invoice has expired"))
+
+            txs: list[Transaction] = []
+            tx_ctxs: list[TxContext] = []
+            for tx_idx, tx in enumerate(self._invoice.transactions):
+                txs.append(Transaction.from_io(tx.inputs, tx.outputs, tx.locktime))
+                policy_dict = self._invoice.transaction_policies[tx_idx]
+                fee_quote = policy_dict["fees"] if policy_dict is not None else None
+                # We do not persist because we want to fund and sign them all successfully before
+                # doing so. This simplifies things as we then only deal in funded complete payments.
+                tx_ctxs.append(TxContext(payment_id=self._payment_id, fee_quote=fee_quote))
+            return txs, tx_ctxs
+
+        errors = self._payto_e.get_errors()
+        if errors:
+            raise ValueError(_("Invalid lines found:") + "\n\n" +
+                '\n'.join([
+                    "\n".join(textwrap.wrap(_("Line #") + str(x[0]+1) +": "+ x[1]))
+                    for x in errors]))
+
+        # NOTE(rt12) "pay to many" does not currently have a way for the user to denote a
+        # manual split so these are implicitly lumped into one transaction for now.
+        outputs = self._payto_e.get_outputs(self._is_max)
+
+        # Handle the case where the user copies an address from the keys tab. If we do not do this
+        # the wallet will lose track of the coins.
+        script_templates: dict[ScriptTemplate, int] = {}
+        for i, xtxo in enumerate(outputs):
+            script_template = cast(ScriptTemplate,
+                classify_output_script(xtxo.script_pubkey, Net.COIN))
+            if isinstance(script_template, P2PKH_Address):
+                script_templates[script_template] = i
+
+        if script_templates:
+            wallet = self._main_window._wallet
+            match_count = 0
+            for key_row in wallet.data.read_keyinstances():
+                account = wallet.get_account(key_row.account_id)
+                assert account is not None
+                script_type = account.get_default_script_type()
+                script_template = account.get_script_template_for_derivation(script_type,
+                    key_row.derivation_type, key_row.derivation_data2)
+                output_idx = script_templates.get(script_template)
+                if output_idx is not None:
+                    outputs[output_idx].x_pubkeys = account.get_xpubkeys_for_key_data(key_row)
+                    match_count += 1
+                if match_count == len(script_templates):
+                    break
+
+        if any(output.value is None for output in outputs):
+            raise ValueError(_('Invalid Amount'))
+
+        # TODO(1.4.0) Payments. Don't we need to persist the server and fee quote with a
+        #     persisted payment? Or is there a simpler way?
+        if len(self._mapi_fee_contexts) == 0:
+            default_fee_rate =  app_state.config.get_explicit_type(int, "customfee", DEFAULT_FEE)
+            tx_ctx = TxContext(fee_quote={
+                "standard": {"satoshis": default_fee_rate, "bytes": 1000},
+                "data": {"satoshis": default_fee_rate, "bytes": 1000},
+            })
+        else:
+            fee_context = random.choice(self._mapi_fee_contexts)
+            tx_ctx = TxContext(mapi_server_hint=fee_context.server_and_credential,
+                fee_quote=fee_context.fee_quote)
+        return [ Transaction.from_io([], outputs) ], [ tx_ctx ]
+
     def do_update_fee(self) -> None:
-        '''Recalculate the fee.  If the fee was manually input, retain it, but
-        still build the TX to see if there are enough funds.
-        '''
+        """Recalculate the fee.  If the fee was manually input, retain it, but
+        still build the TX to see if there are enough funds."""
         assert self._account is not None
         amount = MAX_VALUE if self._is_max else self.amount_e.get_amount()
         if amount is None:
+            # The amount the user entered is junk text that cannot be reconciled to a value.
             self._not_enough_funds = False
             self._on_entry_changed()
-        else:
-            coins = self._get_coins()
-            self._transaction_creation_context.set_unspent_outputs(coins)
+            return
 
-            outputs = self._payto_e.get_outputs(self._is_max)
-            if not outputs:
-                output_script = self._payto_e.get_payee_script()
-                if output_script is None:
-                    output_script = self._account.get_dummy_script_template().to_script()
-                # NOTE(typing) workaround for mypy not recognising the base class init arguments.
-                outputs = [XTxOutput(amount, output_script)] # type: ignore
-            self._transaction_creation_context.set_outputs(outputs)
+        try:
+            txs, tx_ctxs = self._make_base_transactions()
+        except ValueError as exc:
+            self._logger.debug("Failed calculating fee: %s", str(exc))
+            return
 
+        if len(txs) == 0:
+            # TODO(1.4.0) Payments. Judge if fees in this case
+            # fees ...
+            # assert self._invoice_terms is not None
+            # outputs = self._payto_e.get_outputs(self._is_max)
+            # if not outputs:
+            #     output_script = self._payto_e.get_payee_script()
+            #     if output_script is None:
+            #         output_script = self._account.get_dummy_script_template().to_script()
+            #     # NOTE(typing) workaround for mypy not recognising the base class init arguments.
+            #     outputs = [XTxOutput(amount, output_script)] # type: ignore
+            # fee_context: MAPIFeeContext|None = random.choice(self._mapi_fee_contexts) \
+            #     if len(self._mapi_fee_contexts) > 0 else None
+            return
+
+        utxos = self._get_utxos()
+        for i, tx in enumerate(txs):
             try:
-                tx, _tx_context = self._transaction_creation_context.create_transaction()
+                txs[i], utxos = self._account.make_unsigned_tx(tx, tx_ctxs[i], utxos)
                 self._not_enough_funds = False
             except NotEnoughFunds:
                 self._logger.debug("Not enough funds")
@@ -439,115 +566,65 @@ class SendView(QWidget):
                 self._logger.exception("transaction failure")
                 return
 
-            if self._is_max:
-                amount = tx.output_value()
-                self.amount_e.setAmount(amount)
+        if self._is_max:
+            amount = tx.output_value()
+            self.amount_e.setAmount(amount)
 
-    def _do_preview(self) -> None:
-        self._do_send(preview=True)
+    def preview_payment(self) -> None:
+        self.send_payment(preview=True)
 
-    def _do_send(self, preview: bool=False) -> None:
+    def send_payment(self, preview: bool=False) -> None:
         assert self._account is not None
         dialogs.show_named('think-before-sending')
 
-        if self._invoice_terms is not None:
-            # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
-            # - A DPP invoice will provide a list of transactions and outputs in each transaction
-            #   that the payer must fund. This requires rewriting the output-related logic here.
-            pass
-            # tx = self._get_transaction_for_invoice()
-            # if tx is not None:
-            #     if preview or not tx.is_complete():
-            #         self._main_window.show_transaction(self._account, tx, pr=self._invoice_terms)
-            #         self.clear()
-            #         return
-
-            #     self._main_window.broadcast_transaction(self._account, tx)
-            #     return
-
-        r = self._read()
-        if r is None:
-            return
-
-        outputs, tx_desc, coins = r
-        self._transaction_creation_context.set_unspent_outputs(coins)
-        self._transaction_creation_context.set_outputs(outputs)
         try:
-            tx, tx_context = self._transaction_creation_context.create_transaction()
-        except NotEnoughFunds:
-            self._main_window.show_message(_("Insufficient funds"))
-            return
-        except ExcessiveFee:
-            self._main_window.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
-            return
-        except Exception as e:
-            self._logger.exception("")
-            self._main_window.show_message(str(e))
+            txs, tx_ctxs = self._make_base_transactions()
+        except ValueError as exc:
+            self._main_window.show_error(str(exc))
             return
 
-        tx_context.account_descriptions[self._account.get_id()] = tx_desc
+        if len(txs) == 0:
+            assert self._invoice is None # This cannot happen with invoices.
+            self._main_window.show_error(_('Please specify a destination for this payment.'))
+            return
+
+        tx_label = self._message_e.text()
+        utxos = self._get_utxos()
+        for i, tx in enumerate(txs):
+            tx_ctx = tx_ctxs[i]
+            tx_ctx.account_labels[self._account.get_id()] = tx_label
+            try:
+                txs[i], utxos = self._account.make_unsigned_tx(tx, tx_ctx, utxos)
+            except (ExcessiveFee, NotEnoughFunds) as exc:
+                self._main_window.show_error(str(exc))
+                return
+            except Exception as e:
+                self._logger.exception("")
+                self._main_window.show_message(str(e))
+                return
+
         if preview:
-            self._main_window.show_transaction(self._account, tx, tx_context,
-                pr=self._invoice_terms)
-        else:
-            amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
-            self._sign_tx_and_broadcast_if_complete(amount, tx, tx_context)
+            self._main_window.show_payment(ViewPaymentMode.UNSIGNED, self._payment_id, txs, tx_ctxs,
+                self._account.get_id())
+            return
 
-    def _read(self) -> tuple[list[XTxOutput], str, list[TransactionOutputSpendableProtocol]] | None:
-        if self._invoice_terms and self._invoice_terms.has_expired():
-            self._main_window.show_error(_('Payment request has expired'))
-            return None
-
-        outputs: list[XTxOutput]
-        if self._invoice_terms:
-            # TODO(nocheckin) Payments. Handle DPP invoices and structural transactions.
-            # - A DPP invoice will provide a list of transactions and outputs in each transaction
-            #   that the payer must fund. This requires rewriting the output-related logic here.
-            # self._invoice_terms.transactions
-            # self._invoice_terms.transaction_policies
-            raise NotImplementedError("TODO 1.4.0")
-            # outputs = self._payment_request.get_outputs()
-        else:
-            errors = self._payto_e.get_errors()
-            if errors:
-                self._main_window.show_warning(_("Invalid lines found:") + "\n\n" +
-                    '\n'.join([
-                        "\n".join(textwrap.wrap(_("Line #") + str(x[0]+1) +": "+ x[1]))
-                        for x in errors]))
-                return None
-            outputs = self._payto_e.get_outputs(self._is_max)
-
-        if not outputs:
-            self._main_window.show_error(_('No payment destinations provided'))
-            return None
-
-        if any(output.value is None for output in outputs):
-            self._main_window.show_error(_('Invalid Amount'))
-            return None
-
-        coins = self._get_coins()
-        description = self._message_e.text()
-        return outputs, description, coins
-
-    def _get_coins(self) -> list[TransactionOutputSpendableProtocol]:
-        if self.pay_from:
-            return self.pay_from
-        assert self._account is not None
-        return cast(list[TransactionOutputSpendableProtocol],
-            self._account.get_transaction_outputs_with_key_data())
-
-    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
-            tx_context: TransactionContext) -> None:
-        assert self._account is not None
-        # confirmation dialog
+        # TODO(1.4.0) Payments. If the other party funds the transaction, we need to have the value
+        #     of their spend outputs to work out the fee. This would come as part of the SPV.
+        assert len(txs) == 1
+        tx = txs[0]
         fee = tx.get_fee()
+        # ????? not sure about all this any of it.
+        input_value = sum([ cast(int, txi.value) for tx in txs for txi in tx.inputs
+            if txi.x_pubkeys ])
+        output_value = sum([ txo.value for tx in txs for txo in tx.outputs if txo.x_pubkeys ])
+        amount = output_value - input_value
 
         msg = []
-        if fee < round(sum(tx.estimated_size()) * 0.5):
-            msg.append(_('Warning') + ': ' +
-                _('The fee is less than 500 sats/kb. It may take a very long time to confirm.'))
-        msg.append("")
-        msg.append(_("Enter your password to proceed"))
+        print(fee)
+        if fee < round(sum(tx.estimated_size()) * 0.1):
+            msg.append(_("Warning") +": "+ _("The fee is less than {} sats/kb. It may take a "
+                "very long time to confirm.").format(100))
+        msg.extend([ "", _("Enter your password to proceed") ])
 
         password = self._main_window.password_dialog('\n'.join(msg), fields=[
             (_("Amount to send"), QLabel(app_state.format_amount_and_units(amount))),
@@ -556,22 +633,35 @@ class SendView(QWidget):
         if not password:
             return
 
-        if self._invoice_terms is not None:
-            row = self._account._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
-            assert row is not None
-            tx_context.payment_id = row.payment_id
+        def sign_done(payment_id: int|None) -> None:
+            nonlocal txs, tx_ctxs
+            if payment_id is None:
+                return
 
-        def sign_done(success: bool) -> None:
-            if success:
-                if not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx, tx_context,
-                        pr=self._invoice_terms)
-                    self.clear()
+            if all(tx.is_complete() for tx in txs):
+                if self._invoice:
+                    if self._main_window.send_invoice_payment(payment_id, self._invoice, txs):
+                        self.clear()
                     return
 
-                self._main_window.broadcast_transaction(self._account, tx, tx_context)
+                def broadcast_done(results: list[BroadcastResult]) -> None: pass
+                self._main_window.broadcast_transactions(payment_id, txs, tx_ctxs,
+                    broadcast_done, self._main_window.reference())
+                return
 
-        self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
+            # Successful partial signing. At time of writing this will be multisig.
+            assert self._account is not None
+            self._main_window.show_payment(ViewPaymentMode.PARTIALLY_SIGNED, payment_id, txs,
+                tx_ctxs, self._account.get_id())
+            self.clear()
+
+        self._main_window.sign_transactions(self._account, txs, tx_ctxs, sign_done, password)
+
+    def _get_utxos(self) -> Sequence[UTXOProtocol]:
+        if self.pay_from:
+            return self.pay_from
+        assert self._account is not None
+        return cast(Sequence[UTXOProtocol], self._account.get_transaction_outputs_with_key_data())
 
     # Legacy payment.
 
@@ -595,62 +685,16 @@ class SendView(QWidget):
             self.amount_e.setAmount(amount)
             self.amount_e.textEdited.emit("")
 
-    def is_invoice_payment(self) -> bool:
-        return self._invoice_terms is not None
-
-    def send_invoice_payment(self, tx: Transaction) -> bool:
-        """
-        WARNING: This is not expected to be called from the UI thread.
-
-        Returns `True` if there is an invoice payment to send.
-        Returns `False` if there is no pending invoice to pay.
-        """
-        assert self._account is not None
-        assert self._invoice_terms is not None
-        tx_hash = tx.hash()
-        invoice_id = self._invoice_terms.get_id()
-        assert invoice_id is not None
-
-        if self._invoice_terms.has_expired():
-            self.invoice_error_signal.emit(invoice_id, tx_hash,
-                _("The invoice has expired"))
-            return False
-
-        if not self._invoice_terms.payment_url:
-            self.invoice_error_signal.emit(invoice_id, tx_hash, _("This invoice does "
-                "not have a payment URL"))
-            return False
-
-        # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
-        # invoice being active in the send tab. Until then we assume that broadcasting a
-        # transaction that is not related to the active invoice and it's repercussions, has
-        # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
-        # in the main window logic.
-        try:
-            app_state.async_.spawn_and_wait(
-                self._account._wallet.send_direct_payment_async(invoice_id, [ tx ]))
-        except DPPException as bip270_exception:
-            self._logger.exception("DPP invoice payment failure")
-            self.invoice_error_signal.emit(invoice_id, tx_hash, bip270_exception.args[0])
-            return False
-
-        self._invoice_terms = None
-        # On success we broadcast as well, but it is assumed that the merchant also
-        # broadcasts.
-        return True
-
     def display_invoice(self, terms: PaymentTermsMessage) -> None:
         assert self._account is not None
-        self._invoice_terms = terms
+        self._invoice = terms
         invoice_id = terms.get_id()
         assert invoice_id is not None
         row = self._account._wallet.data.read_invoice(invoice_id=invoice_id)
         self.display_invoice_signal.emit(row)
 
     def show_invoice_loading_state(self) -> None:
-        """
-        Calling context: Guaranteed to be the UI thread.
-        """
+        """Calling context: Guaranteed to be the UI thread."""
         self._payto_e.is_invoice = True
         edit_widgets: list[FrozenEditProtocol] = [self._payto_e, self.amount_e, self._message_e]
         for widget in edit_widgets:
@@ -660,18 +704,14 @@ class SendView(QWidget):
 
     def import_and_display_invoice(self, terms: PaymentTermsMessage,
             receiver_address: Address) -> None:
-        """
-        Calling context: Not guaranteed to be the UI thread.
-        """
+        """Calling context: Not guaranteed to be the UI thread."""
         self._invoice_address = receiver_address
-        self._invoice_terms = terms
+        self._invoice = terms
         # Proceed to process the invoice on the GUI thread.
         self.import_and_display_invoice_signal.emit()
 
     def payable_invoice_import_error(self, text: str) -> None:
-        """
-        Calling context: Not guaranteed to be the UI thread.
-        """
+        """Calling context: Not guaranteed to be the UI thread."""
         self.invoice_import_error_signal.emit(text)
 
     def _invoice_import_error(self, text: str) -> None:
@@ -679,9 +719,9 @@ class SendView(QWidget):
         self.clear()
 
     def _import_and_display_invoice(self) -> None:
-        assert self._account is not None and self._invoice_terms is not None
-        if self._invoice_terms.get_id() is not None:
-            row = self._account._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
+        assert self._account is not None and self._invoice is not None
+        if self._invoice.get_id() is not None:
+            row = self._account._wallet.data.read_invoice(invoice_id=self._invoice.get_id())
             assert row is not None
             if row.flags & PaymentRequestFlag.STATE_PAID:
                 self._main_window.show_message(_("This invoice is both already imported and paid."))
@@ -690,26 +730,28 @@ class SendView(QWidget):
             return
 
         def future_callback(future: concurrent.futures.Future[InvoiceRow]) -> None:
-            if future.cancelled() or self._invoice_terms is None:
+            if future.cancelled() or self._invoice is None:
                 return
             row = future.result()
-            self._invoice_terms.set_id(row.invoice_id)
+            self._payment_id = row.payment_id
+            self._invoice.set_id(row.invoice_id)
             self.display_invoice_signal.emit(row)
 
         contact_id: int|None = None
         future = app_state.async_.spawn(
-            self._account.import_invoice_async(self._invoice_terms, contact_id))
+            self._account.import_invoice_async(self._invoice, contact_id))
         future.add_done_callback(future_callback)
 
+    # TODO(1.4.0) Payments. Called by the invoice list to populate the send view with the invoice
+    #     payment details. This should be called by the history list instead.
     def _display_invoice(self, row: InvoiceRow) -> None:
-        assert self._invoice_terms is not None
-        assert self._invoice_terms.get_id() == row.invoice_id
+        assert self._invoice is not None
+        assert self._invoice.get_id() == row.invoice_id
 
         assert row.description is not None
         self.invoice_list.update()
-
         self._payto_e.is_invoice = True
-        if not has_expired(row.date_expires):
+        if not is_inv_expired(row.date_expires):
             self._payto_e.set_validated()
         else:
             self._payto_e.set_expired()
@@ -719,57 +761,32 @@ class SendView(QWidget):
         # signal to set fee
         self.amount_e.textEdited.emit("")
 
+    # TODO(1.4.0) Payments. Called by the invoice list to clear the current invoice if it was
+    #     deleted there. Similarly to `display_invoice` above.
     def _invoice_deleted(self, invoice_id: int) -> None:
-        if self._invoice_terms is not None and self._invoice_terms.get_id() == invoice_id:
+        if self._invoice is not None and self._invoice.get_id() == invoice_id:
             self.clear()
-
         # Remove the seal from the history lines.
         self._main_window.update_history_view()
         # Update the invoice list.
         self.update_widgets()
 
-    def _invoice_error(self, invoice_id: int, tx_hash: bytes, message: str) -> None:
-        assert self._invoice_terms is not None
-        # The transaction is still signed and associated with the invoice. This should be
-        # indicated to the user in the UI, and they can deal with it.
-
-        d = UntrustedMessageDialog(
-            self._main_window.reference(), _("Invoice Payment Error"),
-            _("Your payment was rejected for some reason."), untrusted_text=message)
-        d.exec()
-        self.clear()
-
-    def _on_ui_thread_fee_quotes_started(self) -> None:
-        assert self._main_window.network is not None
-
-        self._send_button.setEnabled(False)
-        self._preview_button.setEnabled(False)
-
-        self._main_window.status_bar.showMessage(_("Requesting fee quotes from MAPI servers.."))
-
-    def _on_ui_thread_fee_quotes_finished(self, fee_contexts: list[TransactionFeeContext]) -> None:
-        if len(fee_contexts) > 0:
-            message_text = _("Fee quotes obtained from {server_count} MAPI servers.").format(
-                    server_count=len(fee_contexts))
-            # NOTE(rt12) For now we just pick one at random.
-            fee_context = random.choice(fee_contexts)
-            self._transaction_creation_context.set_fee_quote(fee_context.fee_quote)
-            self._transaction_creation_context.set_mapi_broadcast_hint(
-                fee_context.server_and_credential)
-            self._send_button.setEnabled(True)
+    def _on_ui_payment_success(self, payment_id: int) -> None:
+        if self._invoice is not None:
+            if payment_id == self._invoice.get_id():
+                self.clear()
         else:
-            message_text = _("Unable to obtain fee quotes from any MAPI servers.")
-            self._send_button.setToolTip(_("Unable to broadcast transactions as there no "
-                "available MAPI servers"))
-        self._main_window.status_bar.showMessage(message_text, 5000)
-
-        self._preview_button.setEnabled(True)
+            self.clear()
 
     def get_bsv_edits(self) -> list[BTCAmountEdit]:
-        # Used to apply changes like base unit changes to all applicable edit fields.
+        """External entrypoint where the user has changed the base unit and we are updating the
+        edit widgets that embed that base unit."""
         return [ self.amount_e ]
 
     def paytomany(self) -> None:
+        """External entrypoint where the send view has been put to the front and it is modified to
+        show a modified UI where the user can enter multiple payment destinations. These will
+        explicitly be legacy payment destinations."""
         self._payto_e.paytomany()
         msg = '\n'.join([
             _('Enter a list of outputs in the \'Pay to\' field.'),
@@ -785,4 +802,6 @@ class SendView(QWidget):
     #     self.invoice_list.import_invoices(self._account)
 
     def update_widgets(self) -> None:
+        """External entrypoint where the main window has blindly been asked to update and this is
+        how it tells us to update this tab. This is non-ideal."""
         self.invoice_list.update()

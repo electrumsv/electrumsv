@@ -181,7 +181,10 @@ class SVApplication(QApplication):
             m.clear()
         for window in self.windows:
             submenu = m.addMenu(window._wallet.name())
-            submenu.addAction(_("Show/Hide"), window.show_or_hide)
+            if window.isMinimized() or window.isHidden():
+                submenu.addAction(_("Show"), window.bring_to_top)
+            else:
+                submenu.addAction(_("Hide"), window.hide)
             # NOTE(typing) Need to pretend things that Qt uses return nothing.
             submenu.addAction(_("Close"), cast(Callable[..., None], window.close))
         m.addAction(_("Dark/Light"), self._toggle_tray_icon)
@@ -202,7 +205,7 @@ class SVApplication(QApplication):
 
     def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            if all([w.is_hidden() for w in self.windows]):
+            if all([w.isMinimized() or w.isHidden() for w in self.windows]):
                 for w in self.windows:
                     w.bring_to_top()
             else:
@@ -363,9 +366,8 @@ class SVApplication(QApplication):
     def run_coro(self, coro: Coroutine[Any, Any, T1],
             on_done: Callable[[concurrent.futures.Future[T1]], None]|None=None) \
                 -> concurrent.futures.Future[T1]:
-        '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
-        exception, and is guaranteed to be called in the context of the GUI thread.
-        '''
+        """Run a coroutine.  on_done, if given, is passed the future containing the result or
+        exception, and is guaranteed to be called in the context of the GUI thread."""
         def task_done(future: concurrent.futures.Future[T1]) -> None:
             self.async_tasks_done.emit()
 

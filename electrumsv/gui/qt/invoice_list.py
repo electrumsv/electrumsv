@@ -110,8 +110,8 @@ class InvoiceList(MyTreeWidget):
 
         current_id = None
         current_item: QTreeWidgetItem|None = None
-        if self._send_view._invoice_terms is not None:
-            current_id = self._send_view._invoice_terms.get_id()
+        if self._send_view._invoice is not None:
+            current_id = self._send_view._invoice.get_id()
         if current_id is None:
             current_item = self.currentItem()
             current_id = current_item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole) \

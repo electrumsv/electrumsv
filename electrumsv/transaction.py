@@ -44,8 +44,8 @@ from .networks import Net
 from .script import AccumulatorMultiSigOutput
 from .standards.script_templates import classify_transaction_output_script, create_script_sig, \
     to_bare_multisig_script_bytes
-from .types import DatabaseKeyDerivationData, FeeQuoteCommon, FeeQuoteTypeFee, \
-    ServerAndCredential, TransactionSize, Outpoint
+from .types import DatabaseKeyDerivationData, FeeQuoteTypeEntry2, ServerAndCredential, \
+    TxImportCtx, TransactionSize, Outpoint
 
 
 
@@ -119,18 +119,20 @@ def tx_output_to_display_text(tx_output: TxOutput) -> tuple[str, ScriptTemplate]
 HardwareSigningMetadata = dict[bytes, tuple[DerivationPath, tuple[str], int]]
 
 @dataclasses.dataclass
-class TransactionContext:
+class TxContext:
     payment_id: int|None = dataclasses.field(default=None)
-    account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
+    account_labels: dict[int, str] = dataclasses.field(default_factory=dict)
     parent_transactions: dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
-    hardware_signing_metadata: list[HardwareSigningMetadata] \
+    hw_signing_metadata: list[HardwareSigningMetadata] \
         = dataclasses.field(default_factory=list)
     spent_outpoint_values: dict[Outpoint, int] = dataclasses.field(default_factory=dict)
     key_datas_by_spent_outpoint: dict[Outpoint, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
-    key_datas_by_txo_index: dict[int, DatabaseKeyDerivationData] \
+    key_datas_by_received_outpoint: dict[Outpoint, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
     mapi_server_hint: ServerAndCredential|None = dataclasses.field(default=None)
+    import_context: TxImportCtx|None = dataclasses.field(default=None)
+    fee_quote: FeeQuoteTypeEntry2|None = dataclasses.field(default=None)
 
 
 
@@ -494,7 +496,7 @@ class Transaction(Tx): # type: ignore[misc]
             -> Transaction:
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         return cls(version=1, locktime=locktime, # type: ignore[call-arg]
-            inputs=inputs, outputs=outputs.copy())
+            inputs=inputs.copy(), outputs=outputs.copy())
 
     @classmethod
     def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> Transaction:
@@ -605,11 +607,6 @@ class Transaction(Tx): # type: ignore[misc]
         else:
             raise RuntimeError('Unknown txin type', _type)
 
-    def BIP_LI01_sort(self) -> None:
-        # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
-        self.inputs.sort(key = lambda txin: cast(bytes, txin.prevout_bytes()))
-        self.outputs.sort(key = lambda output: (output.value, output.script_pubkey.to_bytes()))
-
     @classmethod
     def nHashType(cls) -> int:
         '''Hash type in hex.'''
@@ -708,41 +705,12 @@ class Transaction(Tx): # type: ignore[misc]
         return sig + cast(bytes, pack_byte(self.nHashType()))
 
 
-class TransactionFeeEstimator:
-    standard_fee_satoshis = 0
-    standard_fee_bytes = 0
-    data_fee_satoshis = 0
-    data_fee_bytes = 0
-
-    def __init__(self, fee_quote: FeeQuoteCommon,
-            mapi_server_hint: ServerAndCredential | None=None) -> None:
-        self._mapi_server_hint = mapi_server_hint
-
-        standard_fee: FeeQuoteTypeFee | None = None
-        data_fee: FeeQuoteTypeFee | None = None
-        for fee in fee_quote["fees"]:
-            if fee["feeType"] == "standard":
-                standard_fee = fee["miningFee"]
-            elif fee["feeType"] == "data":
-                data_fee = fee["miningFee"]
-
-        assert standard_fee is not None
-        self.standard_fee_satoshis = standard_fee["satoshis"]
-        self.standard_fee_bytes = standard_fee["bytes"]
-        if data_fee is not None:
-            self.data_fee_satoshis = data_fee["satoshis"]
-            self.data_fee_bytes = data_fee["bytes"]
-
-    def get_mapi_server_hint(self) -> ServerAndCredential | None:
-        return self._mapi_server_hint
-
-    def estimate_fee(self, transaction_size: TransactionSize) -> int:
-        fee = 0
-        standard_size = transaction_size.standard_size
-        if self.data_fee_bytes:
-            standard_size = transaction_size.standard_size
-            fee += transaction_size.data_size * self.data_fee_satoshis // self.data_fee_bytes
-        else:
-            standard_size += transaction_size.data_size
-        fee += standard_size * self.standard_fee_satoshis // self.standard_fee_bytes
-        return fee
+def estimate_fee(tx_size: TransactionSize, q: FeeQuoteTypeEntry2) -> int:
+    fee = 0
+    standard_size = tx_size.standard_size
+    if q["data"]["bytes"]:
+        fee += tx_size.data_size * q["data"]["satoshis"] // q["data"]["bytes"]
+    else:
+        standard_size += tx_size.data_size
+    fee += standard_size * q["standard"]["satoshis"] // q["standard"]["bytes"]
+    return fee

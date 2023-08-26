@@ -55,7 +55,7 @@ from bitcoinx import hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
     PushDataHashRegistrationFlag, PushDataMatchFlag, ScriptType, ServerConnectionFlag, \
-    ServerPeerChannelFlag, ImportTransactionFlag
+    ServerPeerChannelFlag, TxImportFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, MissingTransactionMetadata, Outpoint, outpoint_struct, \
@@ -1678,4 +1678,4 @@ async def consume_tip_filter_matches_async(state: ServerConnectionState) -> None
             logger.debug("Obtaining %d transactions for account %d, %s",
                 len(obtain_transaction_keys), account_id, obtain_transaction_keys)
             await state.wallet_proxy.obtain_transactions_async(account_id, obtain_transaction_keys,
-                ImportTransactionFlag.TIP_FILTER_MATCH)
+                TxImportFlag.TIP_FILTER_MATCH)

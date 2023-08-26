@@ -26,7 +26,7 @@
 from __future__ import annotations
 import time
 from decimal import Decimal, InvalidOperation
-from typing import cast, List, Optional, Tuple, TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 
 from bitcoinx import Address, cashaddr, Script, ScriptError
 
@@ -70,15 +70,15 @@ class PayToEdit(ScanQRTextEdit):
         self.document().contentsChanged.connect(self.update_size)
         self.heightMin = 0
         self.heightMax = 150
-        self._completer: Optional[QCompleter] = None
+        self._completer: QCompleter|None = None
         self.textChanged.connect(self._on_text_changed)
-        self._outputs: List[XTxOutput] = []
-        self._errors: List[Tuple[int, str]] = []
+        self._outputs: list[XTxOutput] = []
+        self._errors: list[tuple[int, str]] = []
         # Accessed by the send view.
         self.is_invoice = False
         self._ignore_uris = False
         self.update_size()
-        self._payto_script: Optional[Script] = None
+        self._payto_script: Script | None = None
 
     def setFrozen(self, flag: bool) -> None:
         self.setReadOnly(flag)
@@ -217,23 +217,23 @@ class PayToEdit(ScanQRTextEdit):
             else:
                 total += tx_output.value
 
-        self._send_view.set_is_spending_maximum(is_max)
+        self._send_view.set_spend_maximum(is_max)
         self._outputs = outputs
         self._payto_script = None
 
-        if self._send_view.get_is_spending_maximum():
+        if self._send_view.is_spending_maximum():
             self._send_view.do_update_fee()
         else:
             self._send_view.amount_e.setAmount(total if outputs else None)
             self._send_view.lock_amount(total > 0 or len(lines) > 1)
 
-    def get_errors(self) -> List[Tuple[int, str]]:
+    def get_errors(self) -> list[tuple[int, str]]:
         return self._errors
 
-    def get_payee_script(self) -> Optional[Script]:
+    def get_payee_script(self) -> Script | None:
         return self._payto_script
 
-    def get_outputs(self, is_max: bool) -> List[XTxOutput]:
+    def get_outputs(self, is_max: bool) -> list[XTxOutput]:
         if self._payto_script is not None:
             if is_max:
                 amount = MAX_VALUE
@@ -244,7 +244,7 @@ class PayToEdit(ScanQRTextEdit):
                 XTxOutput(amount, self._payto_script)] # type: ignore[arg-type]
         return self._outputs[:]
 
-    def _lines(self) -> List[str]:
+    def _lines(self) -> list[str]:
         return self.toPlainText().split('\n')
 
     def _is_multiline(self) -> bool:

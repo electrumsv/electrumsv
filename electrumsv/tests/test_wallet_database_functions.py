@@ -130,7 +130,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         tx_hash_does_not_exist = hex_str_to_hash(
             "0000000000000000000000000000000000000000000000000000000000000000")
         rows = db_functions.read_history_for_outputs(db_context, account_id,
-            transaction_hash=tx_hash_does_not_exist)
+            tx_hash=tx_hash_does_not_exist)
         assert isinstance(rows, list)
         assert len(rows) == 0
 
@@ -142,7 +142,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         testdata_object: list[dict] = []
         context_text = 'transaction_exists'
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                transaction_hash=tx_hash_should_exist):
+                tx_hash=tx_hash_should_exist):
             entry_dict = db_row._asdict()
             # JSON does not support embedded byte data so we convert to hexl; canonical hex
             # byte order in the case of transaction and block hashes.
@@ -170,7 +170,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         testdata_object: list[dict] = []
         context_text = 'count_1'
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                transaction_hash=tx_hash_should_exist, limit_count=1):
+                tx_hash=tx_hash_should_exist, limit_count=1):
             entry_dict = db_row._asdict()
             entry_dict["tx_id"] = hash_to_hex_str(entry_dict.pop("tx_hash"))
             block_hash = entry_dict.pop("block_hash")
@@ -185,7 +185,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         testdata_object: list[dict] = []
         context_text = 'count_N_minus_1'
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                transaction_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX - 1):
+                tx_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX - 1):
             entry_dict = db_row._asdict()
             entry_dict["tx_id"] = hash_to_hex_str(entry_dict.pop("tx_hash"))
             block_hash = entry_dict.pop("block_hash")
@@ -200,7 +200,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         testdata_object: list[dict] = []
         context_text = 'count_N'
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                transaction_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX):
+                tx_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX):
             entry_dict = db_row._asdict()
             entry_dict["tx_id"] = hash_to_hex_str(entry_dict.pop("tx_hash"))
             block_hash = entry_dict.pop("block_hash")
@@ -215,7 +215,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
         testdata_object: list[dict] = []
         context_text = 'count_N_plus_1'
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                transaction_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX + 1):
+                tx_hash=tx_hash_should_exist, limit_count=COUNT_OF_ROWS_FOR_TX + 1):
             entry_dict = db_row._asdict()
             entry_dict["tx_id"] = hash_to_hex_str(entry_dict.pop("tx_hash"))
             block_hash = entry_dict.pop("block_hash")

@@ -55,14 +55,14 @@ from ...account_restorer import AdvancedSettings, DEFAULT_GAP_LIMITS, AccountRes
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, DerivationType, EMPTY_HASH, \
-    NetworkServerFlag, RECEIVING_SUBPATH, ServerConnectionFlag, ImportTransactionFlag, \
+    NetworkServerFlag, RECEIVING_SUBPATH, ServerConnectionFlag, TxImportFlag, \
     TxFlag, unpack_derivation_path, WalletEvent
 from ...exceptions import ServerConnectionError
 from ...i18n import _
 from ...logs import logs
 from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
 from ...types import ImportTransactionKeyUsage, MissingTransactionMetadata, \
-    RestorationTransactionKeyUsage, TransactionImportContext
+    RestorationTransactionKeyUsage, TxImportCtx
 from ...wallet import Wallet
 from ...wallet_database.types import TransactionRow
 from ...wallet_support.keys import map_transaction_output_key_usage
@@ -221,7 +221,7 @@ class AccountRestorationDialog(WindowModalDialog):
     _import_start_time: int = -1
     _import_end_time: int = -1
 
-    import_step_signal = pyqtSignal(TransactionRow, TransactionImportContext)
+    import_step_signal = pyqtSignal(TransactionRow, TxImportCtx)
 
     _pushdata_handler: PushDataHashHandler | None = None
 
@@ -502,7 +502,7 @@ class AccountRestorationDialog(WindowModalDialog):
                 # within the scope of the intitial feature set.
                 future = app_state.app.run_coro(self._wallet.obtain_transactions_async(
                     self._account_id, obtain_tx_keys,
-                    ImportTransactionFlag.PROMPTED | ImportTransactionFlag.RESTORATION_MATCH))
+                    TxImportFlag.PROMPTED | TxImportFlag.RESTORATION_MATCH))
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
             if len(link_tx_entries):
@@ -525,7 +525,7 @@ class AccountRestorationDialog(WindowModalDialog):
             assert tx is not None
             import_entries = { ImportTransactionKeyUsage(t.pushdata_hash,
                 cast(int, t.keyinstance_id), t.script_type) for t in link_entries }
-            import_context = TransactionImportContext(account_ids=[self._account_id],
+            import_context = TxImportCtx(account_ids=[self._account_id],
                 output_key_usage=map_transaction_output_key_usage(tx, import_entries))
             await self._wallet.data.link_transaction_async(transaction_hash, import_context)
 
@@ -534,7 +534,7 @@ class AccountRestorationDialog(WindowModalDialog):
             self.import_step_signal.emit(transaction_row, import_context)
 
     def _on_wallet_event(self, event: WalletEvent, tx_row: TransactionRow, tx: Transaction,
-            import_context: TransactionImportContext) -> None:
+            import_context: TxImportCtx) -> None:
         """
         The general wallet callback event handler.
 
@@ -550,7 +550,7 @@ class AccountRestorationDialog(WindowModalDialog):
         self.import_step_signal.emit(tx_row, import_context)
 
     def _update_for_import_step(self, tx_row: TransactionRow,
-            import_context: TransactionImportContext) -> None:
+            import_context: TxImportCtx) -> None:
         tree_item_index = self._scan_tree_indexes[tx_row.tx_hash]
         tree_item = self._scan_detail_tree.topLevelItem(tree_item_index)
         import_entry = cast(TransactionScanState, tree_item.data(Columns.STATUS, ImportRoles.ENTRY))

@@ -22,7 +22,7 @@ import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
-    ScriptType, TransactionOutputFlag, TxFlag
+    ScriptType, TXOFlag, TxFlag
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.networks import SVRegTestnet
@@ -32,13 +32,13 @@ from electrumsv.nodeapi import RPCError
 from electrumsv.standards.script_templates import classify_transaction_output_script, \
     create_script_sig
 from electrumsv.storage import WalletStorage
-from electrumsv.transaction import Transaction, TransactionContext, XTxInput, XPublicKey
+from electrumsv.transaction import Transaction, TxContext, XTxInput, XPublicKey
 from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
-    AccountTransactionOutputSpendableRowExtended, KeyData, PaymentRequestOutputRow, \
-    PaymentRequestRow, TransactionOutputSpendableProtocol, \
-    TransactionOutputSpendRow, TransactionRow, WalletBalance
+    AccountUTXOExRow, KeyData, PaymentRequestOutputRow, \
+    PaymentRequestRow, UTXOProtocol, \
+    STXORow, TransactionRow, WalletBalance
 from .conftest import get_small_tx
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
@@ -1063,14 +1063,14 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
     # Return a mock list[TransactionOutputSpendRow] - the only field that is used is the `tx_hash`
     wallet.data.read_parent_transaction_outputs_with_key_data.side_effect = \
         lambda *args, **kwargs: [
-            TransactionOutputSpendRow(
+            STXORow(
                 txi_index=0,
                 tx_hash=parameters[0],
                 txo_index=0,
                 value=0,
                 keyinstance_id=1,
                 script_type=ScriptType.P2PKH,
-                flags=TransactionOutputFlag.SPENT,
+                flags=TXOFlag.SPENT,
                 account_id=2,
                 masterkey_id=2,
                 derivation_type=DerivationType.BIP32,
@@ -1207,14 +1207,14 @@ async def test_call_listtransaction_success_async(app_state_nodeapi: AppStatePro
     # Return a mock list[TransactionOutputSpendRow] - the only field that is used is the `tx_hash`
     wallet.data.read_parent_transaction_outputs_with_key_data.side_effect = \
         lambda *args, **kwargs: [
-            TransactionOutputSpendRow(
+            STXORow(
                 txi_index=0,
                 tx_hash=parameters[0],
                 txo_index=0,
                 value=0,
                 keyinstance_id=1,
                 script_type=ScriptType.P2PKH,
-                flags=TransactionOutputFlag.SPENT,
+                flags=TXOFlag.SPENT,
                 account_id=2,
                 masterkey_id=2,
                 derivation_type=DerivationType.BIP32,
@@ -1275,31 +1275,31 @@ async def test_call_getbalance_success_async(app_state_nodeapi: AppStateProxy, l
 
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
-                -> list[AccountTransactionOutputSpendableRowExtended]:
+                -> list[AccountUTXOExRow]:
         assert exclude_frozen is True
         assert keyinstance_ids is None
         utxos = []
         if not confirmed_only:
             # Unconfirmed UTXO
             utxos.append(
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 200000000,
+                1111111, ScriptType.P2PKH, TXOFlag.NONE, 1, 1,
                 DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 None, b""),)
         utxos.extend([
             # Confirmed UTXO
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TXOFlag.NONE, 1, 1,
                 DerivationType.BIP32_SUBPATH,
                 FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
             # Unmatured UTXO
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 300000000,
+                1111111, ScriptType.P2PKH, TXOFlag.COINBASE, 1, 1,
                 DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH, b""),
             # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TXOFlag.COINBASE, 1, 1,
                 DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH2, b""),
         ])
@@ -1383,31 +1383,31 @@ async def test_call_getbalance_unsupported_derivation_type_async(app_state_nodea
 
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
-                -> list[AccountTransactionOutputSpendableRowExtended]:
+                -> list[AccountUTXOExRow]:
         assert exclude_frozen is True
         assert keyinstance_ids is None
         utxos = []
         if not confirmed_only:
             # Unconfirmed UTXO
             utxos.append(
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 200000000,
+                1111111, ScriptType.P2PKH, TXOFlag.NONE, 1, 1,
                 DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 None, b""),)
         utxos.extend([
             # Confirmed UTXO
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TXOFlag.NONE, 1, 1,
                 DerivationType.ELECTRUM_OLD,
                 FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
             # Unmatured UTXO
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 300000000,
+                1111111, ScriptType.P2PKH, TXOFlag.COINBASE, 1, 1,
                 DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH, b""),
             # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
-                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TXOFlag.COINBASE, 1, 1,
                 DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED,
                 FAKE_BLOCK_HASH2, b""),
         ])
@@ -1792,13 +1792,13 @@ async def test_call_listunspent_success_async(
 
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
-                -> list[AccountTransactionOutputSpendableRowExtended]:
+                -> list[AccountUTXOExRow]:
         assert exclude_frozen is True
         assert confirmed_only is True
         assert keyinstance_ids is None
         return [
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 1000, 1111111,
-                ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1, DerivationType.BIP32_SUBPATH,
+            AccountUTXOExRow(FAKE_TRANSACTION_HASH, 0, 1000, 1111111,
+                ScriptType.P2PKH, TXOFlag.NONE, 1, 1, DerivationType.BIP32_SUBPATH,
                 FAKE_DERIVATION_DATA2, 1, TxFlag.STATE_SETTLED, FAKE_BLOCK_HASH, b"")
         ]
     account.get_transaction_outputs_with_key_and_tx_data.side_effect = \
@@ -1969,14 +1969,14 @@ async def test_call_signrawtransaction_ok_async(
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None,
             outpoints: list[Outpoint]|None=None) \
-                -> list[AccountTransactionOutputSpendableRowExtended]:
+                -> list[AccountUTXOExRow]:
         """
         Convert the JSON pretend database coins to mocked database rows.
         """
         nonlocal mock_data, x_public_keys_by_coin
-        mock_coin_rows: list[AccountTransactionOutputSpendableRowExtended] = []
+        mock_coin_rows: list[AccountUTXOExRow] = []
         for mock_prevout in mock_data.get("prevouts", []):
-            mock_row = unittest.mock.Mock(spec=AccountTransactionOutputSpendableRowExtended)
+            mock_row = unittest.mock.Mock(spec=AccountUTXOExRow)
             mock_row.tx_hash = bitcoinx.hex_str_to_hash(mock_prevout["txid"])
             mock_row.txo_index = mock_prevout["vout"]
             mock_row.script_bytes = bytes.fromhex(mock_prevout["scriptPubKey"])
@@ -1986,9 +1986,9 @@ async def test_call_signrawtransaction_ok_async(
             mock_row.value = coins_to_satoshis(mock_prevout["amount"])
             mock_row.block_hash = None
             if mock_prevout.get("is_spent"):
-                mock_row.flags = TransactionOutputFlag.SPENT
+                mock_row.flags = TXOFlag.SPENT
             else:
-                mock_row.flags = TransactionOutputFlag.NONE
+                mock_row.flags = TXOFlag.NONE
             mock_coin_rows.append(mock_row)
 
             outpoint = Outpoint(mock_row.tx_hash, mock_row.txo_index)
@@ -2005,8 +2005,7 @@ async def test_call_signrawtransaction_ok_async(
         return 1
     account.get_threshold = get_threshold
 
-    def get_extended_input_for_spendable_output(row: TransactionOutputSpendableProtocol) \
-            -> XTxInput:
+    def get_xtxi_for_utxo(row: UTXOProtocol) -> XTxInput:
         """
         Propagate the mocked database rows to extended transaction input metadata.
         """
@@ -2017,53 +2016,53 @@ async def test_call_signrawtransaction_ok_async(
         outpoint = Outpoint(row.tx_hash, row.txo_index)
         extended_transaction_input.x_pubkeys = x_public_keys_by_coin[outpoint]
         return extended_transaction_input
-    account.get_extended_input_for_spendable_output = get_extended_input_for_spendable_output
+    account.get_xtxi_for_utxo = get_xtxi_for_utxo
 
-    def sign_transaction(tx: Transaction, password: str, context: TransactionContext|None=None) \
-            -> concurrent.futures.Future[None] | None:
+    def sign_transactions(txs: list[Transaction], tx_ctxs: list[TxContext], password: str) \
+            -> concurrent.futures.Future[int|None] | None:
         nonlocal mock_data
         """
         We are not testing that the wallet is signing correctly. We are taking JSON pretend
         metadata and putting it in place and checking that the nodeapi endpoint is behaving
         correctly.
         """
-        assert isinstance(tx, Transaction)
+        assert all(isinstance(tx, Transaction) for tx in txs)
         # We're not actually signing here, we are injecting data that looks like signing.
         future = concurrent.futures.Future()
-        future.set_result(False)
+        future.set_result(1) # Fake payment ID.
 
         generated_signatures: dict[bytes, bytes] = {}
         for public_key_hex, signature_hex in mock_data.get("signatures", {}).items():
             generated_signatures[bytes.fromhex(public_key_hex)] = bytes.fromhex(signature_hex)
-        for transaction_input in tx.inputs:
-            # We do not sign inputs that are already signed.
-            if len(transaction_input.script_sig) > 0:
-                continue
-            # We need to have been given the public key metadata to know what public keys were
-            # used in signing this.
-            if len(transaction_input.x_pubkeys) == 0:
-                continue
+        for tx in txs:
+            for txi in tx.inputs:
+                # We do not sign inputs that are already signed.
+                if len(txi.script_sig) > 0:
+                    continue
+                # We need to have been given the public key metadata to know what public keys were
+                # used in signing this.
+                if len(txi.x_pubkeys) == 0:
+                    continue
 
-            # Sanity test our mocking has resulted in the correct data.
-            assert transaction_input.script_type != ScriptType.NONE
-            assert len(transaction_input.signatures) == 0
+                # Sanity test our mocking has resulted in the correct data.
+                assert txi.script_type != ScriptType.NONE
+                assert len(txi.signatures) == 0
 
-            # We do not handle other script types at this time.
-            assert transaction_input.script_type == ScriptType.P2PKH
+                # We do not handle other script types at this time.
+                assert txi.script_type == ScriptType.P2PKH
 
-            relevant_generated_signatures: dict[bytes, bytes] = {}
-            for public_key_bytes, signature_bytes in generated_signatures.items():
-                if public_key_bytes in transaction_input.x_pubkeys:
-                    relevant_generated_signatures[public_key_bytes] = signature_bytes
+                sigs: dict[bytes, bytes] = {}
+                for public_key_bytes, signature_bytes in generated_signatures.items():
+                    if public_key_bytes in txi.x_pubkeys:
+                        sigs[public_key_bytes] = signature_bytes
 
-            if len(relevant_generated_signatures) > 0:
-                script_sig = create_script_sig(transaction_input.script_type, 1,
-                    transaction_input.x_pubkeys, relevant_generated_signatures)
-                assert script_sig is not None
-                transaction_input.script_sig = script_sig
+                if len(sigs) > 0:
+                    script_sig = create_script_sig(txi.script_type,1,txi.x_pubkeys,sigs)
+                    assert script_sig is not None
+                    txi.script_sig = script_sig
 
         return future
-    account.sign_transaction = sign_transaction
+    account.sign_transactions = sign_transactions
 
     call_object = {
         "id": 232,
@@ -2136,11 +2135,11 @@ async def test_call_signrawtransaction_incompatibility_async(
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None,
             outpoints: list[Outpoint]|None=None) \
-                -> list[AccountTransactionOutputSpendableRowExtended]:
+                -> list[AccountUTXOExRow]:
         nonlocal mock_data
-        mock_coin_rows: list[AccountTransactionOutputSpendableRowExtended] = []
+        mock_coin_rows: list[AccountUTXOExRow] = []
         for mock_prevout in mock_data.get("prevouts", []):
-            mock_row = unittest.mock.Mock(spec=AccountTransactionOutputSpendableRowExtended)
+            mock_row = unittest.mock.Mock(spec=AccountUTXOExRow)
             mock_row.tx_hash = bitcoinx.hex_str_to_hash(mock_prevout["txid"])
             mock_row.txo_index = mock_prevout["vout"]
             mock_row.script_bytes = bytes.fromhex(mock_prevout["scriptPubKey"])
@@ -2150,15 +2149,15 @@ async def test_call_signrawtransaction_incompatibility_async(
             mock_row.value = coins_to_satoshis(mock_prevout["amount"])
             mock_row.block_hash = None
             if mock_prevout.get("is_spent"):
-                mock_row.flags = TransactionOutputFlag.SPENT
+                mock_row.flags = TXOFlag.SPENT
             else:
-                mock_row.flags = TransactionOutputFlag.NONE
+                mock_row.flags = TXOFlag.NONE
             mock_coin_rows.append(mock_row)
         return mock_coin_rows
     account.get_transaction_outputs_with_key_and_tx_data = \
         get_transaction_outputs_with_key_and_tx_data
 
-    def get_extended_input_for_spendable_output(row: TransactionOutputSpendableProtocol) \
+    def get_extended_input_for_spendable_output(row: UTXOProtocol) \
             -> XTxInput:
         """
         Propagate the mocked database rows to extended transaction input metadata.

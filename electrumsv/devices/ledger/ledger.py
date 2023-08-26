@@ -15,7 +15,7 @@ from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
 from ...standards.script_templates import classify_transaction_output_script
-from ...transaction import Transaction, TransactionContext, XTxOutput
+from ...transaction import Transaction, TxContext, XTxOutput
 from ...types import MasterKeyDataHardware, MasterKeyDataHardwareCfg
 from ...util import versiontuple
 from ...wallet import AbstractAccount
@@ -335,7 +335,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return bytes([27 + 4 + (signature[0] & 0x01)]) + r + s
 
     @set_and_unset_signing
-    def sign_transaction(self, tx: Transaction, password: str, context: TransactionContext) -> None:
+    def sign_transaction(self, tx: Transaction, password: str, context: TxContext) -> None:
         if tx.is_complete():
             return
 
@@ -381,8 +381,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
         # Recognize outputs - only one output and one change is authorized
         if not foundP2SHSpend:
             keystore_fingerprint = self.get_fingerprint()
-            assert len(tx.outputs) == len(context.hardware_signing_metadata)
-            for tx_output, output_metadatas in zip(tx.outputs, context.hardware_signing_metadata):
+            assert len(tx.outputs) == len(context.hw_signing_metadata)
+            for tx_output, output_metadatas in zip(tx.outputs, context.hw_signing_metadata):
                 info = output_metadatas.get(keystore_fingerprint)
                 if (info is not None) and len(tx.outputs) != 1:
                     key_derivation, xpubs, m = info

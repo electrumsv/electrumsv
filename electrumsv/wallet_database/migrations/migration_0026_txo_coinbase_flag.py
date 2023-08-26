@@ -7,7 +7,7 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3
 
-from ...constants import TransactionOutputFlag
+from ...constants import TXOFlag
 from ...util import get_posix_timestamp
 
 MIGRATION = 26
@@ -16,7 +16,7 @@ def execute(conn: sqlite3.Connection) -> None:
     # Ensure that for all transactions in block position 0, all outputs for those transactions
     # have the IS_COINBASE flag.
     conn.execute("UPDATE TransactionOutputs "
-        f"SET flags=flags|{TransactionOutputFlag.COINBASE} "
+        f"SET flags=flags|{TXOFlag.COINBASE} "
         "WHERE tx_hash in (SELECT tx_hash FROM Transactions WHERE block_position = 0)")
 
     date_updated = get_posix_timestamp()

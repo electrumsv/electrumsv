@@ -155,7 +155,8 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                 assert payment_request_row.dpp_invoice_id is not None
                 # TODO(1.4.0) DPP. Work out what this payment request DB lookup is for?
                 payment_request_row_from_db, _ = \
-                    state.wallet_data.read_payment_request(payment_request_row.paymentrequest_id)
+                    state.wallet_data.read_payment_request(
+                        request_id=payment_request_row.paymentrequest_id)
                 assert payment_request_row is not None
                 if payment_request_row.request_flags & PaymentRequestFlag.MASK_STATE \
                         == PaymentRequestFlag.STATE_PAID:

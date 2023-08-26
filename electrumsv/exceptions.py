@@ -23,31 +23,31 @@
 
 from typing import Set
 
-from .constants import DatabaseWriteErrorCodes
+from .constants import DatabaseWriteErrorCodes, MAX_FEE
 from .i18n import _
 
+
 class NotEnoughFunds(Exception):
-    pass
+    def __str__(self) -> str:
+        return _("Insufficient funds")
 
 class ExcessiveFee(Exception):
-    pass
+    def __str__(self) -> str:
+        return _("Fee too high. The maximum is {} satoshis per KB.").format(MAX_FEE)
 
 class InvalidPassword(Exception):
     def __str__(self) -> str:
         return _("Incorrect password")
 
-
 class FileImportFailed(Exception):
     def __str__(self) -> str:
         return _("Failed to import file.")
-
 
 class FileImportFailedEncrypted(FileImportFailed):
     def __str__(self) -> str:
         return (_('Failed to import file.') + ' ' +
                 _('Perhaps it is encrypted...') + '\n' +
                 _('Importing encrypted files is not supported.'))
-
 
 class UserFacingException(Exception):
     pass
@@ -133,10 +133,6 @@ class DatabaseWriteError(Exception):
             return _("When adding a transaction we failed to find known keys for all the "
                 "outputs.")
         return _("Fallthrough database write error, code={}").format(self.error_code)
-
-
-class BroadcastError(Exception):
-    pass
 
 
 class ServerError(Exception):

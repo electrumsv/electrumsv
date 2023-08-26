@@ -101,3 +101,12 @@ class RestorationDialogRole(IntEnum):
     ACCOUNT_CREATION      = 1
     # Any time after the initial scan for an existing account of suitable type.
     MANUAL_RESCAN         = 2
+
+
+class ViewPaymentMode(IntEnum):
+    # At the time of writing meaning not signed by us. TODO: Handle presigned invoice inputs.
+    UNSIGNED            = 1
+    # At the time of writing used for multisig transactions we have signed our part of.
+    PARTIALLY_SIGNED    = 2
+    # Used in the history tab via double-click to view whatever payment is in the list.
+    FROM_HISTORY        = 3

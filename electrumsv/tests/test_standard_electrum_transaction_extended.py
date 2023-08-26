@@ -12,7 +12,7 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, 
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrum_bytes, \
     transaction_from_electrumsv_dict, transaction_to_electrumsv_dict, \
     x_public_key_from_electrum_bytes
-from electrumsv.transaction import XPublicKey, Transaction, TransactionContext
+from electrumsv.transaction import XPublicKey, Transaction, TxContext
 
 # pylint: disable=line-too-long
 
@@ -74,7 +74,7 @@ def test_electrum_extended_transaction_unsigned() -> None:
     assert txout.script_offset == 151
     assert tx.locktime == 507231
 
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == '{"version": 2, "hex": "010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000002401ff2103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 20112600, "signatures": ["ff"], "x_pubkeys": [{"bip32_xpub": "xpub661MyMwAqRbcFL6WFqND2XM2w1EfpBwFfhsSUcw9xDR3nH8eYLv4z4HAhxv5zkqjHojWsPYK1ZSK7yCr8fZ9iWU6D361G2ryv5UgsKjbeDq", "derivation_path": [0, 35]}]}]}'
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == '{"version": 2, "hex": "010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000002401ff2103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 20112600, "signatures": ["ff"], "x_pubkeys": [{"bip32_xpub": "xpub661MyMwAqRbcFL6WFqND2XM2w1EfpBwFfhsSUcw9xDR3nH8eYLv4z4HAhxv5zkqjHojWsPYK1ZSK7yCr8fZ9iWU6D361G2ryv5UgsKjbeDq", "derivation_path": [0, 35]}]}]}'
 
 def test_electrum_extended_transaction_signed() -> None:
     # This is testing the extended parsing for a signed transaction.
@@ -98,7 +98,7 @@ def test_electrum_extended_transaction_signed() -> None:
     assert txout.script_length == 25
     assert txout.script_offset == 162
     assert tx.locktime == 507231
-    assert transaction_to_electrumsv_dict(tx, TransactionContext(), []) == {'hex': signed_blob, 'complete': True, 'version': 2}
+    assert transaction_to_electrumsv_dict(tx, TxContext(), []) == {'hex': signed_blob, 'complete': True, 'version': 2}
     assert tx.to_hex() == signed_blob
     assert sum(tx.estimated_size()) == len(tx_bytes)
 
@@ -119,12 +119,12 @@ priv_keys = [PrivateKey.from_WIF(WIF) for WIF in (
 
 def test_sign_electrum_extended_transaction_first_input_only() -> None:
     tx = _sign_electrum_extended_transaction(unsigned_tx, [priv_keys[0]])
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == '{"version": 2, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["3045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f541"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == '{"version": 2, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["3045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f541"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
     assert not tx.is_complete()
 
 def test_sign_electrum_extended_transaction_second_input_only() -> None:
     tx = _sign_electrum_extended_transaction(unsigned_tx, [priv_keys[1]])
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == '{"version": 2, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["30450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d41"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == '{"version": 2, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["30450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d41"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
     assert not tx.is_complete()
 
 def test_sign_electrum_extended_transaction_both_inputs() -> None:
@@ -198,27 +198,27 @@ def test_electrumsv_dict_multisig_2(unsigned_pair, signed1_pair, fully_signed_pa
     signed2_hex, signed2_json = signed2_pair
 
     tx = transaction_from_electrum_bytes(bytes.fromhex(unsigned_hex))
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == unsigned_json
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == unsigned_json
 
     keystore1, keystore2 = _multisig_keystores()
     # Sign with keystore 1, then 2
-    keystore1.sign_transaction(tx, "OLD", TransactionContext())
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == signed1_json
+    keystore1.sign_transaction(tx, "OLD", TxContext())
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == signed1_json
 
-    keystore2.sign_transaction(tx, "BIP32", TransactionContext())
+    keystore2.sign_transaction(tx, "BIP32", TxContext())
     assert tx.to_hex() == fully_signed_hex
 
     # Sign with keystore 2, then 1
     tx = transaction_from_electrum_bytes(bytes.fromhex(unsigned_hex))
 
-    keystore2.sign_transaction(tx, "BIP32", TransactionContext())
+    keystore2.sign_transaction(tx, "BIP32", TxContext())
     assert not tx.is_complete()
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == signed2_json
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == signed2_json
 
-    keystore1.sign_transaction(tx, "OLD", TransactionContext())
+    keystore1.sign_transaction(tx, "OLD", TxContext())
     assert tx.is_complete()
     assert tx.to_hex() == fully_signed_hex
-    assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == fully_signed_json
+    assert json.dumps(transaction_to_electrumsv_dict(tx, TxContext(), [])) == fully_signed_json
 
 
 def test_electrum_extended_transaction_obsolete() -> None:

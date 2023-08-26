@@ -1,6 +1,5 @@
 from __future__ import annotations
 from copy import deepcopy
-import dataclasses
 import json
 import os
 import stat
@@ -9,11 +8,8 @@ from typing import Any, Callable, cast, Type, TypeVar
 
 from mypy_extensions import DefaultArg
 
-from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
-from .types import FeeEstimatorProtocol, FeeQuoteCommon, FeeQuoteTypeEntry, ServerAndCredential, \
-    TransactionSize
 from .util import make_dir
 
 
@@ -286,54 +282,6 @@ class SimpleConfig:
     def get_session_timeout(self) -> int:
         return self.get_explicit_type(int, 'session_timeout', 300)
 
-    def custom_fee_rate(self) -> int|None:
-        return self.get_optional_type(int, 'customfee')
-
-    def fee_per_kb(self) -> int:
-        retval = cast(int|None, self.get('customfee'))
-        # TODO(MAPI) Not sure this is ever set.
-        if retval is None:
-            retval = cast(int|None, self.get('fee_per_kb'))
-        if retval is None:
-            retval = DEFAULT_FEE  # New wallet
-        return retval
-
-    def get_fee_quote(self) -> FeeQuoteCommon:
-        satoshis_per_kilobyte = self.fee_per_kb()
-        return {
-            "fees": [
-                {
-                    "feeType": "standard",
-                    "miningFee": {
-                        "satoshis": satoshis_per_kilobyte,
-                        "bytes": 1000,
-                    },
-                    "relayFee": {
-                        "satoshis": satoshis_per_kilobyte,
-                        "bytes": 1000,
-                    },
-                },
-                {
-                    "feeType": "data",
-                    "miningFee": {
-                        "satoshis": satoshis_per_kilobyte,
-                        "bytes": 1000,
-                    },
-                    "relayFee": {
-                        "satoshis": satoshis_per_kilobyte,
-                        "bytes": 1000,
-                    },
-                },
-            ]
-        }
-
-    def get_fee_estimator(self) -> FeeEstimatorProtocol:
-        return WalletFeeEstimator(self)
-
-    def estimate_fee(self, size: TransactionSize) -> int:
-        # The configured fee rate does not differentiate between standard and data sizes.
-        return self.fee_per_kb() * sum(size) // 1000
-
     def get_video_device(self) -> bytes:
         device_id_hex = self.get_explicit_type(str, "video_device", "default")
         try:
@@ -359,21 +307,3 @@ def read_user_config(path: str) -> dict[str, Any]:
     if not type(result) is dict:
         return {}
     return result
-
-
-@dataclasses.dataclass
-class WalletFeeQuote:
-    fees: list[FeeQuoteTypeEntry]
-
-
-class WalletFeeEstimator:
-    def __init__(self, config: SimpleConfig) -> None:
-        self._config = config
-
-    def get_mapi_server_hint(self) -> ServerAndCredential | None:
-        return None
-
-    def estimate_fee(self, transaction_size: TransactionSize) -> int:
-        # The configured fee rate does not differentiate between standard and data sizes.
-        return self._config.fee_per_kb() * sum(transaction_size) // 1000
-

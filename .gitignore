@@ -25,6 +25,8 @@ __pycache__
 docs/website/output
 docs/standalone/_build
 electrumsv/data/html
+Pipfile
+Pipfile.lock
 
 # tox files
 .cache/

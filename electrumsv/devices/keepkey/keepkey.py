@@ -38,7 +38,7 @@ from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
 from ...standards.script_templates import classify_transaction_output_script
-from ...transaction import HardwareSigningMetadata, Transaction, TransactionContext, XPublicKey, \
+from ...transaction import HardwareSigningMetadata, Transaction, TxContext, XPublicKey, \
     XTxInput
 from ...wallet import AbstractAccount
 from ...wallet_database.types import KeyListRow
@@ -99,7 +99,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         return cast(bytes, msg_sig.signature)
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: TransactionContext) -> None:
+            context: TxContext) -> None:
         if tx.is_complete():
             return
 
@@ -117,7 +117,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
 
         assert self.plugin is not None
         cast(KeepKeyPlugin, self.plugin).sign_transaction(self, tx,
-            context.hardware_signing_metadata, xpub_path)
+            context.hw_signing_metadata, xpub_path)
 
 
 class KeepKeyPlugin(HW_PluginBase):

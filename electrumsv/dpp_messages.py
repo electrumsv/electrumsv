@@ -40,6 +40,7 @@ from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .transaction import Transaction, XTxInput, XTxOutput
+from .types import FeeQuoteTypeEntry2
 
 logger = logs.get_logger("dpp-messages")
 
@@ -56,7 +57,7 @@ REQUEST_HEADERS = {
 # BIP 270 - Simplified Payment Protocol
 # https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki
 
-def has_expired(expiration_timestamp: int | None) -> bool:
+def is_inv_expired(expiration_timestamp: int | None) -> bool:
     return expiration_timestamp is not None and expiration_timestamp < time.time()
 
 
@@ -102,8 +103,8 @@ class DPPNativeOutput(TypedDict):
 
 # HPM == "HybridPaymentMode"
 class HybridModeTransactionTermsDict(TypedDict):
-    outputs: dict[Literal["native"], list[DPPNativeOutput]]        # {"native": list[Output]}
-    inputs: dict[Literal["native"], list[DPPNativeInput]] | None  # {"native": list[DPPNativeInput]}
+    outputs: dict[Literal["native"], list[DPPNativeOutput]]
+    inputs: dict[Literal["native"], list[DPPNativeInput]] | None
     policies: Policies | None
 
 
@@ -179,7 +180,9 @@ def get_dpp_network_string() -> NETWORK_NAMES:
 
 
 class PolicyDict(TypedDict):
-    fees: dict[str, Any]
+    # NOTE(rt12) The DPP spec at this time has stale text related to mining and relay fees, but
+    #     the examples do not follow the text. This is likely because the text was not updated.
+    fees: FeeQuoteTypeEntry2
     lockTime: NotRequired[int]
     SPVRequired: NotRequired[bool]
 
@@ -271,6 +274,7 @@ class PaymentTermsMessage:
             if "outputs" not in transaction_dict or type(transaction_dict["outputs"]) is not dict:
                 raise DPPRemoteException("Missing list typed key "
                     f"'mode.ef63d9775da5.choiceID0.transactions[{i}].outputs'")
+            policies_dict: PolicyDict|None = None
             if "policies" in transaction_dict:
                 if type(transaction_dict["policies"]) is not dict:
                     raise DPPRemoteException("Optional key not object typed "
@@ -284,17 +288,50 @@ class PaymentTermsMessage:
                             f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies' "
                             f"has unrecognised properties {list(extra_key_names)}")
 
+                fee_data = policies_dict["fees"]
+                if type(fee_data) is not dict:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.fees'")
+
+                if "data" not in fee_data or type(fee_data["data"]) is not dict:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.fees.data'")
+                if "satoshis" not in fee_data["data"] or \
+                        type(fee_data["data"]["satoshis"]) is not int:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0."
+                        f"transactions[{i}].policies.fees.data.satoshis'")
+                if "bytes" not in fee_data["data"] or \
+                        type(fee_data["data"]["bytes"]) is not int:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0."
+                        f"transactions[{i}].policies.fees.data.bytes'")
+
+                if "standard" not in fee_data or type(fee_data["standard"]) is not dict:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0."
+                        f"transactions[{i}].policies.fees.standard'")
+                if "satoshis" not in fee_data["standard"] or \
+                        type(fee_data["standard"]["satoshis"]) is not int:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0."
+                        f"transactions[{i}].policies.fees.standard.satoshis'")
+                if "bytes" not in fee_data["standard"] or \
+                        type(fee_data["standard"]["bytes"]) is not int:
+                    raise DPPRemoteException("Payment terms invalid: not an object "
+                        "'mode.ef63d9775da5.choiceID0."
+                        f"transactions[{i}].policies.fees.standard.bytes'")
+
                 if "SPVRequired" in policies_dict and \
                         type(policies_dict["SPVRequired"]) is not bool:
                     raise DPPRemoteException(
                         "Payment terms invalid: optional key not boolean typed "
                         f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.SPVRequired]'")
-                if "lockTime" in policies_dict and type(policies_dict["lockTime"]) is not int:
-                    raise DPPRemoteException("Key is not integer typed "
+                if "lockTime" in policies_dict and (type(policies_dict["lockTime"]) is not int or
+                        policies_dict["lockTime"] >= 0 and policies_dict["lockTime"] <= 0xFFFFFFFF):
+                    raise DPPRemoteException("Key is not integer typed and >=0 and <=0xFFFFFFFF"
                         f"'mode.ef63d9775da5.choiceID0.transactions[{i}].policies.lockTime]'")
-                transaction_policies.append(policies_dict)
-            else:
-                transaction_policies.append(None)
+            transaction_policies.append(policies_dict)
 
             inputs: list[XTxInput] = []
             if "inputs" in transaction_dict and "native" in transaction_dict["inputs"]:
@@ -372,7 +409,6 @@ class PaymentTermsMessage:
                                 f"'mode.ef63d9775da5.choiceID0.transactions[{i}]"
                                 f".inputs[{j}].nSequence]'")
 
-
                     inputs.append(XTxInput(prev_hash=prev_hash, # type: ignore[call-arg]
                         prev_idx=prev_idx, script_sig=script, sequence=nSequence))
 
@@ -418,8 +454,8 @@ class PaymentTermsMessage:
 
                 outputs.append(XTxOutput(value=value, # type: ignore[call-arg]
                     script_pubkey=script))
-            transactions.append(Transaction(version=1, inputs=inputs, # type: ignore[call-arg]
-                outputs=outputs, locktime=0))
+            locktime = policies_dict.get("lockTime", 0) if policies_dict is not None else 0
+            transactions.append(Transaction.from_io(inputs, outputs, locktime=locktime))
 
         if 'creationTimestamp' not in payment_terms or \
                 type(payment_terms['creationTimestamp']) is not int:
@@ -476,7 +512,7 @@ class PaymentTermsMessage:
         return json.dumps(payment_terms_dict)
 
     def has_expired(self) -> bool:
-        return has_expired(self.expiration_timestamp)
+        return is_inv_expired(self.expiration_timestamp)
 
     def get_amount(self) -> int:
         payment_value = 0

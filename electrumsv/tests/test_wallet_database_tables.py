@@ -21,8 +21,8 @@ except ModuleNotFoundError:
 
 from electrumsv.constants import (AccountFlag, AccountPaymentFlag, BlockHeight, DerivationType,
     KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag, NetworkServerFlag, NetworkServerType,
-    PaymentRequestFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionInputFlag,
-    TransactionOutputFlag, TxFlag, WalletEventFlag, WalletEventType)
+    PaymentRequestFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TXIFlag,
+    TXOFlag, TxFlag, WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
@@ -706,8 +706,8 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     FUNDED_TX_1_TXO_INDEX_1 = 0
     FUNDED_TX_1_TXO_INDEX_2 = 1
 
-    TXIN_FLAGS = TransactionInputFlag.NONE
-    TXOUT_FLAGS = TransactionOutputFlag.NONE
+    TXIN_FLAGS = TXIFlag.NONE
+    TXOUT_FLAGS = TXOFlag.NONE
     KEYINSTANCE_ID_1 = 1
     KEYINSTANCE_ID_2 = 2
     KEYINSTANCE_ID_3 = 3
@@ -849,7 +849,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     TX_BYTES = b"Other transaction" + OTHER_OUTPUT_DATA1 + OTHER_OUTPUT_DATA2 + b"Other transaction"
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
-    TXOUT_FLAGS = TransactionOutputFlag.NONE
+    TXOUT_FLAGS = TXOFlag.NONE
     KEYINSTANCE_ID_1 = 1
     KEYINSTANCE_ID_2 = 2
     KEYINSTANCE_ID_3 = 3
@@ -870,7 +870,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     SCRIPT_OFFSET3 = TX_BYTES.index(OTHER_OUTPUT_DATA2)
 
     row1 = TransactionOutputAddRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
-        ScriptType.P2PKH, TXOUT_FLAGS | TransactionOutputFlag.COINBASE,
+        ScriptType.P2PKH, TXOUT_FLAGS | TXOFlag.COINBASE,
         SCRIPT_OFFSET1, COINBASE_SCRIPT_LENGTH, 10, 10)
     row2 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, ScriptType.P2PKH,
         TXOUT_FLAGS, SCRIPT_OFFSET2, OTHER_SCRIPT_LENGTH, 10, 10)
@@ -1111,7 +1111,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     # Add a TXO flag. In this case `FROZEN` to the first TXO.
     future = db_functions.update_transaction_output_flags(db_context,
-        [Outpoint(TX_HASH, TX_INDEX)], TransactionOutputFlag.FROZEN)
+        [Outpoint(TX_HASH, TX_INDEX)], TXOFlag.FROZEN)
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
@@ -1175,8 +1175,8 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     # Remove a TXO flag. In this case the `FROZEN` flag from the first TXO.
     future = db_functions.update_transaction_output_flags(db_context,
-        [Outpoint(TX_HASH, TX_INDEX)], TransactionOutputFlag.NONE,
-        TransactionOutputFlag(~TransactionOutputFlag.FROZEN))
+        [Outpoint(TX_HASH, TX_INDEX)], TXOFlag.NONE,
+        TXOFlag(~TXOFlag.FROZEN))
     future.result(timeout=5)
 
     # Verify that the outputs are present and restored to their original state. If the `FROZEN`
@@ -1195,12 +1195,12 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     txo_keys = [ Outpoint(row3.tx_hash, row3.txo_index) ]
     future = db_functions.update_transaction_output_flags(db_context, txo_keys,
-        TransactionOutputFlag.SPENT)
+        TXOFlag.SPENT)
     future.result(5)
 
     db_rows = db_functions.read_transaction_outputs(db_context, txo_keys)
     assert len(db_rows) == 1
-    assert db_rows[0].flags == TransactionOutputFlag.SPENT
+    assert db_rows[0].flags == TXOFlag.SPENT
 
 
 @pytest.mark.asyncio
@@ -1208,7 +1208,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
-    TXOUT_FLAGS = TransactionOutputFlag.NONE
+    TXOUT_FLAGS = TXOFlag.NONE
     KEYINSTANCE_ID = 1
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
@@ -1300,7 +1300,8 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         2, PaymentRequestFlag.STATE_PREPARING, PaymentRequestFlag.CLEARED_MASK_STATE)
     future.result()
 
-    db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context, 2)
+    db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context,
+        request_id=2, payment_id=None)
     assert db_request_row is not None
     assert db_request_row.request_flags == PaymentRequestFlag.STATE_PREPARING | PaymentRequestFlag.TYPE_MONITORED
 
@@ -1357,12 +1358,13 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         flags=PaymentRequestFlag.NONE, mask=PaymentRequestFlag.ARCHIVED)
     assert 2 == len(db_request_rows)
 
-    request_row, request_output_rows = db_functions.read_payment_request(db_context, request_id=1)
+    request_row, request_output_rows = db_functions.read_payment_request(db_context, request_id=1,
+        payment_id=None)
     assert request_row is not None
     assert 1 == request_row.paymentrequest_id
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context,
-        request_id=100101)
+        request_id=100101, payment_id=None)
     assert request_row is None
 
     ## Pay the payment request.

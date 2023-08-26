@@ -65,15 +65,14 @@ from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, MissingHeader, O
 from .app_state import app_state
 from .bitcoin import COIN, COINBASE_MATURITY, script_template_to_string
 from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
-    ScriptType, TransactionOutputFlag, TxFlag
-from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds, NoViableServersError, \
+    ScriptType, TXOFlag, TxFlag
+from .exceptions import InvalidPassword, NotEnoughFunds, NoViableServersError, \
     ServiceUnavailableError
 from .logs import logs
 from .networks import Net
 from .standards.node_transaction import transactions_from_node_bytes
 from .standards.script_templates import classify_transaction_output_script
-from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput, \
-    Transaction
+from .transaction import TxContext, XTxInput, XTxOutput, Transaction
 from .types import Outpoint
 from .util import constant_time_compare
 from .wallet_database.types import AccountHistoryOutputRow
@@ -813,7 +812,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     assert tx is not None
     assert tx_hash is not None
     account_history_output_rows: list[AccountHistoryOutputRow] = \
-        wallet.data.read_history_for_outputs(account.get_id(), tx_hash,
+        wallet.data.read_history_for_outputs(account.get_id(), tx_hash=tx_hash,
             limit_count=len(tx.outputs), skip_count=0)
 
     if not account_history_output_rows:
@@ -1009,7 +1008,7 @@ async def jsonrpc_listtransaction_async(request: web.Request, request_id: Reques
     transaction_hashes = wallet.data.read_transaction_hashes(limit_count=count, skip_count=skip)
     for tx_hash in transaction_hashes:
         account_history_output_rows: list[AccountHistoryOutputRow] = \
-            wallet.data.read_history_for_outputs(account.get_id(), tx_hash)
+            wallet.data.read_history_for_outputs(account.get_id(), tx_hash=tx_hash)
 
         if not account_history_output_rows:
             return {}
@@ -1225,7 +1224,7 @@ async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdTy
 
         # Condition 2:
         # - Not if the given transaction is an immature coinbase transaction.
-        if utxo_data.flags & TransactionOutputFlag.COINBASE != 0 and confirmations < 100:
+        if utxo_data.flags & TXOFlag.COINBASE != 0 and confirmations < 100:
             continue
 
         # Condition 3 / 4:
@@ -1478,7 +1477,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
 
         # Condition 2:
         # - Not if the given transaction is an immature coinbase transaction.
-        if utxo_data.flags & TransactionOutputFlag.COINBASE != 0 and confirmations < 100:
+        if utxo_data.flags & TXOFlag.COINBASE != 0 and confirmations < 100:
             continue
 
         # Condition 3 / 4:
@@ -1652,25 +1651,24 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                 error=ErrorDict(code=RPCError.WALLET_ERROR,
                     message="No suitable MAPI server for broadcast"))))
 
-    selected_fee_context = random.choice(viable_fee_contexts)
-    mapi_fee_estimator = TransactionFeeEstimator(selected_fee_context.fee_quote,
-        selected_fee_context.server_and_credential)
+    fee_context = random.choice(viable_fee_contexts)
+    tx_context = TxContext(fee_quote=fee_context.fee_quote,
+        mapi_server_hint=fee_context.server_and_credential)
+    if comment_text is not None:
+        tx_context.account_labels[account.get_id()] = comment_text
 
     coins = account.get_transaction_outputs_with_key_data()
     outputs = [ XTxOutput(amount_satoshis, address.to_script()) ] # type: ignore[arg-type]
+    tx = Transaction.from_io([], outputs)
     try:
-        transaction, transaction_context = account.make_unsigned_transaction(coins, outputs,
-            mapi_fee_estimator)
-    except NotEnoughFunds:
+        tx, _coins = account.make_unsigned_tx(tx, tx_context, coins)
+    except NotEnoughFunds as exc:
         # rpcwallet.cpp:SendMoney
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=RPCError.WALLET_INSUFFICIENT_FUNDS,
-                    message="Insufficient funds"))))
+                error=ErrorDict(code=RPCError.WALLET_INSUFFICIENT_FUNDS, message=str(exc)))))
 
-    if comment_text is not None:
-        transaction_context.account_descriptions[account.get_id()] = comment_text
-    future = account.sign_transaction(transaction, wallet_password, context=transaction_context)
+    future = account.sign_transactions([tx], [tx_context], wallet_password)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None
@@ -1678,24 +1676,25 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
 
     # The only mechanism we have to know if the transaction ends up in a block is the peer
     # channel registration.
-    mapi_server_hint = wallet.get_mapi_broadcast_context(account.get_id(), transaction)
+    mapi_server_hint = wallet.get_mapi_broadcast_context(account.get_id(), tx)
     if mapi_server_hint is None:
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=RPCError.WALLET_ERROR,
                     message="No suitable MAPI server for broadcast"))))
 
-    transaction_context.mapi_server_hint = mapi_server_hint
-    try:
-        broadcast_result = await wallet.broadcast_transaction_async(transaction,
-            transaction_context)
-    except BroadcastError as broadcast_error:
+    tx_context.mapi_server_hint = mapi_server_hint
+    broadcast_results = await wallet.broadcast_transactions_async([tx], [tx_context])
+    assert len(broadcast_results) == 1
+    if not broadcast_results[0].success:
+        assert broadcast_results[0].error_text is not None
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=RPCError.WALLET_ERROR, message=str(broadcast_error)))))
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message=broadcast_results[0].error_text))))
 
     # At this point the transaction should be signed.
-    transaction_id = transaction.txid()
+    transaction_id = tx.txid()
     assert transaction_id is not None
     return transaction_id
 
@@ -1729,7 +1728,7 @@ class PreviousOutputData(NamedTuple):
     script_bytes: bytes
     value: int
     block_hash: bytes|None = None
-    flags: TransactionOutputFlag = TransactionOutputFlag.NONE
+    flags: TXOFlag = TXOFlag.NONE
 
 
 async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: RequestIdType,
@@ -1839,7 +1838,7 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
         input_index = outpoints.index(outpoint)
         original_input = base_transaction.inputs[input_index]
         assert isinstance(original_input, XTxInput)
-        database_transaction_input = account.get_extended_input_for_spendable_output(coin_row)
+        database_transaction_input = account.get_xtxi_for_utxo(coin_row)
         original_input.x_pubkeys = database_transaction_input.x_pubkeys
         original_input.script_type = database_transaction_input.script_type
         original_input.value = database_transaction_input.value
@@ -1916,7 +1915,7 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
             # We already validated that this was a string above.
             external_script_bytes = bytes.fromhex(prevout_data["scriptPubKey"])
             txo_row = coins_view.get(prevout_outpoint)
-            if txo_row is not None and txo_row.flags & TransactionOutputFlag.SPENT == 0 and \
+            if txo_row is not None and txo_row.flags & TXOFlag.SPENT == 0 and \
                     txo_row.script_bytes != external_script_bytes:
                 their_script_asm = Script(external_script_bytes).to_asm(True)
                 our_script_asm = Script(txo_row.script_bytes).to_asm(True)
@@ -1972,7 +1971,7 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
     for input_index, transaction_input in enumerate(base_transaction.inputs):
         outpoint = Outpoint(transaction_input.prev_hash, transaction_input.prev_idx)
         coin_data = coins_view.get(outpoint)
-        if coin_data is None or coin_data.flags & TransactionOutputFlag.SPENT:
+        if coin_data is None or coin_data.flags & TXOFlag.SPENT:
             errors.append({
                 "txid": hash_to_hex_str(transaction_input.prev_hash),
                 "vout": transaction_input.prev_idx,
@@ -1984,9 +1983,8 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
             # behaviour.
             preserved_signatures[input_index] = transaction_input.signatures.copy()
 
-    transaction_context = TransactionContext()
-    future = account.sign_transaction(base_transaction, wallet_password,
-        context=transaction_context)
+    transaction_context = TxContext()
+    future = account.sign_transactions([base_transaction], [transaction_context], wallet_password)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None

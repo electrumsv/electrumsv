@@ -106,7 +106,7 @@ class BTCAmountEdit(AmountEdit):
         return app_state.decimal_point
 
     # NOTE(typing) Arbitrary requirement that subclasses can't do different things.
-    def get_amount(self) -> Optional[int]: # type: ignore[override]
+    def get_amount(self) -> int|None: # type: ignore[override]
         try:
             x = Decimal(str(self.text()))
         except Exception:

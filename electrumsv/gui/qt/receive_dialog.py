@@ -22,7 +22,7 @@ from ...i18n import _
 from ...logs import logs
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...standards.script_templates import classify_transaction_output_script
-from ...transaction import Transaction, TransactionContext
+from ...transaction import Transaction, TxContext
 from ...util import age
 from ...wallet_database.types import PaymentRequestUpdateRow
 
@@ -709,7 +709,7 @@ class ReceiveDialog(QDialog):
         self._update_form()
 
     def _attempt_import_transactions(self, candidates: list[tuple[Transaction,
-            TransactionContext | None]]) -> None:
+            TxContext | None]]) -> None:
         """
         This is the manual import path. In theory it is the same as any direct P2P path.
         """

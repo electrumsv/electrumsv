@@ -30,7 +30,7 @@ from bitcoinx import base58_encode_check, pack_le_uint32, pack_list, pack_le_int
     read_le_int64, read_le_uint32, Script, unpack_le_uint16
 
 from ..constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
-from ..transaction import NO_SIGNATURE, ReadBytesFunc, TellFunc, Transaction, TransactionContext, \
+from ..transaction import NO_SIGNATURE, ReadBytesFunc, TellFunc, Transaction, TxContext, \
     XPublicKey, xread_list, xread_varbytes, XTxInput, XTxOutput
 from ..types import DatabaseKeyDerivationData
 
@@ -133,7 +133,7 @@ def transaction_to_electrum_bytes(transaction: Transaction) -> bytes:
         pack_le_uint32(transaction.locktime),
     ))
 
-def transaction_to_electrumsv_dict(transaction: Transaction, context: TransactionContext,
+def transaction_to_electrumsv_dict(transaction: Transaction, context: TxContext,
         accounts: list[AbstractAccount], force_signing_metadata: bool=False) -> dict[str, Any]:
     account_by_id = { account.get_id(): account for account in accounts }
 
@@ -142,9 +142,9 @@ def transaction_to_electrumsv_dict(transaction: Transaction, context: Transactio
         'hex': transaction_to_electrum_bytes(transaction).hex(),
         'complete': transaction.is_complete(),
     }
-    if len(context.account_descriptions):
+    if len(context.account_labels):
         descriptions: list[tuple[str, str]] = []
-        for account_id, account_description in context.account_descriptions.items():
+        for account_id, account_description in context.account_labels.items():
             account = account_by_id.get(account_id, None)
             if account is not None:
                 descriptions.append((account.get_fingerprint().hex(), account_description))
@@ -233,12 +233,12 @@ def transaction_from_electrum_bytes(raw: bytes) -> Transaction:
     )
 
 def transaction_from_electrumsv_dict(data: dict[str, Any], accounts: list[AbstractAccount]) \
-        -> tuple[Transaction, TransactionContext]:
+        -> tuple[Transaction, TxContext]:
     account_by_fingerprint = { account.get_fingerprint(): account for account in accounts }
 
     version = data.get('version', 0)
     tx = Transaction.from_hex(data['hex'])
-    context = TransactionContext()
+    context = TxContext()
     if version == 2:
         if 'descriptions' in data:
             for account_fingerprint_hex, description in data["descriptions"]:
@@ -246,7 +246,7 @@ def transaction_from_electrumsv_dict(data: dict[str, Any], accounts: list[Abstra
                 account = account_by_fingerprint.get(account_fingerprint, None)
                 # There's not much we can do if they do not have the account.
                 if account is not None:
-                    context.account_descriptions[account.get_id()] = description
+                    context.account_labels[account.get_id()] = description
     if version >= 1:
         input_data: list[dict[str, Any]]|None = data.get('inputs')
         if input_data is not None:
@@ -278,7 +278,7 @@ def transaction_from_electrumsv_dict(data: dict[str, Any], accounts: list[Abstra
         if 'description' in data:
             for account in accounts:
                 if not account.is_petty_cash():
-                    context.account_descriptions[account.get_id()] = str(data['description'])
+                    context.account_labels[account.get_id()] = str(data['description'])
         if 'prev_txs' in data:
             for tx_hex in data["prev_txs"]:
                 ptx = Transaction.from_hex(tx_hex)

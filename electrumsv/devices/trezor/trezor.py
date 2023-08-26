@@ -12,7 +12,7 @@ from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
 from ...standards.script_templates import classify_transaction_output_script
-from ...transaction import HardwareSigningMetadata, Transaction, TransactionContext, XTxInput, \
+from ...transaction import HardwareSigningMetadata, Transaction, TxContext, XTxInput, \
     XTxOutput
 from ...wallet import MultisigAccount, StandardAccount
 from ...wallet_database.types import KeyListRow
@@ -86,7 +86,7 @@ class TrezorKeyStore(Hardware_KeyStore):
         return True
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: TransactionContext) -> None:
+            context: TxContext) -> None:
         if tx.is_complete():
             return
 
@@ -103,7 +103,7 @@ class TrezorKeyStore(Hardware_KeyStore):
 
         assert self.plugin is not None
         cast(TrezorPlugin, self.plugin).sign_transaction(self, tx, xpub_path,
-            context.hardware_signing_metadata, context.parent_transactions)
+            context.hw_signing_metadata, context.parent_transactions)
 
 
 class TrezorPlugin(HW_PluginBase):

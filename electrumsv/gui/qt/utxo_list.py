@@ -34,14 +34,14 @@ from PyQt6.QtWidgets import QAbstractItemView, QMenu, QTreeWidgetItem, QWidget
 from bitcoinx import hash_to_hex_str
 
 from ...app_state import app_state
-from ...constants import TransactionOutputFlag
+from ...constants import TXOFlag
 from ...i18n import _
 from ...logs import logs
 from ...platform import platform
 from ...types import Outpoint
 from ...util import profiler
 from ...wallet import AbstractAccount
-from ...wallet_database.types import AccountTransactionOutputSpendableRowExtended
+from ...wallet_database.types import AccountUTXOExRow
 
 from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
 
@@ -98,7 +98,7 @@ class UTXOList(MyTreeWidget):
         if self.permit_edit(item, column):
             super().on_doubleclick(item, column)
         else:
-            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountUTXOExRow, item.data(0, Role.DataUTXO))
             assert utxo.account_id is not None
             account = self._wallet.get_account(utxo.account_id)
             tx = self._wallet.get_transaction(utxo.tx_hash)
@@ -144,7 +144,7 @@ class UTXOList(MyTreeWidget):
             for col in (Column.OUTPOINT, Column.AMOUNT):
                 utxo_item.setFont(col, self._monospace_font)
             utxo_item.setData(0, Role.DataUTXO, utxo)
-            if utxo.flags & TransactionOutputFlag.FROZEN:
+            if utxo.flags & TXOFlag.FROZEN:
                 utxo_item.setBackground(Column.OUTPOINT, ColorScheme.BLUE.as_color(True))
             self.addChild(utxo_item)
             if utxo in prev_selection:
@@ -159,14 +159,14 @@ class UTXOList(MyTreeWidget):
 
         for row_idx in range(self.topLevelItemCount()):
             item = self.topLevelItem(row_idx)
-            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountUTXOExRow, item.data(0, Role.DataUTXO))
             if utxo.tx_hash not in tx_descriptions:
                 continue
             new_description = tx_descriptions[utxo.tx_hash]
             if new_description != item.text(Column.DESCRIPTION):
                 item.setText(Column.DESCRIPTION, new_description)
 
-    def get_selected(self) -> Set[AccountTransactionOutputSpendableRowExtended]:
+    def get_selected(self) -> Set[AccountUTXOExRow]:
         return { item.data(0, Role.DataUTXO) for item in self.selectedItems() }
 
     def create_menu(self, position: QPoint) -> None:
@@ -183,8 +183,8 @@ class UTXOList(MyTreeWidget):
         def unfreeze_coins() -> None:
             self._freeze_coins(txo_keys, False)
 
-        any_c_frozen = any(coin.flags & TransactionOutputFlag.FROZEN for coin in coins)
-        all_c_frozen = all(coin.flags & TransactionOutputFlag.FROZEN for coin in coins)
+        any_c_frozen = any(coin.flags & TXOFlag.FROZEN for coin in coins)
+        all_c_frozen = all(coin.flags & TXOFlag.FROZEN for coin in coins)
 
         if len(coins) == 1:
             # single selection, offer them the "Details" option and also coin
@@ -228,7 +228,7 @@ class UTXOList(MyTreeWidget):
         items: List[QTreeWidgetItem] = []
         for row_idx in range(self.topLevelItemCount()):
             item = self.topLevelItem(row_idx)
-            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountUTXOExRow, item.data(0, Role.DataUTXO))
             txo_key = Outpoint(utxo.tx_hash, utxo.txo_index)
             if txo_key not in txo_keys:
                 continue

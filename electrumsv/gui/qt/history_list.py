@@ -43,15 +43,14 @@ from ...i18n import _
 from ...logs import logs
 from ...platform import platform
 from ...standards.tsc_merkle_proof import TSCMerkleProof
-from ...transaction import TransactionContext
 from ...util import format_posix_timestamp, posix_timestamp_to_datetime, profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.types import AccountPaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 
-from .constants import ICON_NAME_INVOICE_PAYMENT
+from .constants import ICON_NAME_INVOICE_PAYMENT, ViewPaymentMode
 from .table_widgets import TableTopButtonLayout
-from .util import MyTreeWidget, read_QIcon, MessageBox, SortableTreeWidgetItem
+from .util import MyTreeWidget, read_QIcon, SortableTreeWidgetItem
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -164,10 +163,17 @@ class HistoryList(MyTreeWidget):
         text: str|None = item.text(column).strip()
         if text == "":
             text = None
+        payment_id = item.data(Columns.STATUS, self.PAYMENT_ROLE)
         account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-        tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
+        # TODO(nocheckin) Payments. Work out best path to updating the description for a payment.
+        #     This currently errors because the home view payment list does not have an account.
+        #     A point of confusion is what if one account has a description for a payment and
+        #     another does not.
+        if account_id is None:
+            logger.debug("TODO: Global payment descriptions not supported yet")
+            return
         account = cast(AbstractAccount, self._wallet.get_account(account_id))
-        account.set_payment_label(tx_hash, text)
+        account.set_payment_label(payment_id, text)
 
     def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
@@ -189,9 +195,8 @@ class HistoryList(MyTreeWidget):
         current_pid = item.data(Columns.STATUS, self.PAYMENT_ROLE) if item else None
         self.clear()
         if self._for_account and self._account is None:
-            logger.debug("History list not updated due to no currently selected account")
+            logger.debug("Shared account history list not updated (no selected account)")
             return
-
         fx = app_state.fx
         if fx:
             fx.history_used_spot = False
@@ -284,20 +289,12 @@ class HistoryList(MyTreeWidget):
         if self.permit_edit(item, column):
             super(HistoryList, self).on_doubleclick(item, column)
         else:
-            account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-            tx_hash = item.data(Columns.STATUS, self.PAYMENT_ROLE)
-
-            account = self._wallet.get_account(account_id)
-            tx = self._wallet.get_transaction(tx_hash)
-            if tx is not None:
-                self._main_window.show_transaction(account, tx)
-            else:
-                MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
-                    " Please try again when it has been obtained from the network."))
+            self._main_window.show_payment(ViewPaymentMode.FROM_HISTORY,
+                cast(int, item.data(Columns.STATUS, self.PAYMENT_ROLE)))
 
     def update_payment_descriptions(self, entries: list[AccountPaymentDescriptionRow]) -> None:
-        description_for_payment_id = { payment_id: description
-            for (account_id, payment_id, description) in entries if account_id == self._account_id }
+        description_for_payment_id = { payment_id:description
+            for (account_id,payment_id,description) in entries if account_id==self._account_id }
 
         if len(description_for_payment_id) == 0:
             return
@@ -449,19 +446,20 @@ class HistoryList(MyTreeWidget):
 
         menu.exec(self.viewport().mapToGlobal(position))
 
-    def _broadcast_transaction(self, tx_hash: bytes) -> None:
-        assert self._account is not None
-        transaction = self._wallet.get_transaction(tx_hash)
-        assert transaction is not None
-        mapi_server_hint = self._wallet.get_mapi_broadcast_context(self._account.get_id(),
-            transaction)
-        if mapi_server_hint is None:
-            self._main_window.show_error(_("Unable to broadcast as there are no usable MAPI "
-                "servers."))
-            return
-        transaction_context = TransactionContext()
-        transaction_context.mapi_server_hint = mapi_server_hint
-        self._main_window.broadcast_transaction(self._account, transaction, transaction_context)
+    # def _broadcast_transaction(self, payment_id: int) -> None:
+    #     assert self._account is not None
+    #     tx = self._wallet.get_transaction(tx_hash) # TODO Need to map payment
+    #     assert tx is not None
+    #     tx_ctx = TxContext()
+    #     tx_ctx.mapi_server_hint = \
+    #         self._wallet.get_mapi_broadcast_context(self._account.get_id(), tx)
+    #     if tx_ctx.mapi_server_hint is None:
+    #         self._main_window.show_error(_("Unable to broadcast as there are no usable MAPI "
+    #             "servers."))
+    #         return
+    #     def broadcast_done(results: list[BroadcastResult]) -> None: pass
+    #     self._main_window.broadcast_transactions([tx], [tx_ctx], broadcast_done,
+    #         self._main_window.reference())
 
     def _show_invoice_window(self, invoice_id: int) -> None:
         row = self._wallet.data.read_invoice(invoice_id=invoice_id)
@@ -576,7 +574,7 @@ class HistoryView(QWidget):
     def update_tx_item(self, tx_hash: bytes, header: Header, tsc_proof: TSCMerkleProof) -> None:
         self.list.update_tx_item(tx_hash, header, tsc_proof)
 
-    def update_tx_list(self) -> None:
+    def update_tx_list(self, refresh: bool=True) -> None:
         self.list.update()
 
     # Called externally via the Find menu option.

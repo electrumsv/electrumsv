@@ -6,7 +6,7 @@ from ..constants import (AccountFlag, AccountPaymentFlag, BackupMessageFlag, Der
     DPPMessageType, KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag, NetworkServerFlag,
     NetworkServerType, PaymentFlag, PaymentRequestFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataMatchFlag, PushDataHashRegistrationFlag, ScriptType,
-    ServerPeerChannelFlag, TransactionOutputFlag, TxFlag, WalletEventFlag, WalletEventType)
+    ServerPeerChannelFlag, TXOFlag, TxFlag, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
 
@@ -44,6 +44,14 @@ class AccountPaymentRow(NamedTuple):
     payment_id: int
     flags: AccountPaymentFlag
     description: str | None
+    date_created: int
+    date_updated: int
+
+
+class PaymentRow(NamedTuple):
+    payment_id: int
+    contact_id: int|None
+    flags: int
     date_created: int
     date_updated: int
 
@@ -272,7 +280,7 @@ class TransactionOutputCommonProtocol(Protocol):
     txo_index: int
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_type: ScriptType
 
 
@@ -282,30 +290,30 @@ class TransactionOutputAddRow(NamedTuple):
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_offset: int
     script_length: int
     date_created: int
     date_updated: int
 
 
-class TransactionOutputShortRow(NamedTuple):
+class TXOShortRow(NamedTuple):
     # Standard transaction output fields.
     tx_hash: bytes
     txo_index: int
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_type: ScriptType
 
 
-class TransactionOutputFullRow(NamedTuple):
+class TXOFullRow(NamedTuple):
     # Standard transaction output fields.
     tx_hash: bytes
     txo_index: int
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     script_type: ScriptType
     # Extension fields for this type.
     script_offset: int
@@ -324,7 +332,7 @@ class AccountTransactionOutputSpendableRow(NamedTuple):
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     # KeyInstance fields.
     account_id: int                             # Spendable type field.
     masterkey_id: int | None                    # Spendable type field.
@@ -332,14 +340,14 @@ class AccountTransactionOutputSpendableRow(NamedTuple):
     derivation_data2: bytes | None              # Spendable type field.
 
 
-class AccountTransactionOutputSpendableRowExtended(NamedTuple):
+class AccountUTXOExRow(NamedTuple):
     # Standard transaction output fields.
     tx_hash: bytes
     txo_index: int
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     # KeyInstance fields.
     account_id: int                             # Spendable type field.
     masterkey_id: int | None                    # Spendable type field.
@@ -370,7 +378,7 @@ class ContactRow(NamedTuple):
     date_updated: int
 
 
-class TransactionOutputSpendableRow(NamedTuple):
+class UTXORow(NamedTuple):
     """
     Transaction output data with the additional key instance information required for spending it.
     """
@@ -380,7 +388,7 @@ class TransactionOutputSpendableRow(NamedTuple):
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     # KeyInstance fields.
     account_id: int | None                   # Spendable type field.
     masterkey_id: int | None                 # Spendable type field.
@@ -388,7 +396,7 @@ class TransactionOutputSpendableRow(NamedTuple):
     derivation_data2: bytes | None           # Spendable type field.
 
 
-class TransactionOutputSpendRow(NamedTuple):
+class STXORow(NamedTuple):
     """
     Extended version of `TransactionOutputSpendableRow` with `txi_index` field.
     """
@@ -400,7 +408,7 @@ class TransactionOutputSpendRow(NamedTuple):
     value: int
     keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
-    flags: TransactionOutputFlag
+    flags: TXOFlag
     # KeyInstance fields.
     account_id: int | None                   # Spendable type field.
     masterkey_id: int | None                 # Spendable type field.
@@ -416,13 +424,10 @@ class TransactionOutputSpendRow(NamedTuple):
 # included types.
 
 # Types which have the common output fields.
-TransactionOutputTypes = TransactionOutputShortRow | TransactionOutputFullRow | \
-    TransactionOutputSpendRow | TransactionOutputSpendableRow, \
-    AccountTransactionOutputSpendableRowExtended
-# Some lower comment.
+TXOTypes = TXOShortRow | TXOFullRow | STXORow | UTXORow, AccountUTXOExRow
 
 
-class TransactionOutputSpendableProtocol(Protocol):
+class UTXOProtocol(Protocol):
     # Standard transaction output fields.
     @property
     def tx_hash(self) -> bytes:
@@ -698,4 +703,3 @@ class BackupMessageRow(NamedTuple):
     local_flags: BackupMessageFlag
     message_data: bytes
     date_created: int
-

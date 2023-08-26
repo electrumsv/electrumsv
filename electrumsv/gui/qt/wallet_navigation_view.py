@@ -165,6 +165,12 @@ class WalletNavigationView(QSplitter):
     def _initialize_home(self) -> None:
         self._home_widget.update_health_report()
 
+    def update_history_headers(self) -> None:
+        self._home_widget.update_history_headers()
+
+    def update_history_list(self) -> None:
+        self._home_widget.update_history_list()
+
     def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
         self._logger.debug("init_geometry.1 %r", sizes)
         if sizes is None:

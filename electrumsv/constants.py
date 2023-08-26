@@ -1,8 +1,11 @@
 from enum import Enum, IntEnum, IntFlag
-from typing import Literal, Sequence
+from typing import Literal, Sequence, TYPE_CHECKING
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
+
+if TYPE_CHECKING:
+    from .types import FeeQuoteTypeEntry2
 
 
 ## Local functions to avoid circular dependencies. This file should be independent
@@ -220,7 +223,16 @@ RECEIVING_SUBPATH_BYTES = pack_derivation_path(RECEIVING_SUBPATH)
 CHANGE_SUBPATH: DerivationPath = (1,)
 CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 
-DEFAULT_FEE = 500
+# Should only be used for UI override of fee rate.
+DEFAULT_FEE = 100
+# NOTE(rt12) Fee rates. At the time of writing regtest MAPI is returning 500 sats/kb.
+MAX_FEE = 1000
+
+# The number of satoshis that is the current dust threshold.
+# History:
+# - The hard-coded Bitcoin SV dust threshold as of Sep 2018 was 546 satoshis.
+# - The hard-coded Bitcoin SV dust threshold as of the v1.0.11 node release is 1 satoshi.
+DUST_THRESHOLD = 1
 
 WALLET_ACCOUNT_PATH_TEXT: str = "m/50'"
 WALLET_IDENTITY_PATH_TEXT: str = "m/51'"
@@ -276,7 +288,7 @@ class KeyInstanceFlag(IntFlag):
     MASK_ACTIVE_REASON = IS_PAYMENT_REQUEST | IS_INVOICE | USER_SET_ACTIVE
 
 
-class ImportTransactionFlag(IntFlag):
+class TxImportFlag(IntFlag):
     UNSET = 0
     # The user drove the process that caused this transaction to be imported.
     # This is used to decide if we should notify the user about the arrival of this transaction.
@@ -289,11 +301,11 @@ class ImportTransactionFlag(IntFlag):
     RESTORATION_MATCH           = 1 << 5
 
 
-class TransactionInputFlag(IntFlag):
+class TXIFlag(IntFlag):
     NONE = 0
 
 
-class TransactionOutputFlag(IntFlag):
+class TXOFlag(IntFlag):
     NONE                = 0
 
     # If the UTXO is in a local or otherwise unconfirmed transaction.
@@ -422,7 +434,6 @@ class WalletEvent(Enum):
 
 
 class WalletSettings:
-    USE_CHANGE = 'use_change'
     MULTIPLE_CHANGE = 'multiple_change'
     MULTIPLE_ACCOUNTS = 'multiple_accounts'
 
