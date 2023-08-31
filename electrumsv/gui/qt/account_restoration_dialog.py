@@ -62,10 +62,10 @@ from ...i18n import _
 from ...logs import logs
 from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
 from ...types import ImportTransactionKeyUsage, MissingTransactionMetadata, \
-    RestorationTransactionKeyUsage, TxImportCtx
+    PaymentCtx, RestorationTransactionKeyUsage, TxImportCtx
 from ...wallet import Wallet
 from ...wallet_database.types import TransactionRow
-from ...wallet_support.keys import map_transaction_output_key_usage
+from ...wallet_support.keys import map_txo_key_usage
 from ...web import BE_URL
 
 from .constants import RestorationDialogRole
@@ -221,7 +221,7 @@ class AccountRestorationDialog(WindowModalDialog):
     _import_start_time: int = -1
     _import_end_time: int = -1
 
-    import_step_signal = pyqtSignal(TransactionRow, TxImportCtx)
+    import_step_signal = pyqtSignal(TransactionRow, TxImportCtx, PaymentCtx)
 
     _pushdata_handler: PushDataHashHandler | None = None
 
@@ -525,16 +525,17 @@ class AccountRestorationDialog(WindowModalDialog):
             assert tx is not None
             import_entries = { ImportTransactionKeyUsage(t.pushdata_hash,
                 cast(int, t.keyinstance_id), t.script_type) for t in link_entries }
-            import_context = TxImportCtx(account_ids=[self._account_id],
-                output_key_usage=map_transaction_output_key_usage(tx, import_entries))
-            await self._wallet.data.link_transaction_async(transaction_hash, import_context)
+            import_ctx = TxImportCtx(output_key_usage=map_txo_key_usage(tx,
+                import_entries))
+            payment_ctx = PaymentCtx()
+            await self._wallet.data.link_transaction_async(transaction_hash, import_ctx)
 
             transaction_row = self._wallet.data.read_transaction(transaction_hash)
             del self._import_link_entries[transaction_hash]
-            self.import_step_signal.emit(transaction_row, import_context)
+            self.import_step_signal.emit(transaction_row, import_ctx, payment_ctx)
 
     def _on_wallet_event(self, event: WalletEvent, tx_row: TransactionRow, tx: Transaction,
-            import_context: TxImportCtx) -> None:
+            import_ctx: TxImportCtx, payment_ctx: PaymentCtx) -> None:
         """
         The general wallet callback event handler.
 
@@ -547,23 +548,22 @@ class AccountRestorationDialog(WindowModalDialog):
         if tx_row.tx_hash not in self._import_fetch_hashes:
             return
         self._import_fetch_hashes.remove(tx_row.tx_hash)
-        self.import_step_signal.emit(tx_row, import_context)
+        self.import_step_signal.emit(tx_row, import_ctx, payment_ctx)
 
     def _update_for_import_step(self, tx_row: TransactionRow,
-            import_context: TxImportCtx) -> None:
+            import_ctx: TxImportCtx, payment_ctx: PaymentCtx) -> None:
         tree_item_index = self._scan_tree_indexes[tx_row.tx_hash]
         tree_item = self._scan_detail_tree.topLevelItem(tree_item_index)
         import_entry = cast(TransactionScanState, tree_item.data(Columns.STATUS, ImportRoles.ENTRY))
-        if import_context.has_spend_conflicts:
-            import_entry.found_spend_conflicts = import_context.has_spend_conflicts
+        if import_ctx.has_spend_conflicts:
+            import_entry.found_spend_conflicts = import_ctx.has_spend_conflicts
             tree_item.setIcon(Columns.STATUS, self._conflicted_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("An attempt to import this transaction "
                 "encountered a conflict where another imported transaction had already spent "
                 "the given coins."))
         else:
-            assert import_context.account_ids is not None, \
-                "expected account ids for non conflicted tx"
-            import_entry.linked_account_ids = set(import_context.account_ids)
+            assert len(payment_ctx.account_ids) > 0, "expected account ids for non conflicted tx"
+            import_entry.linked_account_ids = payment_ctx.account_ids
             tree_item.setIcon(Columns.STATUS, self._imported_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
 

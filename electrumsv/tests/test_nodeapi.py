@@ -33,7 +33,7 @@ from electrumsv.standards.script_templates import classify_transaction_output_sc
     create_script_sig
 from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction, TxContext, XTxInput, XPublicKey
-from electrumsv.types import KeyStoreResult, Outpoint
+from electrumsv.types import KeyStoreResult, Outpoint, PaymentCtx
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
     AccountUTXOExRow, KeyData, PaymentRequestOutputRow, \
@@ -2018,8 +2018,8 @@ async def test_call_signrawtransaction_ok_async(
         return extended_transaction_input
     account.get_xtxi_for_utxo = get_xtxi_for_utxo
 
-    def sign_transactions(txs: list[Transaction], tx_ctxs: list[TxContext], password: str) \
-            -> concurrent.futures.Future[int|None] | None:
+    def sign_transactions(payment_ctx: PaymentCtx, txs: list[Transaction], tx_ctxs: list[TxContext],
+            password: str) -> concurrent.futures.Future[int|None] | None:
         nonlocal mock_data
         """
         We are not testing that the wallet is signing correctly. We are taking JSON pretend

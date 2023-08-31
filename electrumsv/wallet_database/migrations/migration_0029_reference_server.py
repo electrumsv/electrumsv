@@ -587,6 +587,7 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         payment_id                              INTEGER     PRIMARY KEY,
         contact_id                              INTEGER     DEFAULT NULL,
         flags                                   INTEGER     DEFAULT 0,
+        description                             TEXT        DEFAULT NULL,
         date_created                            INTEGER     NOT NULL,
         date_updated                            INTEGER     NOT NULL,
         FOREIGN KEY (contact_id) REFERENCES Contacts (contact_id)
@@ -611,12 +612,11 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     # used. `AccountTransactions.description` over grouped payment transactions not really used.
     conn.execute("""
         CREATE TABLE AccountPayments (
-            account_id INTEGER NOT NULL,
-            payment_id INTEGER NOT NULL,
-            flags INTEGER NOT NULL DEFAULT 0,
-            description TEXT DEFAULT NULL,
-            date_created INTEGER NOT NULL,
-            date_updated INTEGER NOT NULL,
+            account_id                          INTEGER     NOT NULL,
+            payment_id                          INTEGER     NOT NULL,
+            flags                               INTEGER     NOT NULL DEFAULT 0,
+            date_created                        INTEGER     NOT NULL,
+            date_updated                        INTEGER     NOT NULL,
             FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
             FOREIGN KEY (payment_id) REFERENCES Payments (payment_id)
         )
@@ -624,21 +624,31 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     account_transaction_rows = cast(list[tuple[int, bytes, str|None, int, int]],
         conn.execute("SELECT account_id, tx_hash, description, date_created, "
             "date_updated FROM AccountTransactions"))
-    account_payments_by_key: dict[tuple[int, int], tuple[int, int, int, str|None, int, int]] = {}
+    account_payments_by_key: dict[tuple[int, int], tuple[int, int, int, int, int]] = {}
     payment_id_by_tx_hash: dict[bytes, int] = { t[1]: t[0] for t in tx_payment_rows }
-    # payment_by_id: dict[int, tuple[int, int, int]] = { t[0]: t for t in payment_rows }
+    description_by_payment_id: dict[int, str] = {}
     for account_transaction_row in account_transaction_rows:
         payment_id = payment_id_by_tx_hash[account_transaction_row[1]]
         account_payment_key = account_transaction_row[0], payment_id
         if account_payment_key in account_payments_by_key:
             continue
         account_payment_row = (account_transaction_row[0], payment_id, 0,
-            account_transaction_row[2], account_transaction_row[3], account_transaction_row[4])
+            account_transaction_row[3], account_transaction_row[4])
         account_payments_by_key[account_payment_key] = account_payment_row
+        if account_transaction_row[2]:
+            if payment_id in description_by_payment_id:
+                description_by_payment_id[payment_id] += "; "+ account_transaction_row[2]
+            else:
+                description_by_payment_id[payment_id] = account_transaction_row[2]
 
     account_payment_insert_rows = list(account_payments_by_key.values())
-    conn.executemany("INSERT INTO AccountPayments (account_id, payment_id, flags, description, "
-        "date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", account_payment_insert_rows)
+    conn.executemany("INSERT INTO AccountPayments (account_id, payment_id, flags, "
+        "date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5)", account_payment_insert_rows)
+
+    # NOTE(rt12) Initially the plan was to have per-account descriptions for payments but it just
+    #     complicates the UI too much, so for now we force shared payment descriptions.
+    payment_update_rows = list(description_by_payment_id.items())
+    conn.executemany("UPDATE Payments SET description=?2 WHERE payment_id=?1", payment_update_rows)
 
     conn.execute("""
     CREATE TABLE Invoices2 (

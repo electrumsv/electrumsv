@@ -42,7 +42,7 @@ from typing import Any, Callable, cast, Coroutine, Iterable, Literal, Sequence, 
     TypeVar, TYPE_CHECKING
 import weakref
 
-from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
+from bitcoinx import (Address, bip32_decompose_chain_string,
     BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash, MissingHeader,
     P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script)
 from electrumsv_database.sqlite import DatabaseContext
@@ -99,19 +99,18 @@ from .network_support.types import PeerChannelServerState, \
 from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
     BroadcastEventPayloadNames, close_restapi_connection_async
-from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.mapi import convert_mapi_fees
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
     TSCMerkleProofError, verify_proof
 from .storage import WalletStorage
 from .transaction import (estimate_fee, HardwareSigningMetadata, Transaction, TxContext,
-    tx_dict_from_text, TxSerialisationFormat, XPublicKey, XTxInput, XTxOutput)
+    TxSerialisationFormat, XPublicKey, XTxInput, XTxOutput)
 from .types import (BroadcastResult, ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
     ImportTransactionKeyUsage, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
     MasterKeyDataMultiSignature, MissingTransactionMetadata, Outpoint, OutputSpend,
-    ServerAccountKey, ServerAndCredential, MAPIFeeContext, TxImportCtx,
+    ServerAccountKey, ServerAndCredential, MAPIFeeContext, PaymentCtx, TxImportCtx,
     TxImportEntry, WaitingUpdateCallback, WalletStatusDict)
 from .util import get_posix_timestamp, get_wallet_name_from_path, \
     TriggeredCallbacks, ValueLocks
@@ -119,7 +118,7 @@ from .util.cache import LRUCache
 from .wallet_database.exceptions import DatabaseUpdateError, KeyInstanceNotFoundError, \
     TransactionAlreadyExistsError
 from .wallet_database import functions as db_functions
-from .wallet_database.types import (AccountRow, AccountPaymentDescriptionRow,
+from .wallet_database.types import (AccountRow, PaymentDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountUTXOExRow,
     ContactAddRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceRow,
@@ -136,7 +135,7 @@ from .wallet_database.types import (AccountRow, AccountPaymentDescriptionRow,
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_multi_signer_script_template, \
     get_pushdata_hash_for_derivation, get_pushdata_hash_for_public_keys, \
-    get_single_signer_script_template, map_transaction_output_key_usage
+    get_single_signer_script_template, map_txo_key_usage
 
 
 if TYPE_CHECKING:
@@ -348,32 +347,6 @@ class AbstractAccount:
     def get_keyinstances(self) -> list[KeyInstanceRow]:
         return self._wallet.data.read_keyinstances(account_id=self._id)
 
-    # TODO(multi-account) This is not compatible with multi-account usage of the same transaction
-    # unless we repackage the outer transaction. We kind of need per-account transaction context.
-    def get_transaction(self, tx_hash: bytes) -> tuple[Transaction, TxContext]|None:
-        """
-        Get the transaction with account-specific metadata like the description.
-        """
-        tx = self._wallet.get_transaction(tx_hash)
-        context: TxContext|None = None
-        if tx is None:
-            return None
-        # Populate the description.
-        context = TxContext()
-        apd_rows = self.get_transaction_labels([ tx_hash ])
-        if len(apd_rows) > 0 and apd_rows[0].description is not None:
-            context.account_labels[self._id] = apd_rows[0].description
-        return tx, context
-
-    def set_payment_label(self, payment_id: int, text: str|None) \
-            -> concurrent.futures.Future[None]:
-        return self._wallet.set_account_payment_labels(
-            [ AccountPaymentDescriptionRow(self._id, payment_id, text) ])
-
-    def get_transaction_labels(self, tx_hashes: Sequence[bytes]) \
-            -> list[AccountPaymentDescriptionRow]:
-        return self._wallet.data.read_transaction_descriptions(self._id, tx_hashes=tx_hashes)
-
     def __str__(self) -> str:
         return self.name()
 
@@ -412,28 +385,6 @@ class AbstractAccount:
 
     def involves_hardware_wallet(self) -> bool:
         return any([ k for k in self.get_keystores() if isinstance(k, Hardware_KeyStore) ])
-
-    def get_label_data(self) -> dict[str, Any]:
-        # Create exported data structure for account labels/descriptions.
-        label_entries = [
-            (bip32_build_chain_string(unpack_derivation_path(cast(bytes, key.derivation_data2))),
-                key.description)
-            for key in self.get_keyinstances() if key.description is not None
-        ]
-        rows = self._wallet.data.read_transaction_descriptions(self._id)
-        transaction_entries = [
-            (hash_to_hex_str(tx_hash), description) for account_id, tx_hash, description in rows
-        ]
-
-        data: dict[str, Any] = {}
-        if len(transaction_entries):
-            data["transactions"] = transaction_entries
-        if len(label_entries):
-            data["keys"] = {
-                "account_fingerprint": self.get_fingerprint().hex(),
-                "entries": label_entries,
-            }
-        return data
 
     def get_keyinstance_label(self, key_id: int) -> str:
         keyinstance = self._wallet.data.read_keyinstance(keyinstance_id=key_id)
@@ -799,8 +750,8 @@ class AbstractAccount:
         # NOTE(typing) Pylance does not know how to deal with abstract methods.
         return script_template.to_script()
 
-    def sign_transactions(self, txs: list[Transaction], tx_ctxs: list[TxContext],
-            password: str) -> concurrent.futures.Future[int|None]|None:
+    def sign_transactions(self, payment_ctx: PaymentCtx, txs: list[Transaction],
+            tx_ctxs: list[TxContext], password: str) -> concurrent.futures.Future[int|None]|None:
         assert not self.is_watching_only()
         assert all(tx_ctx.import_context is None for tx_ctx in tx_ctxs)
 
@@ -837,10 +788,6 @@ class AbstractAccount:
         if not all(tx.is_complete() for tx in txs):
             return None
 
-        payment_ids = set(tx_ctx.payment_id for tx_ctx in tx_ctxs)
-        assert len(payment_ids) == 1
-        payment_id = next(iter(payment_ids))
-
         entries: list[TxImportEntry] = []
         contexts: dict[bytes, TxImportCtx] = {}
         proofs: dict[bytes, MerkleProofRow] = {}
@@ -865,15 +812,11 @@ class AbstractAccount:
                 if len(key_usages) == 1:
                     transaction_output_key_usage[txo_idx] = key_usages[0]
 
-            account_ids: list[int]|None = None
-            if tx_ctx.payment_id is None:
-                account_ids = list(tx_ctx.account_labels)
             tx_ctx.import_context = contexts[tx_hash] = TxImportCtx(
-                output_key_usage=transaction_output_key_usage,
-                account_ids=account_ids, account_descriptions=tx_ctx.account_labels.copy())
+                output_key_usage=transaction_output_key_usage)
             entries.append(TxImportEntry(tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None))
 
-        return app_state.async_.spawn(self._wallet.import_transactions_async(payment_id,entries,
+        return app_state.async_.spawn(self._wallet.import_transactions_async(payment_ctx,entries,
             proofs,contexts,rollback_on_spend_conflict=True))
 
     def _create_hw_signing_metadata(self, tx: Transaction, context: TxContext) \
@@ -972,21 +915,6 @@ class AbstractAccount:
 
         `update_cb` if provided is given as the last argument by `WaitingDialog` and `TxDialog`.
         """
-        if format == TxSerialisationFormat.JSON_WITH_PROOFS:
-            try:
-                self.obtain_previous_transactions(tx, context, update_cb)
-            except RuntimeError:
-                if update_cb is None:
-                    self._logger.exception("unexpected runtime error")
-                else:
-                    # Sometimes we will get a Qt error depending on when things are interrupted.
-                    # This cannot be avoided, and it can be ignored safely.
-                    #
-                    #   RuntimeError: wrapped C/C++ object of type WaitingDialog has been deleted
-                    self._logger.debug("extend_serialised_transaction interrupted")
-                return None
-            else:
-                data["prev_txs"] = [ ptx.to_hex() for ptx in context.parent_transactions.values() ]
         return data
 
     def get_fingerprint(self) -> bytes:
@@ -1836,18 +1764,6 @@ class WalletDataAccess:
         return self._db_context.post_to_thread(db_functions.update_account_server_ids_write,
             indexing_server_id, peer_channel_server_id, account_id)
 
-    # Account transactions.
-
-    def read_transaction_descriptions(self, account_id: int|None=None,
-            tx_hashes: Sequence[bytes]|None=None) -> list[AccountPaymentDescriptionRow]:
-        return db_functions.read_transaction_descriptions(self._db_context,
-            account_id, tx_hashes)
-
-    def update_account_payment_descriptions(self,
-            entries: list[AccountPaymentDescriptionRow]) -> concurrent.futures.Future[None]:
-        return db_functions.update_account_payment_descriptions(self._db_context,
-            entries)
-
     # Contacts
 
     async def create_contacts_async(self, add_rows: list[ContactAddRow]) -> list[ContactRow]:
@@ -2051,9 +1967,16 @@ class WalletDataAccess:
     def read_payment_account_ids(self, payment_id: int) -> list[int]:
        return db_functions.read_payment_account_ids(self._db_context, payment_id)
 
+    def read_payment_descriptions(self, payment_ids: Sequence[int]) -> list[PaymentDescriptionRow]:
+        return db_functions.read_payment_descriptions(self._db_context, payment_ids)
+
     def read_payment_history(self, account_id: int|None, keyinstance_ids: Sequence[int]|None=None) \
             -> list[HistoryListRow]:
         return db_functions.read_payment_history(self._db_context, account_id, keyinstance_ids)
+
+    def update_payment_descriptions(self, entries: list[PaymentDescriptionRow]) \
+            -> concurrent.futures.Future[None]:
+        return db_functions.update_payment_descriptions(self._db_context, entries)
 
     async def delete_payment_async(self, payment_id: int) -> list[int]:
         return await self._db_context.run_in_thread_async(db_functions.remove_payment_write,
@@ -2113,7 +2036,7 @@ class WalletDataAccess:
             db_functions.update_payment_request_flags_write, request_id, flags, mask)
 
     async def close_paid_payment_request_async(self, request_id: int) \
-            -> list[AccountPaymentDescriptionRow]:
+            -> list[PaymentDescriptionRow]:
         """
         Wrap the database operations required to link a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
@@ -2315,10 +2238,10 @@ class WalletDataAccess:
     def read_transactions(self, *, payment_id: int|None=None) -> list[TransactionRow]:
         return db_functions.read_transactions(self._db_context, payment_id=payment_id)
 
-    async def import_transactions_async(self, tx_rows: list[TransactionRow],
-            txi_rows: list[TransactionInputAddRow], txo_rows: list[TransactionOutputAddRow],
-            proofs: dict[bytes,MerkleProofRow], contexts: dict[bytes,TxImportCtx],
-            rollback_on_spend_conflict: bool) -> int:
+    async def import_transactions_async(self, payment_ctx: PaymentCtx,
+            tx_rows: list[TransactionRow], txi_rows: list[TransactionInputAddRow],
+            txo_rows: list[TransactionOutputAddRow], proofs: dict[bytes,MerkleProofRow],
+            contexts: dict[bytes,TxImportCtx], rollback_on_spend_conflict: bool) -> None:
         """
         Wrap the database operations required to import a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
@@ -2328,8 +2251,8 @@ class WalletDataAccess:
         - `DatabaseUpdateError` if there are spend conflicts and it was requested that the
               transaction was rolled back.
         """
-        return await self._db_context.run_in_thread_async(db_functions.import_transactions, tx_rows,
-            txi_rows, txo_rows, proofs, contexts, rollback_on_spend_conflict)
+        await self._db_context.run_in_thread_async(db_functions.import_transactions,
+            payment_ctx, tx_rows, txi_rows, txo_rows, proofs, contexts, rollback_on_spend_conflict)
 
     async def link_transaction_async(self, tx_hash: bytes, context: TxImportCtx) -> None:
         """Link an existing transaction to any applicable accounts and key usage."""
@@ -3478,14 +3401,6 @@ class Wallet:
                 return tx, context
 
             tx_hash = tx.hash()
-        elif data.startswith(b"{"):
-            # Legacy ElectrumSV partial transactions.
-            txdict = tx_dict_from_text(data.decode())
-            tx, context = transaction_from_electrumsv_dict(txdict, self.get_accounts())
-            if not tx.is_complete():
-                return tx, context
-
-            tx_hash = tx.hash()
         else:
             tx_hash = double_sha256(data)
 
@@ -3505,15 +3420,18 @@ class Wallet:
 
         return tx, context
 
-    async def import_transactions_async(self, payment_id: int|None, entries: list[TxImportEntry],
-            proofs: dict[bytes,MerkleProofRow], contexts: dict[bytes,TxImportCtx],
-            rollback_on_spend_conflict: bool=False) -> int:
+    async def import_transactions_async(self, payment_ctx: PaymentCtx,
+            entries: list[TxImportEntry], proofs: dict[bytes,MerkleProofRow],
+            contexts: dict[bytes,TxImportCtx], rollback_on_spend_conflict: bool=False) -> int:
         """
         Raises:
         - `TransactionAlreadyExistsError` if the transaction is already in the wallet database.
         - `DatabaseUpdateError` if the link state indicated that there should be a rollback if
             there were spend conflicts and this has happened.
         """
+        if payment_ctx.timestamp == 0:
+            payment_ctx.timestamp = int(time.time())
+
         tx_rows: list[TransactionRow] = []
         txi_rows: list[TransactionInputAddRow] = []
         txo_rows: list[TransactionOutputAddRow] = []
@@ -3521,7 +3439,6 @@ class Wallet:
         for tx_hash,tx,flags,block_height,block_hash,block_position in entries:
             assert tx.is_complete()
             context = contexts[tx_hash]
-            date_created = context.date_created if context.date_created else int(time.time())
 
             # If there is a missing transaction entry it is almost certain that the indexer
             # monitoring detected, obtained and is importing the transaction.
@@ -3534,35 +3451,35 @@ class Wallet:
             # The database layer should be decoupled from core wallet logic so we need to
             # break down the transaction and related data for it to consume.
             tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags,
-                block_hash, block_height, block_position, fee_value=None, description=None,
+                block_hash, block_height, block_position, fee_value=None,
                 version=tx.version, locktime=tx.locktime,
-                payment_id=payment_id, date_created=date_created,
-                date_updated=date_created)
+                payment_id=payment_ctx.payment_id, date_created=payment_ctx.timestamp,
+                date_updated=payment_ctx.timestamp)
             tx_rows.append(tx_row)
 
             for txi_index, txi in enumerate(tx.inputs):
                 txi_rows.append(TransactionInputAddRow(tx_hash, txi_index,
                     txi.prev_hash, txi.prev_idx, txi.sequence,
-                    TXIFlag.NONE,
-                    txi.script_offset, txi.script_length, date_created, date_created))
+                    TXIFlag.NONE, txi.script_offset, txi.script_length, payment_ctx.timestamp,
+                    payment_ctx.timestamp))
 
             for txo_idx, txo in enumerate(tx.outputs):
                 keyinstance_id,script_type = context.output_key_usage.get(txo_idx,
                     (None, ScriptType.NONE))
                 txo_rows.append(TransactionOutputAddRow(tx_hash, txo_idx,
-                    txo.value, keyinstance_id, script_type, txo_flags,
-                    txo.script_offset, txo.script_length, date_created, date_created))
+                    txo.value, keyinstance_id, script_type, txo_flags, txo.script_offset,
+                    txo.script_length, payment_ctx.timestamp, payment_ctx.timestamp))
 
-        payment_id = await self.data.import_transactions_async(tx_rows,txi_rows,txo_rows,proofs,
-            contexts,rollback_on_spend_conflict)
-
+        await self.data.import_transactions_async(payment_ctx,tx_rows,txi_rows,
+            txo_rows,proofs,contexts,rollback_on_spend_conflict)
+        assert payment_ctx.payment_id is not None
         async with self._obtain_transactions_async_lock:
             for i,(tx_hash,tx,*_discard1) in enumerate(entries):
                 if tx_hash in self._missing_transactions:
                     del self._missing_transactions[tx_hash]
                     self.logger.debug("Removed missing transaction %s",hash_to_hex_str(tx_hash)[:8])
                     self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED,tx_rows[i],tx,
-                        contexts[tx_hash])
+                        contexts[tx_hash], payment_ctx)
 
         # TODO(1.4.0) MAPI management, issue#910. Allow user to correct lost STATE_SIGNED or
         #     STATE_CLEARED transactions. This would likely be some UI option that used spent
@@ -3580,11 +3497,12 @@ class Wallet:
             if outpoints: self._register_spent_outputs_to_monitor(outpoints)
 
         for tx_hash,tx,*_discard3 in entries:
-            self.events.trigger_callback(WalletEvent.TRANSACTION_ADD,tx_hash,tx,contexts[tx_hash])
+            self.events.trigger_callback(WalletEvent.TRANSACTION_ADD,tx_hash,tx,contexts[tx_hash],
+                payment_ctx)
             if app_state.daemon.nodeapi_server is not None:
                 app_state.daemon.nodeapi_server.event_transaction_change(tx_hash)
 
-        return payment_id
+        return payment_ctx.payment_id
 
     def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlag,
             error_callback: Callable[[str], None]) -> None:
@@ -3601,8 +3519,9 @@ class Wallet:
         tx_hash = tx.hash()
         import_ctxs = {tx_hash: TxImportCtx(flags=TxImportFlag.MANUAL_IMPORT)}
         entry = TxImportEntry(tx_hash, tx, tx_state, BlockHeight.LOCAL, None, None)
-        future = app_state.async_.spawn(self.import_transactions_async(None, [entry],{},import_ctxs,
-            rollback_on_spend_conflict=True))
+        payment_ctx = PaymentCtx()
+        future = app_state.async_.spawn(self.import_transactions_async(payment_ctx,[entry],{},
+            import_ctxs,rollback_on_spend_conflict=True))
         future.add_done_callback(callback)
 
     def read_bip32_keys_gap_size(self, account_id: int, masterkey_id: int, prefix_bytes: bytes) \
@@ -3677,7 +3596,7 @@ class Wallet:
                     return account
         return None
 
-    def set_account_payment_labels(self, entries: list[AccountPaymentDescriptionRow]) \
+    def set_payment_descriptions(self, entries: list[PaymentDescriptionRow]) \
             -> concurrent.futures.Future[None]:
         def callback(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
@@ -3688,7 +3607,7 @@ class Wallet:
 
             self.events.trigger_callback(WalletEvent.PAYMENT_LABELS_UPDATE, entries)
 
-        future = self.data.update_account_payment_descriptions(entries)
+        future = self.data.update_payment_descriptions(entries)
         future.add_done_callback(callback)
         return future
 
@@ -5143,8 +5062,9 @@ class Wallet:
                 output_key_usage=txo_key_usages[tx_idx])
             entries.append(TxImportEntry(tx_hash,tx,TxFlag.STATE_RECEIVED,BlockHeight.LOCAL,
                 None,None))
+        payment_ctx = PaymentCtx(payment_id=request_row.payment_id)
         try:
-            await self.import_transactions_async(request_row.payment_id,entries,{},import_ctxs,
+            await self.import_transactions_async(payment_ctx,entries,{},import_ctxs,
                 rollback_on_spend_conflict=True)
         except DatabaseUpdateError as update_exception:
             # TODO(1.4.0) Payments. ??? Failed to import received DPP payment tx.
@@ -5181,7 +5101,7 @@ class Wallet:
             f"requests {hash_to_hex_str(transaction_hash)}"
 
         closed_payment_request_ids: list[int] = []
-        all_updated_rows: list[AccountPaymentDescriptionRow] = []
+        all_updated_rows: list[PaymentDescriptionRow] = []
         for paymentrequest_id in paymentrequest_ids:
             request_row, request_output_rows = self.data.read_payment_request(
                 request_id=paymentrequest_id)
@@ -5984,14 +5904,11 @@ class Wallet:
                 account_id = entry.account_ids[0]
                 account = self._accounts[account_id]
 
-                def create_import_context(entry: MissingTransactionEntry, tx: Transaction,
-                        date_created: int=0) -> TxImportCtx:
-                    transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {}
-                    if entry.match_metadatas is not None:
-                        transaction_output_key_usage = map_transaction_output_key_usage(tx,
-                            entry.match_metadatas)
-                    return TxImportCtx(account_ids=entry.account_ids, date_created=date_created,
-                        output_key_usage=transaction_output_key_usage)
+                def create_import_context(entry: MissingTransactionEntry, tx: Transaction) \
+                        -> TxImportCtx:
+                    return TxImportCtx(
+                        output_key_usage=map_txo_key_usage(tx, entry.match_metadatas)
+                        if entry.match_metadatas is not None else {})
 
                 if entry.with_proof:
                     try:
@@ -6039,7 +5956,8 @@ class Wallet:
                         assert tsc_proof.block_hash is not None
 
                         tx = Transaction.from_bytes(tx_bytes)
-                        await self.import_transactions_async(entry.payment_id,
+                        payment_ctx = PaymentCtx(payment_id=entry.payment_id)
+                        await self.import_transactions_async(payment_ctx,
                             [TxImportEntry(tx_hash,tx,TxFlag.STATE_CLEARED,BlockHeight.MEMPOOL,
                             None,None)],{},{tx_hash:create_import_context(entry,tx)})
 
@@ -6078,22 +5996,24 @@ class Wallet:
 
                     block_height = cast(int, header.height)
                     if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
-                        await self.import_transactions_async(entry.payment_id,
+                        await self.import_transactions_async(
+                            PaymentCtx(payment_id=entry.payment_id, timestamp=header.timestamp),
                             [TxImportEntry(tx_hash,tx,TxFlag.STATE_SETTLED,block_height,
                             tsc_proof.block_hash,tsc_proof.transaction_index)],{tx_hash:proof_row},
-                            {tx_hash:create_import_context(entry,tx,header.timestamp)})
+                            {tx_hash:create_import_context(entry,tx)})
                     else:
-                        await self.import_transactions_async(entry.payment_id,
+                        await self.import_transactions_async(
+                            PaymentCtx(payment_id=entry.payment_id, timestamp=header.timestamp),
                             [TxImportEntry(tx_hash, tx, TxFlag.STATE_CLEARED, block_height, None,
-                            None)], {}, {tx_hash: create_import_context(entry, tx,
-                            header.timestamp)})
+                            None)], {}, {tx_hash: create_import_context(entry, tx)})
                         await self.data.create_merkle_proofs_async([ proof_row ])
 
                     assert tx_hash not in self._missing_transactions
                 else:
                     tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
                     tx = Transaction.from_bytes(tx_bytes)
-                    await self.import_transactions_async(entry.payment_id,
+                    payment_ctx = PaymentCtx(payment_id=entry.payment_id)
+                    await self.import_transactions_async(payment_ctx,
                         [TxImportEntry(tx_hash, tx, TxFlag.STATE_CLEARED, BlockHeight.MEMPOOL,
                         None, None)], {}, {tx_hash: create_import_context(entry, tx)})
                     assert tx_hash not in self._missing_transactions

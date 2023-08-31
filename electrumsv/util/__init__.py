@@ -67,13 +67,9 @@ def version_string(ptuple: Tuple[int, ...]) -> str:
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden
-        from ..transaction import Transaction, TxContext
-        from ..standards.electrum_transaction_extended import transaction_to_electrumsv_dict
+        from ..transaction import Transaction
         if isinstance(o, Transaction):
-            # In theory we could have a setting in the wallet and allow the user to set default
-            # encodings for transactions to be serialised as, but.. it kind of fits to keep this
-            # JSON encoding here for now at least.
-            return transaction_to_electrumsv_dict(o, TxContext(), [])
+            raise NotImplementedError("Cannot convert transaction to JSON")
         return super(MyEncoder, self).default(o)
 
 

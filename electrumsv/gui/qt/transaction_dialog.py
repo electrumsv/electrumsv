@@ -30,7 +30,6 @@ import copy
 import datetime
 import enum
 from functools import partial
-import gzip
 import json
 import math
 from typing import Any, cast, NamedTuple, TYPE_CHECKING
@@ -52,11 +51,10 @@ from ...i18n import _
 from ...logs import logs
 from ...dpp_messages import PaymentTermsMessage
 from ...platform import platform
-from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import (Transaction, TxContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
-from ...types import BroadcastResult, Outpoint, WaitingUpdateCallback
+from ...types import BroadcastResult, Outpoint, PaymentCtx, WaitingUpdateCallback
 from ...wallet import AbstractAccount
 from ... import web
 
@@ -196,6 +194,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             self._context = copy.deepcopy(context)
         else:
             self._context = TxContext()
+        self._payment_id: int|None = None
 
         self._wallet.extend_transaction(self.tx, self._context)
 
@@ -220,9 +219,6 @@ class TxDialog(QDialog, MessageBoxMixin):
             self._on_click_copy_tx_id, _("Copy to clipboard"))
         self.tx_hash_e.setReadOnly(True)
         form.add_row(_("Transaction ID"), self.tx_hash_e)
-
-        self.tx_desc = QLabel()
-        form.add_row(_("Description"), self.tx_desc)
 
         self.status_label = QLabel()
         form.add_row(_('Status'), self.status_label)
@@ -350,11 +346,11 @@ class TxDialog(QDialog, MessageBoxMixin):
             return
 
         # The only field we need set for broadcast in this case is the server hint.
-        assert self._context.payment_id is not None
+        assert self._payment_id is not None
         broadcast_context = TxContext()
         broadcast_context.mapi_server_hint = mapi_server_hint
         def broadcast_done(_results: list[BroadcastResult]) -> None: pass
-        self._main_window.broadcast_transactions(self._context.payment_id, [self.tx],
+        self._main_window.broadcast_transactions(self._payment_id, [self.tx],
             [broadcast_context], broadcast_done, self)
         self._saved = True
         self.update_dialog()
@@ -382,9 +378,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             event.ignore()
 
     def _on_button_clicked_sign(self) -> None:
-        def sign_done(payment_id: int|None) -> None:
+        def sign_done(success: bool) -> None:
             tx_hash = self.tx.hash()
-            if not payment_id and self._wallet.data.read_transaction_flags(tx_hash):
+            if not success and self._wallet.data.read_transaction_flags(tx_hash):
                 # TODO(technical-debt) Clean up the WaitingDialog so we actually receive the
                 #     error that happened during the signing process. For now we manually check
                 #     if the reason we failed was because the transaction had already been signed
@@ -404,25 +400,16 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self._invoice_terms is not None:
             row = self._wallet.data.read_invoice(invoice_id=self._invoice_terms.get_id())
             assert row is not None
-            self._context.payment_id = row.payment_id
+            self._payment_id = row.payment_id
 
         assert self._account is not None
         self.sign_button.setDisabled(True)
         password = self._main_window.password_dialog(parent=self)
         if password is not None:
-            self._main_window.sign_transactions(self._account, [self.tx], [self._context],
-                sign_done, password, window=self)
+            self._main_window.sign_transactions(self._account, PaymentCtx(), [self.tx],
+                [self._context], sign_done, password, window=self)
             return
         self.sign_button.setEnabled(not self.tx.is_complete())
-
-    def _tx_to_text(self, prefer_readable: bool=False) -> str:
-        assert not self.tx.is_complete(), "complete transactions are directly encoded from raw"
-
-        tx_dict = transaction_to_electrumsv_dict(self.tx, self._context,
-            self._wallet.get_accounts())
-        if prefer_readable:
-            return json.dumps(tx_dict, indent=4) + '\n'
-        return json.dumps(tx_dict)
 
     def _show_error(self, text: str) -> None:
         """
@@ -464,19 +451,6 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if tx_info_fee < 0:
                     tx_info_fee = None
 
-        if len(self._context.account_labels) == 0:
-            self.tx_desc.hide()
-        else:
-            text = ""
-            for account_id, account_description in self._context.account_labels.items():
-                if len(text) > 0:
-                    text += "\n"
-                account = self._wallet.get_account(account_id)
-                assert account is not None
-                if account_description:
-                    text += f"{account_description} (account: {account.get_name()})"
-            self.tx_desc.setText(text)
-            self.tx_desc.show()
         self.status_label.setText(tx_info.status)
 
         time_str = ""
@@ -538,15 +512,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.tx.is_complete():
             self._copy_menu.addAction(_("Transaction (hex)"),
                 partial(copy_transaction, TxSerialisationFormat.HEX))
-            if self._account:
-                self._copy_menu.addAction(_("Transaction with proofs (JSON)"),
-                    partial(copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
-        else:
-            self._copy_menu.addAction(_("Incomplete transaction (JSON)"),
-                partial(copy_transaction, TxSerialisationFormat.JSON))
-            if self._account:
-                self._copy_menu.addAction(_("Incomplete transaction with proofs (JSON)"),
-                    partial(copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
         if self.tx.is_complete():
             self._save_menu.addAction(_("Transaction (raw)"),
@@ -554,11 +519,6 @@ class TxDialog(QDialog, MessageBoxMixin):
             self._save_menu.addAction(_("Transaction (hex)"),
                 partial(save_transaction, TxSerialisationFormat.HEX))
         else:
-            self._save_menu.addAction(_("Incomplete transaction (JSON)"),
-                partial(save_transaction, TxSerialisationFormat.JSON))
-            if self._account:
-                self._save_menu.addAction(_("Incomplete transaction with proofs (JSON)"),
-                    partial(save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
             if self._account:
                 self._save_menu.addAction(_("Incomplete transaction (PSBT)"),
                     partial(save_transaction, TxSerialisationFormat.PSBT))
@@ -569,8 +529,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             self._show_qr_menu.addAction(_("Show incomplete transaction as QR code using PSBT "
                     "(recommended)"), partial(show_transaction_qrcode, TxSerialisationFormat.PSBT))
-            self._show_qr_menu.addAction(_("Show incomplete transaction as QR code using JSON"),
-                partial(show_transaction_qrcode, TxSerialisationFormat.JSON))
 
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
             completion_signal: pyqtBoundSignal | None, done_signal: pyqtBoundSignal,
@@ -593,12 +551,6 @@ class TxDialog(QDialog, MessageBoxMixin):
                         context.parent_transactions.items()   }
             tx_data = serialise_transaction_to_psbt_bytes(self.tx,
                 parent_transactions=parent_transactions)
-        elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
-            # It is expected the caller may wish to extend this and they will take care of the
-            # final serialisation step.
-            from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
-            tx_data = transaction_to_electrumsv_dict(self.tx, self._context,
-                self._wallet.get_accounts())
         else:
             raise NotImplementedError(f"unhandled format {format}")
 
@@ -609,9 +561,6 @@ class TxDialog(QDialog, MessageBoxMixin):
             return
 
         steps = 0
-        if format == TxSerialisationFormat.JSON_WITH_PROOFS:
-            steps = len(self.tx.inputs)
-
         # The done callbacks should happen in the context of the GUI thread.
         def on_done(weakwindow: ElectrumWindow,
                 future: concurrent.futures.Future[dict[str, Any]|None]) -> None:
@@ -667,27 +616,22 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.tx.is_complete():
             assert format == TxSerialisationFormat.RAW
             text = base_encode(self.tx.to_bytes(), base=43)
+        elif format == TxSerialisationFormat.PSBT:
+            from ...standards.psbt import serialise_transaction_to_psbt_bytes
+            parent_transactions: dict[bytes, bytes] = {}
+            if self._account is not None:
+                context = TxContext()
+                self._account.obtain_previous_transactions(self.tx, context)
+                parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
+                    for parent_transaction_hash, parent_transaction in
+                        context.parent_transactions.items()   }
+            data = serialise_transaction_to_psbt_bytes(self.tx,
+                parent_transactions=parent_transactions)
+            # We follow the Bitcoin Core standard here, including what Electrum Core does and
+            # encode with base 64 rather than base 43 or whatever else. Also no gzipping..
+            text = base64.b64encode(data).decode()
         else:
-            if format == TxSerialisationFormat.PSBT:
-                from ...standards.psbt import serialise_transaction_to_psbt_bytes
-                parent_transactions: dict[bytes, bytes] = {}
-                if self._account is not None:
-                    context = TxContext()
-                    self._account.obtain_previous_transactions(self.tx, context)
-                    parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
-                        for parent_transaction_hash, parent_transaction in
-                            context.parent_transactions.items()   }
-                data = serialise_transaction_to_psbt_bytes(self.tx,
-                    parent_transactions=parent_transactions)
-                # We follow the Bitcoin Core standard here, including what Electrum Core does and
-                # encode with base 64 rather than base 43 or whatever else. Also no gzipping..
-                text = base64.b64encode(data).decode()
-            elif format == TxSerialisationFormat.JSON:
-                data = self._tx_to_text().encode()
-                data = gzip.compress(data)
-                text = base_encode(data, base=43)
-            else:
-                raise NotImplementedError("QR codes for '{}' not supported yet.".format(format))
+            raise NotImplementedError("QR codes for '{}' not supported yet.".format(format))
 
         try:
             self._main_window.show_qrcode(text, _("Transaction"), parent=self)
@@ -928,12 +872,6 @@ class TxDialog(QDialog, MessageBoxMixin):
                     header_and_chain = wallet.lookup_header_for_hash(transaction_row.block_hash)
                     if header_and_chain is not None:
                         date_mined = header_and_chain[0].timestamp
-
-                self._context.account_labels.clear()
-                self._context.account_labels = {
-                    description_row.account_id: description_row.description
-                    for description_row in self._wallet.data.read_transaction_descriptions(
-                        tx_hashes=[ self._tx_hash ]) if description_row.description is not None }
 
                 tx_flags = cast(TxFlag, wallet.data.read_transaction_flags(self._tx_hash))
                 state = tx_flags & TxFlag.MASK_STATE

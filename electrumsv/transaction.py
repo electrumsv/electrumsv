@@ -64,8 +64,6 @@ logger = logs.get_logger("transaction")
 class TxSerialisationFormat(enum.IntEnum):
     RAW = 0
     HEX = 1
-    JSON = 2
-    JSON_WITH_PROOFS = 3
     PSBT = 4
 
 
@@ -73,8 +71,6 @@ TxFileExtensions = {
     TxSerialisationFormat.RAW: "txn",
     TxSerialisationFormat.HEX: "txt",
     TxSerialisationFormat.PSBT: "psbt",
-    TxSerialisationFormat.JSON: "json",
-    TxSerialisationFormat.JSON_WITH_PROOFS: "json",
 }
 
 TxSerialisedType = bytes | str | dict[str, Any]
@@ -120,8 +116,7 @@ HardwareSigningMetadata = dict[bytes, tuple[DerivationPath, tuple[str], int]]
 
 @dataclasses.dataclass
 class TxContext:
-    payment_id: int|None = dataclasses.field(default=None)
-    account_labels: dict[int, str] = dataclasses.field(default_factory=dict)
+    # payment_id: int|None = dataclasses.field(default=None)
     parent_transactions: dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
     hw_signing_metadata: list[HardwareSigningMetadata] \
         = dataclasses.field(default_factory=list)

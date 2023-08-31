@@ -253,7 +253,7 @@ def test_account_payments(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     ap_entries = [
-        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
     ]
     future = db_functions.create_account_payments_UNITTEST(db_context,
         ap_entries)
@@ -266,8 +266,8 @@ def test_account_payments(db_context: DatabaseContext) -> None:
     future.result()
 
     ap_entries = [
-        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
-        AccountPaymentRow(ACCOUNT_ID_2, PAYMENT_ID_2, AccountPaymentFlag.NONE, None, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID_1, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID_2, PAYMENT_ID_2, AccountPaymentFlag.NONE, 1, 1),
     ]
     future = db_functions.create_account_payments_UNITTEST(db_context,
         ap_entries)
@@ -280,7 +280,7 @@ def test_account_payments(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
         flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
-        block_position=1, fee_value=250, description=None, version=None, locktime=None,
+        block_position=1, fee_value=250, version=None, locktime=None,
         payment_id=PAYMENT_ID_1, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
     TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
@@ -289,7 +289,7 @@ def test_account_payments(db_context: DatabaseContext) -> None:
         tx_bytes=TX_BYTES_2,
         flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
         block_position=1, fee_value=250,
-        description=None, version=None, locktime=None, payment_id=PAYMENT_ID_2, date_created=1,
+        version=None, locktime=None, payment_id=PAYMENT_ID_2, date_created=1,
         date_updated=2)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
     future.result(timeout=5)
@@ -484,7 +484,7 @@ class TestTransactionTable:
         transaction_row = TransactionRow(tx_hash=transaction_hash, tx_bytes=transaction_bytes_1,
             flags=TxFlag.STATE_DISPATCHED, payment_id=None,
             block_hash=b'11', block_height=BlockHeight.LOCAL, block_position=None, fee_value=None,
-            description=None, version=None, locktime=None, date_created=1, date_updated=1)
+            version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions_UNITTEST(self.db_context, [ transaction_row ])
         future.result(timeout=5)
 
@@ -511,7 +511,7 @@ class TestTransactionTable:
             to_add.append(
                 TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlag.UNSET,
                     block_hash=b'11', block_height=BlockHeight.LOCAL,
-                    block_position=None, fee_value=2, description=None,
+                    block_position=None, fee_value=2,
                     version=None, locktime=None, date_created=1, date_updated=1,
                     payment_id=None))
         future = db_functions.create_transactions_UNITTEST(self.db_context, to_add)
@@ -530,7 +530,7 @@ class TestTransactionTable:
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlag.UNSET,
                 block_hash=b'11', block_position=None, fee_value=2, block_height=BlockHeight.LOCAL,
-                description=None, version=None, locktime=None, date_created=1, date_updated=1,
+                version=None, locktime=None, date_created=1, date_updated=1,
                 payment_id=None)
             future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
             future.result(timeout=5)
@@ -575,12 +575,12 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
     tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=tx_bytes_1,
         flags=TxFlag.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
         block_hash=BLOCK_HASH_1, block_position=None, fee_value=None,
-        description=None, version=None, locktime=None, date_created=1, date_updated=1,
+        version=None, locktime=None, date_created=1, date_updated=1,
         payment_id=None)
     tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=tx_bytes_2,
         flags=TxFlag.STATE_SIGNED, block_height=BlockHeight.LOCAL,
         block_hash=None, block_position=None, fee_value=None,
-        description=None, version=None, locktime=None, date_created=1, date_updated=1,
+        version=None, locktime=None, date_created=1, date_updated=1,
         payment_id=None)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx_row_1, tx_row_2 ])
     future.result(timeout=5)
@@ -736,11 +736,11 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     transaction_rows = [
         TransactionRow(tx_hash=FUNDED_TX_1_HASH, tx_bytes=FUNDED_TX_1_BYTES,
             flags=TxFlag.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
-            block_hash=None, block_position=None, fee_value=2, description=None,
+            block_hash=None, block_position=None, fee_value=2,
             version=None, locktime=None, date_created=1, date_updated=1, payment_id=PAYMENT_ID_1),
         TransactionRow(tx_hash=SPENT_TX_1_HASH, tx_bytes=SPENT_TX_1_BYTES,
             flags=TxFlag.STATE_SETTLED, block_height=BLOCK_HEIGHT, block_hash=BLOCK_HASH,
-            block_position=None, fee_value=2, description=None, version=None, locktime=None,
+            block_position=None, fee_value=2, version=None, locktime=None,
             date_created=1, date_updated=1, payment_id=PAYMENT_ID_1)
     ]
     db_functions.create_transactions_UNITTEST(db_context, transaction_rows).result(timeout=5)
@@ -757,7 +757,7 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
 
     db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
     db_functions.create_account_payments_UNITTEST(db_context, [
-        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
     ]).result(timeout=5)
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
@@ -887,11 +887,11 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     tx_rows = [
         TransactionRow(tx_hash=TX_HASH_COINBASE, tx_bytes=TX_BYTES_COINBASE,
             flags=TxFlag.STATE_SETTLED, block_height=BLOCK_HEIGHT,
-            block_hash=BLOCK_HASH, block_position=None, fee_value=2, description=None,
+            block_hash=BLOCK_HASH, block_position=None, fee_value=2,
             version=None, locktime=None, date_created=1, date_updated=1,  payment_id=PAYMENT_ID_1),
         TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlag.STATE_CLEARED,
             block_height=BlockHeight.MEMPOOL, block_hash=None, block_position=None, fee_value=2,
-            description=None, version=None, locktime=None, date_created=1, date_updated=1,
+            version=None, locktime=None, date_created=1, date_updated=1,
             payment_id=PAYMENT_ID_1)
     ]
     db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
@@ -908,7 +908,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
     db_functions.create_account_payments_UNITTEST(db_context, [
-        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
+        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
     ]).result(timeout=5)
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
@@ -1371,7 +1371,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     # Create the transaction and outputs.
     tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlag.UNSET,
         block_height=BlockHeight.LOCAL, payment_id=PAYMENT_ID_1,
-        block_hash=b'11', block_position=None, fee_value=2, description=None,
+        block_hash=b'11', block_position=None, fee_value=2,
         version=None, locktime=None, date_created=1, date_updated=1) ]
     db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
 
@@ -1379,20 +1379,18 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ]).result(timeout=5)
 
-    ap_entries = [
-        AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 1, 1),
-    ]
-    future = db_functions.create_account_payments_UNITTEST(db_context, ap_entries)
+    future = db_functions.create_account_payments_UNITTEST(db_context,
+        [ AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1) ])
     future.result()
 
     assert create_request2_row.paymentrequest_id is not None
     db = db_context.acquire_connection()
     try:
-        transaction_description_update_rows = \
-            db_functions.close_paid_payment_request(create_request2_row.paymentrequest_id, db)
+        payment_description_update_rows = db_functions.close_paid_payment_request(
+            create_request2_row.paymentrequest_id, db)
     finally:
         db_context.release_connection(db)
-    assert transaction_description_update_rows == [ (ACCOUNT_ID, PAYMENT_ID_1, TX_DESC2) ]
+    assert payment_description_update_rows == [ (PAYMENT_ID_1, TX_DESC2) ]
 
     ## Continue.
     assert create_request2_row.paymentrequest_id is not None
@@ -1556,7 +1554,7 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
         tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlag.STATE_SETTLED,
             block_height=10, block_hash=b'11', block_position=1, fee_value=250,
-            description=None, version=None, locktime=None, date_created=1, date_updated=2,
+            version=None, locktime=None, date_created=1, date_updated=2,
             payment_id=payment_id_by_tx_hash.get(txh, None))
         txs.append(tx)
     future = db_functions.create_transactions_UNITTEST(db_context, txs)
@@ -1835,7 +1833,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_bytes=TX_BYTES_SETTLED_MATCH1,
         flags=TxFlag.STATE_SETTLED, block_hash=None, block_height=10,
         block_position=None, fee_value=None, payment_id=PAYMENT_ID_2,
-        description=None, version=None, locktime=None, date_created=1, date_updated=2)
+        version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_SETTLED_MATCH2 = os.urandom(10)
     TX_HASH_SETTLED_MATCH2 = bitcoinx.double_sha256(TX_BYTES_SETTLED_MATCH2)
     tx_settled_match2 = TransactionRow(
@@ -1843,7 +1841,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_bytes=TX_BYTES_SETTLED_MATCH2,
         flags=TxFlag.STATE_SETTLED, block_hash=None, block_height=10,
         block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
-        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+        version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_SETTLED_IGNORED = os.urandom(10)
     TX_HASH_SETTLED_IGNORED = bitcoinx.double_sha256(TX_BYTES_SETTLED_IGNORED)
     tx_settled_ignored = TransactionRow(
@@ -1851,7 +1849,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_bytes=TX_BYTES_SETTLED_IGNORED,
         flags=TxFlag.STATE_SETTLED, block_hash=b'ddddd', block_height=10,
         block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
-        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+        version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_IGNORED = os.urandom(10)
     TX_HASH_CLEARED_IGNORED = bitcoinx.double_sha256(TX_BYTES_CLEARED_IGNORED)
     tx_cleared_ignored = TransactionRow(
@@ -1859,7 +1857,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_bytes=TX_BYTES_CLEARED_IGNORED,
         flags=TxFlag.STATE_CLEARED, block_hash=None, block_height=BlockHeight.MEMPOOL,
         block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
-        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+        version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_MATCH1 = os.urandom(10)
     TX_HASH_CLEARED_MATCH1 = bitcoinx.double_sha256(TX_BYTES_CLEARED_MATCH1)
     tx_cleared_match1 = TransactionRow(
@@ -1868,7 +1866,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         flags=TxFlag.STATE_CLEARED, block_hash=b'fake block hash',
         block_height=BlockHeight.MEMPOOL,
         block_position=None, fee_value=None, payment_id=PAYMENT_ID_1,
-        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+        version=None, locktime=None, date_created=2, date_updated=2)
 
     tx_nonmatches: List[TransactionRow] = []
     tx_nonmatches_orphans: List[TransactionRow] = []
@@ -1893,7 +1891,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
                 tx_bytes=TX_BYTES_NONMATCH,
                 flags=tx_state, block_hash=block_hash, block_height=block_height,
                 block_position=block_position, fee_value=None, payment_id=PAYMENT_ID_1,
-                description=None, version=None, locktime=None, date_created=2, date_updated=2)
+                version=None, locktime=None, date_created=2, date_updated=2)
             if is_orphan:
                 tx_nonmatches_orphans.append(tx_nonmatch)
             else:
@@ -1907,9 +1905,9 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Link the first transaction to both accounts.
-    p1a1 = AccountPaymentRow(ACCOUNT1_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, None, 20, 20)
-    p1a2 = AccountPaymentRow(ACCOUNT2_ID, PAYMENT_ID_2, AccountPaymentFlag.NONE, None, 10, 10)
-    p1a3 = AccountPaymentRow(ACCOUNT3_ID, PAYMENT_ID_3, AccountPaymentFlag.NONE, None, 30, 30)
+    p1a1 = AccountPaymentRow(ACCOUNT1_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 20, 20)
+    p1a2 = AccountPaymentRow(ACCOUNT2_ID, PAYMENT_ID_2, AccountPaymentFlag.NONE, 10, 10)
+    p1a3 = AccountPaymentRow(ACCOUNT3_ID, PAYMENT_ID_3, AccountPaymentFlag.NONE, 30, 30)
     future = db_functions.create_account_payments_UNITTEST(db_context, [ p1a1, p1a2, p1a3 ])
     future.result(timeout=5)
 
@@ -2154,7 +2152,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
             tx_bytes=TX_BYTES_1,
             flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
             block_position=1, fee_value=250, payment_id=None,
-            description=None, version=None, locktime=None, date_created=1, date_updated=2)
+            version=None, locktime=None, date_created=1, date_updated=2)
 
         TX_BYTES_2 = os.urandom(10)
         TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
@@ -2163,7 +2161,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
             tx_bytes=TX_BYTES_2,
             flags=TxFlag.STATE_SETTLED, block_hash=b'11', block_height=10,
             block_position=1, fee_value=250, payment_id=None,
-            description=None, version=None, locktime=None, date_created=1, date_updated=2)
+            version=None, locktime=None, date_created=1, date_updated=2)
 
         future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
         future.result(timeout=5)

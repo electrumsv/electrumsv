@@ -33,10 +33,9 @@ from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
     Multisig_KeyStore)
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
-from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from electrumsv.transaction import Transaction, TxContext
-from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
-    ImportTransactionKeyUsage, MasterKeyDataElectrumOld, TxImportCtx, TxImportEntry
+from electrumsv.types import ImportTransactionKeyUsage, MasterKeyDataBIP32, \
+    MasterKeyDataElectrumOld, Outpoint, PaymentCtx, TxImportCtx, TxImportEntry
 from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount, ImportedAddressAccount,
     MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount, WalletDataAccess)
 from electrumsv.wallet_database import functions as db_functions
@@ -44,7 +43,7 @@ from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
     PaymentRequestRow, WalletBalance
 from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data, \
-    map_transaction_output_key_usage
+    map_txo_key_usage
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
     read_testdata_for_wallet, setup_async, tear_down_async, TEST_WALLET_PATH
@@ -911,11 +910,8 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     """
     transaction_rows = db_functions.read_transactions(wallet.data._db_context)
     testdata_transactions: list[dict] = []
-    tx_hashes: list[bytes] = []
-    payment_id_to_tx_hashes: dict[int, list[bytes]] = {}
+    payment_ids: list[int] = []
     for transaction_row in transaction_rows:
-        tx_hashes.append(transaction_row.tx_hash)
-
         flag_text: str|None = None
         if transaction_row.flags & TxFlag.STATE_CLEARED:
             flag_text = "cleared"
@@ -932,6 +928,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         # blockchain. We should support that, but currently do not. i.e. block height but no hash.
         testdata_transactions.append({
             "transaction_id": hash_to_hex_str(transaction_row.tx_hash),
+            "payment_id": transaction_row.payment_id,
             "flags": flag_text,
             "block_hash": hash_to_hex_str(transaction_row.block_hash) \
                 if transaction_row.block_hash is not None else None,
@@ -941,15 +938,9 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
             "version": transaction_row.version,
             "locktime": transaction_row.locktime,
         })
-        txl = payment_id_to_tx_hashes.setdefault(transaction_row.payment_id, [])
-        txl.append(transaction_row.tx_hash)
 
-    account_descriptions: list[list[int, bytes, str]] = []
-    for account_description_row in wallet.data.read_transaction_descriptions(tx_hashes=tx_hashes):
-        if account_description_row.description:
-            for tx_hash in payment_id_to_tx_hashes.get(account_description_row.payment_id, []):
-                account_descriptions.append([account_description_row.account_id,
-                    hash_to_hex_str(tx_hash), account_description_row.description])
+    payment_descriptions = [ list(pd_row) for pd_row
+        in wallet.data.read_payment_descriptions(payment_ids) ]
 
     accounts = [account for account in wallet.get_accounts() if not account.is_petty_cash()]
     if len(accounts) == 0:
@@ -998,7 +989,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     #             # print("expected_derivation_data", data1)
 
     testdata_object = {
-        "account_descriptions": sorted(account_descriptions),
+        "payment_descriptions": sorted(payment_descriptions),
         "derivation_datas": account_derivation_datas,
         "transactions": sorted(testdata_transactions, key=lambda t3: t3["transaction_id"]),
     }
@@ -1044,7 +1035,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
     # Ensure that the keys used by the transaction are present to be linked to.
     account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
 
-    import_context = TxImportCtx(account_ids=[account_row.account_id])
+    import_context = TxImportCtx()
 
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
@@ -1052,7 +1043,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
         tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        await wallet.import_transactions_async(None, [TxImportEntry(tx_hash_1, tx_1,
+        await wallet.import_transactions_async(PaymentCtx(), [TxImportEntry(tx_hash_1, tx_1,
             TxFlag.STATE_SIGNED, BlockHeight.LOCAL, None, None)], {}, {tx_hash_1: import_context})
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
@@ -1127,12 +1118,12 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         keyinstance_id = 1
-        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+        txo_key_usage: dict[int, tuple[int, ScriptType]] = {
             0: (keyinstance_id, ScriptType.P2PKH),
         }
-        import_context_1 = TxImportCtx(output_key_usage=transaction_output_key_usage,
-            account_ids=[account_row.account_id])
-        payment_id1 = await wallet.import_transactions_async(None, [TxImportEntry(tx_hash_1,tx_1,
+        import_context_1 = TxImportCtx(output_key_usage=txo_key_usage)
+        payment_id1 = await wallet.import_transactions_async(PaymentCtx(), [
+            TxImportEntry(tx_hash_1,tx_1,
             TxFlag.STATE_SIGNED,BlockHeight.LOCAL,None,None)], {}, {tx_hash_1:import_context_1})
         assert payment_id1 == 1 # Assumption: First assigned value.
 
@@ -1150,9 +1141,10 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
 
         tx2 = Transaction.from_hex(tx_hex_spend)
         tx_hash2 = tx2.hash()
-        import_context2 = TxImportCtx(account_ids=[account_row.account_id])
+        import_context2 = TxImportCtx()
         # Add the spending transaction to the database and link it to key usage.
-        payment_id2 = await wallet.import_transactions_async(None, [TxImportEntry(tx_hash2,tx2,
+        payment_id2 = await wallet.import_transactions_async(PaymentCtx(),
+            [TxImportEntry(tx_hash2,tx2,
             TxFlag.STATE_SIGNED,BlockHeight.LOCAL,None,None)], {}, {tx_hash2:import_context2})
         assert payment_id2 == 2 # Assumption: Second assigned value.
 
@@ -1263,7 +1255,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
     # Ensure that the keys used by the transaction are present to be linked to.
     account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
-    import_context = TxImportCtx(account_ids=[account_row.account_id])
+    import_context = TxImportCtx()
 
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
@@ -1283,7 +1275,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         BLOCK_HEIGHT = 232
         proof_row = MerkleProofRow(BLOCK_HASH_REORGED1, BLOCK_POSITION, BLOCK_HEIGHT,
             b'TSC_FAKE_PROOF_BYTES', tx_hash_1)
-        await wallet.import_transactions_async(None, [TxImportEntry(tx_hash_1,tx_1,
+        await wallet.import_transactions_async(PaymentCtx(), [TxImportEntry(tx_hash_1,tx_1,
             TxFlag.STATE_SETTLED,BLOCK_HEIGHT,BLOCK_HASH_REORGED1,BLOCK_POSITION)],
             {tx_hash_1:proof_row}, {tx_hash_1: import_context})
 
@@ -1381,9 +1373,8 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
         ## Add a transaction that is settled.
         tx = Transaction.from_hex(tx_hex_funding)
         transaction_1_hash = tx.hash()
-        import_context = TxImportCtx(account_ids=[account_row.account_id],
-            output_key_usage=map_transaction_output_key_usage(tx, key_usage_metadatas))
-        await wallet.import_transactions_async(None, [TxImportEntry(transaction_1_hash,tx,
+        import_context = TxImportCtx(output_key_usage=map_txo_key_usage(tx, key_usage_metadatas))
+        await wallet.import_transactions_async(PaymentCtx(), [TxImportEntry(transaction_1_hash,tx,
             TxFlag.STATE_CLEARED,BlockHeight.MEMPOOL,None,None)], {},
             {transaction_1_hash:import_context})
     finally:
@@ -1507,57 +1498,10 @@ def test_extend_transaction_complete_hex() -> None:
 
     wallet.extend_transaction(tx, tx_context)
 
-    assert tx_context.payment_id is None
-    assert not len(tx_context.account_labels)
     assert len(tx_context.parent_transactions) == 0
     assert tx_context.spent_outpoint_values == {}
     assert tx_context.key_datas_by_spent_outpoint == {}
     assert tx_context.key_datas_by_received_outpoint == {}
-
-
-INCOMPLETE_TX_MULTISIG_DICT = {"version": 1, "hex": "01000000018e3efc1708cc072b9ad09ebb32bf0bd7b4681c4db8a15162d3cd8f44e68cd800000000004b00473044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b74101ffffffffff0b40420f00000000001976a914def53ee6c8a15961eea0b07dea23e5404e38a71188ac40ea70000000000047522102e99c5ef6e873396a9f4495dce12457d6fc9307c10b802d0592a43e96ae45cac92103e5a30131ca630fe80d4c1ee435949be822ebae51be7283738d6194c3a0979a6152ae00127a000000000047522102407c4480ce6538af7e6de0117a72699706d08770fb59ada5b626eb2fe16079af2103494d1db5d12adf43a3b97257d18422c164140a3d4db493835ea96dc390c86d4052ae405489000000000047522103797b05207c23dad3c51a4bf48deb25b555f6a17af8abec4a58faffff523b157c2103b7da30209d59445531f6e141837db7bdb27726c503bf34a5ebf1219337f3430252ae08f390000000000047522102103f54f834961d5cb994cc2201751a10672978ab4f9f665ff491323007a94cf0210259def56764098f5a6fea9640035494ac9c604435ec3ff57647be928d4e62080752aea0029400000000004752210258a41c688b97b426130c75093ce590a2581d7837ae11963776af762b1624a7582103d14b8d7005598c1b1944d013957f7db20ea7a1c1e07d1887bef6df5af5dc08f652ae8096980000000000475221023c7b0b01c47b8afcaa0688faf7b2068ef2f0f27c9c24be9eea297f0380b82d212102b55319c1d7aa64f424889df6ed6f42b578d2786d4d6a5aa77a4cef9758c08df752ae809698000000000047522102c67f0584c61f29ee8bd9e851072fb852c5c53c137b13ea661e3de502db74eb2f2103289f9baafdca77a06fb2d1b960e906017d52356416d8766ba31666784ec2fbae52ae00b19e00000000004752210360245a9124311eecb8f0e70904c580040f86e3dea0ada1b442ca78d8af7be57921036052fa7851930559571b4950c872399a03792fe2814319e9b35e56a0b57f2acc52aec0d8a70000000000475221030f71df9dbc747c2b5f6b3df3941bca4f8b390eef3b3768c1c2ace757cedf3237210369b68d182c8892dd8d8e2605fd97c3934ebba9497f61786949363a4227139ea352ae809fd500000000004752210289257e1bca327225f75549a1c3dabe0d854acd74bda4512bbfccb38f3fe8746c2102fe240aa6a9f06b8c15c652ea1f91ec1d0b8d3438f3582e9b96b203cd7c10750052ae71000000", "complete": False, "description": "Pay someone", "inputs": [{"script_type": 5, "threshold": 2, "value": 100000000, "signatures": ["3044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b741", "ff"], "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [0, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [0, 0]}]}], "outputs": [{"script_type": 0, "x_pubkeys": []}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 5]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 5]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 6]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 6]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 1]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 1]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 9]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 9]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 2]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 2]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 7]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 7]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 3]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 3]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 0]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 4]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 4]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 8]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 8]}]}]}
-
-def test_extend_transaction_incomplete_non_database() -> None:
-    tx, tx_context = transaction_from_electrumsv_dict(INCOMPLETE_TX_MULTISIG_DICT, [])
-
-    mock_storage = cast(WalletStorage, MockStorage("password"))
-    with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
-        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
-        wallet = Wallet(mock_storage)
-
-    wallet.extend_transaction(tx, tx_context)
-
-    expected_spent_output_key_data = {
-        Outpoint(
-            hex_str_to_hash("00d88ce6448fcdd36251a1b84d1c68b4d70bbf32bb9ed09a2b07cc0817fc3e8e"),0):
-                DatabaseKeyDerivationData(derivation_path=(0, 0), account_id=None,
-                    masterkey_id=None, keyinstance_id=None,
-                    source=DatabaseKeyDerivationType.IMPORTED)
-    }
-    assert tx_context.payment_id is None
-    assert tx_context.account_labels == {}
-    # assert tx_context.description == "Pay someone"
-    assert len(tx_context.parent_transactions) == 0
-    assert len(tx_context.spent_outpoint_values) == 0
-    assert tx_context.key_datas_by_spent_outpoint == expected_spent_output_key_data
-
-    # Ten change addresses.
-    # - There are no database ids, as there are not keys or transactions or anything in the database.
-    # - The metadata is classified as being from an imported source, because it is.
-    tx_hash = tx.hash()
-    expected_txo_key_datas = {
-        Outpoint(tx_hash, 1): DatabaseKeyDerivationData(derivation_path=(1, 5), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 2): DatabaseKeyDerivationData(derivation_path=(1, 6), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 3): DatabaseKeyDerivationData(derivation_path=(1, 1), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 4): DatabaseKeyDerivationData(derivation_path=(1, 9), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 5): DatabaseKeyDerivationData(derivation_path=(1, 2), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 6): DatabaseKeyDerivationData(derivation_path=(1, 7), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 7): DatabaseKeyDerivationData(derivation_path=(1, 3), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 8): DatabaseKeyDerivationData(derivation_path=(1, 0), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 9): DatabaseKeyDerivationData(derivation_path=(1, 4), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
-        Outpoint(tx_hash, 10): DatabaseKeyDerivationData(derivation_path=(1, 8), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED)
-    }
-    assert tx_context.key_datas_by_received_outpoint == expected_txo_key_datas
 
 
 SEQUENCE_TX_1_HEX = "01000000018e3efc1708cc072b9ad09ebb32bf0bd7b4681c4db8a15162d3cd8f44e68cd800010000006a47304402202bcbbf0c2f530dc6365397d2788b479b6801a4fefd0c3c445f9527cb156ea12902205f05803062aa550f662e484d1691949c933e7b212b22e848e1022e8d95ba58f64121032a29bd9fb50181164dae4c098e0cd5ed5c1fca0a998628415827c0612708090dffffffff0300e1f505000000001976a914da661cf35fc34999f571319d3e6f425d8783886688ac000e2707000000001976a9141211f3ad5d77afab5513cc72f0a12443294d5b5288ac8ca2bf07000000001976a91453a56c1b8a0da350b08bf06849f359dda8f69ea588ac72000000"
@@ -1605,19 +1549,19 @@ async def test_extend_transaction_sequence() -> None:
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         block_height = BlockHeight.LOCAL
-        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+        txo_key_usage: dict[int, tuple[int, ScriptType]] = {
             0: (1, ScriptType.P2PKH),
         }
-        import_context = TxImportCtx(account_ids=[account_row.account_id],
-            output_key_usage=transaction_output_key_usage)
-        await wallet.import_transactions_async(None, [TxImportEntry(tx_hash_1, tx_1,
+        import_context = TxImportCtx(output_key_usage=txo_key_usage)
+        payment_ctx = PaymentCtx()
+        await wallet.import_transactions_async(payment_ctx, [TxImportEntry(tx_hash_1, tx_1,
             TxFlag.STATE_SIGNED, block_height, None, None)], {}, {tx_hash_1: import_context})
 
         tx_1_context = TxContext()
         wallet.extend_transaction(tx_1, tx_1_context)
 
-        assert tx_1_context.payment_id is None
-        assert tx_1_context.account_labels == {}
+        assert payment_ctx.payment_id == 1
+        assert payment_ctx.description is None
         assert len(tx_1_context.parent_transactions) == 0
         assert tx_1_context.spent_outpoint_values == {}
         assert tx_1_context.key_datas_by_spent_outpoint == {}
@@ -1635,8 +1579,6 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_a = TxContext()
         wallet.extend_transaction(tx_2, tx_2_context_a)
-        assert tx_2_context_a.payment_id is None
-        assert tx_2_context_a.account_labels == {}
         assert len(tx_2_context_a.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000
@@ -1676,8 +1618,6 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_b = TxContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
-        assert tx_2_context_b.payment_id is None
-        assert tx_2_context_b.account_labels == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000
@@ -1710,15 +1650,14 @@ async def test_extend_transaction_sequence() -> None:
 
         ## Try again with the transaction in the database.
         # Add the funding transaction to the database and link it to key usage.
-        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+        txo_key_usage: dict[int, tuple[int, ScriptType]] = {
             1: (4, ScriptType.P2PKH), 2: (2, ScriptType.P2PKH), 3: (9, ScriptType.P2PKH),
             4: (3, ScriptType.P2PKH), 5: (10, ScriptType.P2PKH), 6: (5, ScriptType.P2PKH),
             7: (7, ScriptType.P2PKH), 8: (8, ScriptType.P2PKH), 9: (6, ScriptType.P2PKH),
             10: (11, ScriptType.P2PKH)
         }
-        import_context = TxImportCtx(account_ids=[account_row.account_id],
-            output_key_usage=transaction_output_key_usage)
-        await wallet.import_transactions_async(None, [TxImportEntry(tx_hash_2, tx_2,
+        import_context = TxImportCtx(output_key_usage=txo_key_usage)
+        await wallet.import_transactions_async(PaymentCtx(), [TxImportEntry(tx_hash_2, tx_2,
             TxFlag.STATE_SIGNED, BlockHeight.LOCAL, None, None)], {}, {tx_hash_2: import_context})
 
         # sql = (
@@ -1735,8 +1674,6 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_2_context_b = TxContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
-        assert tx_2_context_b.payment_id is None
-        assert tx_2_context_b.account_labels == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000

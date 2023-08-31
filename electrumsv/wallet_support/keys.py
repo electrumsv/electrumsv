@@ -124,7 +124,7 @@ def get_pushdata_hash_for_keystore_key_data(keystore: KeyStore, key_data: KeyDat
     return pushdata_hash
 
 
-def map_transaction_output_key_usage(transaction: Transaction,
+def map_txo_key_usage(transaction: Transaction,
         key_metadatas: Collection[ImportTransactionKeyUsage]) \
             -> dict[int, tuple[int, ScriptType]]:
     """

@@ -122,11 +122,11 @@ class UTXOList(MyTreeWidget):
         if len(utxo_rows) == 0:
             return
 
-        ap_labels: dict[int, str] = {}
-        tx_hashes = set(utxo_row.tx_hash for utxo_row in utxo_rows)
-        for ap_label_row in self._account.get_transaction_labels(list(tx_hashes)):
-            if ap_label_row.description:
-                ap_labels[ap_label_row.payment_id] = ap_label_row.description
+        payment_labels: dict[int, str] = {}
+        payment_ids = set(utxo_row.payment_id for utxo_row in utxo_rows)
+        for paymentx_row in self._wallet.data.read_payment_descriptions(list(payment_ids)):
+            assert paymentx_row.description is not None
+            payment_labels[paymentx_row.payment_id] = paymentx_row.description
 
         for utxo in utxo_rows:
             prevout_str = f"{hash_to_hex_str(utxo.tx_hash)}:{utxo.txo_index}"
@@ -137,7 +137,7 @@ class UTXOList(MyTreeWidget):
                 if header_and_chain is not None:
                     height = header_and_chain[0].height
             utxo_item = SortableTreeWidgetItem(
-                [ prevout_str, ap_labels.get(utxo.payment_id, ""),
+                [ prevout_str, payment_labels.get(utxo.payment_id, ""),
                     app_state.format_amount(utxo.value, whitespaces=True), str(height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.ItemDataRole.UserRole+100

@@ -1,9 +1,10 @@
 {
-    "account_descriptions": [],
+    "payment_descriptions": [],
     "derivation_datas": {},
     "transactions": [
         {
             "transaction_id": "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93",
+            "payment_id": 1,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1335356,

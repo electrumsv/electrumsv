@@ -45,7 +45,7 @@ from ...platform import platform
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...util import format_posix_timestamp, posix_timestamp_to_datetime, profiler
 from ...wallet import AbstractAccount
-from ...wallet_database.types import AccountPaymentDescriptionRow
+from ...wallet_database.types import PaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 
 from .constants import ICON_NAME_INVOICE_PAYMENT, ViewPaymentMode
@@ -164,16 +164,7 @@ class HistoryList(MyTreeWidget):
         if text == "":
             text = None
         payment_id = item.data(Columns.STATUS, self.PAYMENT_ROLE)
-        account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
-        # TODO(nocheckin) Payments. Work out best path to updating the description for a payment.
-        #     This currently errors because the home view payment list does not have an account.
-        #     A point of confusion is what if one account has a description for a payment and
-        #     another does not.
-        if account_id is None:
-            logger.debug("TODO: Global payment descriptions not supported yet")
-            return
-        account = cast(AbstractAccount, self._wallet.get_account(account_id))
-        account.set_payment_label(payment_id, text)
+        self._wallet.set_payment_descriptions( [ PaymentDescriptionRow(payment_id, text) ])
 
     def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
@@ -292,10 +283,8 @@ class HistoryList(MyTreeWidget):
             self._main_window.show_payment(ViewPaymentMode.FROM_HISTORY,
                 cast(int, item.data(Columns.STATUS, self.PAYMENT_ROLE)))
 
-    def update_payment_descriptions(self, entries: list[AccountPaymentDescriptionRow]) -> None:
-        description_for_payment_id = { payment_id:description
-            for (account_id,payment_id,description) in entries if account_id==self._account_id }
-
+    def update_payment_descriptions(self, entries: list[PaymentDescriptionRow]) -> None:
+        description_for_payment_id = { pd_row.payment_id: pd_row.description for pd_row in entries }
         if len(description_for_payment_id) == 0:
             return
 
@@ -564,7 +553,7 @@ class HistoryView(QWidget):
         self._account_id = new_account_id
         self._account = new_account
 
-    def update_payment_descriptions(self, entries: list[AccountPaymentDescriptionRow]) -> None:
+    def update_payment_descriptions(self, entries: list[PaymentDescriptionRow]) -> None:
         self.list.update_payment_descriptions(entries)
 
     def update_tx_headers(self) -> None:

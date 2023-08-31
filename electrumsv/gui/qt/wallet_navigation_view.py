@@ -441,9 +441,6 @@ class WalletNavigationView(QSplitter):
         # hist_menu = menu.addMenu(_("&History"))
         # hist_menu.addAction("Export", main_window_proxy.export_history_dialog)
 
-        labels_menu = menu.addMenu(_("&Labels"))
-        labels_menu.addAction(_("&Export"), partial(self._on_menu_export_labels, account_id))
-
         invoices_menu = menu.addMenu(_("Invoices"))
         self._import_invoices_action = invoices_menu.addAction(_("Import"),
             partial(self._on_menu_import_invoices, account_id))
@@ -456,9 +453,6 @@ class WalletNavigationView(QSplitter):
         keystore = account.get_keystore()
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
-
-    def _on_menu_export_labels(self, account_id: int) -> None:
-        self._main_window_proxy.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         pass

@@ -289,16 +289,19 @@ class FeeQuoteTypeEntry2(TypedDict):
     data: FeeQuoteTypeFee
     standard: FeeQuoteTypeFee
 
+@dataclasses.dataclass
+class PaymentCtx:
+    # Input/output.
+    payment_id: int|None = None
+    # Input.
+    timestamp: int = 0
+    description: str|None = None
+    # Output.
+    account_ids: set[int] = dataclasses.field(default_factory=set)
+
 
 @dataclasses.dataclass
 class TxImportCtx:
-    # # If a specified payment is not provided will be created and updated by the database import.
-    # payment_id: int|None = None
-    # If a specified payment is not provided the created one will be linked to these accounts.
-    # After import this will be the list of all accounts the transaction's payment is associated
-    # with.
-    account_ids: list[int]|None = None
-    account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
     # If not set by the higher level importing code this will be replaced with the current time.
     date_created: int = 0
     # Modifies the imported transaction outputs and links them to existing allocated keyinstances.

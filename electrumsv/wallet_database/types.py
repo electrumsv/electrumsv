@@ -33,8 +33,7 @@ class AccountHistoryOutputRow(NamedTuple):
     block_position: int|None
     date_created: int
 
-class AccountPaymentDescriptionRow(NamedTuple):
-    account_id: int
+class PaymentDescriptionRow(NamedTuple):
     payment_id: int
     description: str | None
 
@@ -43,7 +42,6 @@ class AccountPaymentRow(NamedTuple):
     account_id: int
     payment_id: int
     flags: AccountPaymentFlag
-    description: str | None
     date_created: int
     date_updated: int
 
@@ -466,7 +464,6 @@ class TransactionRow(NamedTuple):
     block_height: int
     block_position: int | None
     fee_value: int | None
-    description: str | None
     version: int | None
     locktime: int | None
     payment_id: int | None

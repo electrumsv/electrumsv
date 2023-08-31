@@ -57,7 +57,7 @@ from ...logs import logs
 from ...dpp_messages import is_inv_expired, PaymentTermsMessage
 from ...networks import Net
 from ...transaction import Transaction, TxContext
-from ...types import BroadcastResult, MAPIFeeContext
+from ...types import BroadcastResult, MAPIFeeContext, PaymentCtx
 from ...util import format_satoshis_plain
 from ...wallet import AbstractAccount
 from ...wallet_database.types import InvoiceRow, UTXOProtocol
@@ -464,7 +464,7 @@ class SendView(QWidget):
                 fee_quote = policy_dict["fees"] if policy_dict is not None else None
                 # We do not persist because we want to fund and sign them all successfully before
                 # doing so. This simplifies things as we then only deal in funded complete payments.
-                tx_ctxs.append(TxContext(payment_id=self._payment_id, fee_quote=fee_quote))
+                tx_ctxs.append(TxContext(fee_quote=fee_quote))
             return txs, tx_ctxs
 
         errors = self._payto_e.get_errors()
@@ -592,7 +592,6 @@ class SendView(QWidget):
         utxos = self._get_utxos()
         for i, tx in enumerate(txs):
             tx_ctx = tx_ctxs[i]
-            tx_ctx.account_labels[self._account.get_id()] = tx_label
             try:
                 txs[i], utxos = self._account.make_unsigned_tx(tx, tx_ctx, utxos)
             except (ExcessiveFee, NotEnoughFunds) as exc:
@@ -603,9 +602,11 @@ class SendView(QWidget):
                 self._main_window.show_message(str(e))
                 return
 
+        payment_ctx = PaymentCtx(self._payment_id, description=tx_label)
+
         if preview:
-            self._main_window.show_payment(ViewPaymentMode.UNSIGNED, self._payment_id, txs, tx_ctxs,
-                self._account.get_id())
+            self._main_window.show_payment(ViewPaymentMode.UNSIGNED, payment_ctx.payment_id, txs,
+                tx_ctxs, self._account.get_id())
             return
 
         # TODO(1.4.0) Payments. If the other party funds the transaction, we need to have the value
@@ -620,7 +621,6 @@ class SendView(QWidget):
         amount = output_value - input_value
 
         msg = []
-        print(fee)
         if fee < round(sum(tx.estimated_size()) * 0.1):
             msg.append(_("Warning") +": "+ _("The fee is less than {} sats/kb. It may take a "
                 "very long time to confirm.").format(100))
@@ -633,29 +633,32 @@ class SendView(QWidget):
         if not password:
             return
 
-        def sign_done(payment_id: int|None) -> None:
-            nonlocal txs, tx_ctxs
-            if payment_id is None:
+        def sign_done(success: bool) -> None:
+            nonlocal payment_ctx, txs, tx_ctxs
+            if not success:
                 return
+            assert payment_ctx.payment_id is not None
 
             if all(tx.is_complete() for tx in txs):
                 if self._invoice:
-                    if self._main_window.send_invoice_payment(payment_id, self._invoice, txs):
+                    if self._main_window.send_invoice_payment(payment_ctx.payment_id, self._invoice,
+                            txs):
                         self.clear()
                     return
 
                 def broadcast_done(results: list[BroadcastResult]) -> None: pass
-                self._main_window.broadcast_transactions(payment_id, txs, tx_ctxs,
+                self._main_window.broadcast_transactions(payment_ctx.payment_id, txs, tx_ctxs,
                     broadcast_done, self._main_window.reference())
                 return
 
             # Successful partial signing. At time of writing this will be multisig.
             assert self._account is not None
-            self._main_window.show_payment(ViewPaymentMode.PARTIALLY_SIGNED, payment_id, txs,
-                tx_ctxs, self._account.get_id())
+            self._main_window.show_payment(ViewPaymentMode.PARTIALLY_SIGNED,
+                payment_ctx.payment_id, txs, tx_ctxs, self._account.get_id())
             self.clear()
 
-        self._main_window.sign_transactions(self._account, txs, tx_ctxs, sign_done, password)
+        self._main_window.sign_transactions(self._account, payment_ctx, txs, tx_ctxs, sign_done,
+            password)
 
     def _get_utxos(self) -> Sequence[UTXOProtocol]:
         if self.pay_from:

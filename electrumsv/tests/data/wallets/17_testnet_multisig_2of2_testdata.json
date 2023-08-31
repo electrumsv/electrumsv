@@ -1,11 +1,5 @@
 {
-    "account_descriptions": [
-        [
-            1,
-            "a8fff26188efc7451a2c131565a14943cdc8a7e8e15d31900c86840d5900f689",
-            "ElectrumSV coin splitting: Dust from BSV faucet"
-        ]
-    ],
+    "payment_descriptions": [],
     "derivation_datas": {
         "1": [
             [
@@ -33,6 +27,7 @@
     "transactions": [
         {
             "transaction_id": "12ac31afe9e99756410b7d8e4ea1001234f6f66eb834c7f86acfafd6e527b8b2",
+            "payment_id": 1,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290975,
@@ -43,6 +38,7 @@
         },
         {
             "transaction_id": "58f47ab7dd9cb0560d71542769f74043aa7e548b3c45c6290299c106b32591ba",
+            "payment_id": 2,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290975,
@@ -53,6 +49,7 @@
         },
         {
             "transaction_id": "5b48e4a1254b246042dcdc31084b41a5bed00277ce83e45a5b15e2993aaf458b",
+            "payment_id": 3,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290973,
@@ -63,6 +60,7 @@
         },
         {
             "transaction_id": "6356ce86c47176461a4dd4b698d5ba8e4795550081e24ca4ed1267835b35b2fd",
+            "payment_id": 4,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290972,
@@ -73,6 +71,7 @@
         },
         {
             "transaction_id": "75408a28d522ea81899012c617aac11093abbf33d57e696790ac253a0e44279b",
+            "payment_id": 5,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290973,
@@ -83,6 +82,7 @@
         },
         {
             "transaction_id": "a8fff26188efc7451a2c131565a14943cdc8a7e8e15d31900c86840d5900f689",
+            "payment_id": 6,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290972,
@@ -93,6 +93,7 @@
         },
         {
             "transaction_id": "eab1a1ef841420d567054fd516948ea18ad1e9822f59863663de29226f2383bb",
+            "payment_id": 7,
             "flags": "settled",
             "block_hash": null,
             "block_height": 1290973,

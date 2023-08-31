@@ -73,7 +73,7 @@ from .networks import Net
 from .standards.node_transaction import transactions_from_node_bytes
 from .standards.script_templates import classify_transaction_output_script
 from .transaction import TxContext, XTxInput, XTxOutput, Transaction
-from .types import Outpoint
+from .types import Outpoint, PaymentCtx
 from .util import constant_time_compare
 from .wallet_database.types import AccountHistoryOutputRow
 
@@ -1654,9 +1654,6 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
     fee_context = random.choice(viable_fee_contexts)
     tx_context = TxContext(fee_quote=fee_context.fee_quote,
         mapi_server_hint=fee_context.server_and_credential)
-    if comment_text is not None:
-        tx_context.account_labels[account.get_id()] = comment_text
-
     coins = account.get_transaction_outputs_with_key_data()
     outputs = [ XTxOutput(amount_satoshis, address.to_script()) ] # type: ignore[arg-type]
     tx = Transaction.from_io([], outputs)
@@ -1668,7 +1665,8 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=RPCError.WALLET_INSUFFICIENT_FUNDS, message=str(exc)))))
 
-    future = account.sign_transactions([tx], [tx_context], wallet_password)
+    payment_ctx = PaymentCtx(description=comment_text)
+    future = account.sign_transactions(payment_ctx, [tx], [tx_context], wallet_password)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None
@@ -1983,8 +1981,8 @@ async def jsonrpc_signrawtransaction_async(request: web.Request, request_id: Req
             # behaviour.
             preserved_signatures[input_index] = transaction_input.signatures.copy()
 
-    transaction_context = TxContext()
-    future = account.sign_transactions([base_transaction], [transaction_context], wallet_password)
+    future = account.sign_transactions(PaymentCtx(), [base_transaction], [TxContext()],
+        wallet_password)
     # We are okay with an assertion here because we should be confident it is impossible for this
     # to happen outside of approved circumstances.
     assert future is not None

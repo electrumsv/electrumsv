@@ -33,7 +33,6 @@ from decimal import Decimal
 from functools import partial
 import gzip
 import itertools
-import json
 import math
 import os
 import shutil
@@ -72,12 +71,12 @@ from ...networks import Net
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...storage import WalletStorage
 from ...transaction import Transaction, TxContext
-from ...types import BroadcastResult, Outpoint, TxImportCtx, WaitingUpdateCallback
+from ...types import BroadcastResult, Outpoint, PaymentCtx, TxImportCtx, WaitingUpdateCallback
 from ...util import UpdateCheckResultType, format_fee_satoshis, get_identified_release_signers, \
     get_update_check_dates, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlag, Wallet
-from ...wallet_database.types import AccountPaymentDescriptionRow, InvoiceRow, KeyDataProtocol, \
+from ...wallet_database.types import PaymentDescriptionRow, InvoiceRow, KeyDataProtocol, \
     UTXOProtocol
 from ... import web
 
@@ -374,18 +373,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
-            import_context: TxImportCtx) -> None:
+            import_ctx: TxImportCtx, payment_ctx: PaymentCtx) -> None:
         # Account ids are the accounts that have changed the balance.
-        assert import_context.account_ids is not None
-        if self._wallet.get_account_ids() & set(import_context.account_ids) and \
-                import_context.flags & TxImportFlag.PROMPTED == 0:
+        assert len(payment_ctx.account_ids) > 0
+        if self._wallet.get_account_ids() & payment_ctx.account_ids and \
+                import_ctx.flags & TxImportFlag.PROMPTED == 0:
             # Always notify of incoming transactions regardless of the active account.
             self.tx_notifications.append(tx)
             self.notify_transactions_signal.emit()
 
         self._update_payments_event.set()
         self._update_common_event.set()
-        self.transaction_added_signal.emit(tx_hash, tx, set(import_context.account_ids))
+        self.transaction_added_signal.emit(tx_hash, tx, payment_ctx.account_ids)
 
     # Map the wallet event to a Qt UI signal.
     def _on_payment_deleted(self, event_name: str, account_ids: set[int], payment_id: int) -> None:
@@ -1328,7 +1327,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if True:
             from importlib import reload
             reload(payment_dialog)
-        dialog = payment_dialog.PaymentDialog(mode, payment_id, txs, tx_ctxs, account_id, self)
+        dialog = payment_dialog.PaymentDialog(mode, payment_id, txs, tx_ctxs,
+            account_id, self)
         dialog.finished.connect(partial(self._on_tx_dialog_finished, dialog))
         self.tx_dialogs.append(dialog)
         dialog.show()
@@ -1503,29 +1503,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         return True
 
-    def sign_transactions(self, account: AbstractAccount, txs: list[Transaction],
-            tx_ctxs: list[TxContext], callback: Callable[[int|None], None], password: str,
-            window: QWidget|None=None) -> None:
+    def sign_transactions(self, account: AbstractAccount, payment_ctx: PaymentCtx,
+            txs: list[Transaction], tx_ctxs: list[TxContext], callback: Callable[[bool], None],
+            password: str, window: QWidget|None=None) -> None:
         # TODO(1.4.0) Payments. We need to verify that this account is the only account that owns
         #     all the funds being spent.
         assert all(account.can_sign(tx) for tx in txs)
 
-        def on_done(future: concurrent.futures.Future[int|None]) -> None:
+        def on_done(future: concurrent.futures.Future[None]) -> None:
             try:
-                payment_id = future.result()
+                future.result()
             except Exception as exc:
                 self.on_exception(exc)
-                callback(None)
+                callback(False)
             else:
-                callback(payment_id)
+                callback(True)
 
-        def threaded_sign_txs(update_cb: WaitingUpdateCallback) -> int|None:
-            future = account.sign_transactions(txs, tx_ctxs, password)
-            payment_id: int|None = None
+        def threaded_sign_txs(update_cb: WaitingUpdateCallback) -> None:
+            future = account.sign_transactions(payment_ctx, txs, tx_ctxs, password)
             if future is not None:
-                payment_id = future.result()
+                future.result()
             update_cb(False, _("Done."))
-            return payment_id
 
         window = window or self
         WaitingDialog(window, _('Signing transaction...'), threaded_sign_txs, on_done=on_done,
@@ -2312,21 +2310,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return tx, None
         return None, None
 
-    def do_export_labels(self, account_id: int) -> None:
-        account = self._wallet.get_account(account_id)
-        assert account is not None
-        label_data = account.get_label_data()
-        try:
-            file_name = self.getSaveFileName(_("Select file to save your labels"),
-                'electrumsv_labels.json', "*.json")
-            if file_name:
-                with open(file_name, 'w+') as f:
-                    json.dump(label_data, f, indent=4, sort_keys=True)
-                self.show_message(_("Your labels were exported to") + " '%s'" % str(file_name))
-        except (IOError, os.error) as reason:
-            self.show_critical(_("ElectrumSV was unable to export your labels.") + "\n" +
-                               str(reason))
-
     # TODO(1.4.0) Payments. Export history.
     # def export_history_dialog(self) -> None:
     #     filter_text = "CSV files (*.csv);;JSON files (*.json)"
@@ -2404,7 +2387,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         callback(args)
 
     def _on_payment_labels_updated_signal(self,
-            update_entries: list[AccountPaymentDescriptionRow]) -> None:
+            update_entries: list[PaymentDescriptionRow]) -> None:
         self.history_view.update_payment_descriptions(update_entries)
 
     def _on_transaction_state_change(self, tx_hash: bytes, new_state: TxFlag) -> None:

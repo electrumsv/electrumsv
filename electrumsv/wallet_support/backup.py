@@ -51,7 +51,6 @@ class BackupWriter(BackupWritingProtocol):
             "type": "account-payment",
             "account_id": row.account_id,
             "payment_id": row.payment_id,
-            "description": row.description,
             "date_created": row.date_created,
         }
 
@@ -87,6 +86,8 @@ class BackupWriter(BackupWritingProtocol):
                     ],
                 } for row in transaction_rows
             ],
+            # TODO(1.4.0) Backup. Save the payment description.
+            # "description":
             "date_created": 1, # date_created,
         }
 
