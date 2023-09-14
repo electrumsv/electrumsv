@@ -191,7 +191,7 @@ def posix_timestamp_to_datetime(timestamp: int) -> datetime:
     return datetime.fromtimestamp(timestamp)
 
 
-def format_posix_timestamp(timestamp: int, default_text: str) -> str:
+def format_timestamp(timestamp: int, default_text: str) -> str:
     "Get the date and time for the given posix timestamp."
     date = posix_timestamp_to_datetime(timestamp)
     if date:

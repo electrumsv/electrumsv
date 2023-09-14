@@ -65,11 +65,23 @@ class SpentOutputRow(NamedTuple):
 
 class HistoryListRow(NamedTuple):
     payment_id: int
+    account_id: int|None
     contact_id: int
-    flags: PaymentFlag
+    payment_flags: PaymentFlag
     description: str | None
-    value_delta: int
     date_relevant: int
+    tx_count: int
+    tx_is_coinbase: bool
+    tx_min_height: int|None
+    tx_max_height: int|None
+    tx_signed_count: int|None
+    tx_dispatched_count: int|None
+    tx_received_count: int|None
+    tx_cleared_count: int|None
+    tx_settled_count: int|None
+    value_delta: int
+    paymentrequest_id: int|None
+    invoice_id: int|None
 
 
 class InvoiceRow(NamedTuple):
@@ -191,6 +203,7 @@ class PushDataRegistrationRow(NamedTuple):
 
 
 class PaymentRequestRow(NamedTuple):
+    # TODO(technical-debt) Database. Check if we can avoid `None` typing the primary key for insert.
     # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
     paymentrequest_id: int | None
     payment_id: int | None

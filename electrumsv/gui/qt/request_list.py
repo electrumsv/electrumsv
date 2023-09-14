@@ -40,7 +40,7 @@ from ...constants import PaymentRequestFlag
 from ...i18n import _
 from ...logs import logs
 from ...platform import platform
-from ...util import format_posix_timestamp, get_posix_timestamp
+from ...util import format_timestamp, get_posix_timestamp
 from ...wallet import AbstractAccount
 from ...web import create_URI
 
@@ -185,7 +185,7 @@ class RequestList(MyTreeWidget):
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, date_expires)
 
-            date = format_posix_timestamp(row.date_created, _("Unknown"))
+            date = format_timestamp(row.date_created, _("Unknown"))
             requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
                 if row.requested_value else ""
             item = QTreeWidgetItem([

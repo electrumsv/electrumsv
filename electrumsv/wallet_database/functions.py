@@ -38,7 +38,7 @@ from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, e
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
 from ..bitcoin import COIN
-from ..constants import (BackupMessageFlag, BlockHeight, DerivationType,
+from ..constants import (AccountPaymentFlag, BackupMessageFlag, BlockHeight, DerivationType,
     DerivationPath, KeyInstanceFlag, MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path,
     PaymentFlag, PaymentRequestFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag,
     PushDataHashRegistrationFlag,
@@ -856,21 +856,10 @@ def read_payment_descriptions(db: sqlite3.Connection, payment_ids: Sequence[int]
 @replace_db_context_with_connection
 def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         keyinstance_ids: Sequence[int]|None) -> list[HistoryListRow]:
-    if account_id is None:
-        # Used for the wallet history view.
-        assert keyinstance_ids is None
-        sql = """
-        SELECT P.payment_id, P.contact_id, P.flags, P.description, TOTAL(TV.value), P.date_created
-        FROM Payments P
-        INNER JOIN Transactions AS T ON T.payment_id=P.payment_id
-        INNER JOIN TransactionValues TV ON TV.tx_hash=T.tx_hash
-        WHERE P.flags&?1=0
-        GROUP BY P.payment_id
-        """
-        cursor = db.execute(sql, (PaymentFlag.REMOVED,))
-        return [ HistoryListRow(*t) for t in cursor.fetchall() ]
-
+    params: tuple[Any, ...] = ()
     if keyinstance_ids is not None:
+        # TODO(nocheckin) Payments. Do not allow or use account_id.
+        assert account_id is not None
         # Used for the key/address dialog.
         sql = """
         SELECT P.payment_id, P.contact_id, P.flags, AP.description, TOTAL(TV.value), P.date_created
@@ -884,18 +873,54 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         params = (PaymentFlag.REMOVED, account_id)
         return read_rows_by_id(HistoryListRow, db, sql, params, keyinstance_ids)
 
-    # Used for the account history view.
+    # TODO(technical-debt) Payments. Should join on `AccountPayments` using the cached columns.
     sql = """
-    SELECT P.payment_id, P.contact_id, P.flags, P.description, TOTAL(TV.value), P.date_created
+    SELECT APCM.payment_id, APCM.account_id, P.contact_id, P.flags, P.description, P.date_created,
+        APCM.tx_count, APCM.tx_coinbase, APCM.tx_min_height, APCM.tx_max_height,
+        APCM.tx_signed_count, APCM.tx_dispatched_count, APCM.tx_received_count,
+        APCM.tx_cleared_count, APCM.tx_settled_count, APCM.delta_value,
+        PR.paymentrequest_id, INV.invoice_id
     FROM Payments P
-    INNER JOIN Transactions AS T ON T.payment_id=P.payment_id
-    INNER JOIN AccountPayments AP ON AP.payment_id=P.payment_id
-    INNER JOIN TransactionValues TV ON TV.tx_hash=T.tx_hash AND AP.account_id=TV.account_id
-    WHERE P.flags&?1=0 AND AP.account_id=?2
-    GROUP BY P.payment_id
+    INNER JOIN AccountPaymentCachableMetadata APCM ON APCM.payment_id=P.payment_id
+    LEFT JOIN PaymentRequests PR ON PR.payment_id=P.payment_id
+    LEFT JOIN Invoices INV ON INV.payment_id=P.payment_id
     """
-    cursor = db.execute(sql, (PaymentFlag.REMOVED, account_id))
+    if account_id is not None:
+        # Used for the account history view.
+        sql += " WHERE APCM.account_id=?1"
+        params = (account_id,)
+    sql += " ORDER BY P.date_created DESC, APCM.payment_id DESC"
+    cursor = db.execute(sql, params)
     return [ HistoryListRow(*t) for t in cursor.fetchall() ]
+
+
+def update_payment_cache(db: sqlite3.Connection|None=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+
+    timestamp = int(time.time())
+
+    # NOTE(rt12) At the time of writing transactions use keys from one and only one account.
+    #     In any future where we multiple accounts fund a given transaction, summing the counts
+    #     below will given incorrect values given transactions included for each account.
+    sql = f"""
+    UPDATE AccountPayments AP
+    SET flags=AP.flags&~{AccountPaymentFlag.DIRTY_HISTORY},
+        delta_value=TAV.delta_value,
+        tx_signed_count=APCM.tx_signed_count,
+        tx_dispatched_count=APCM.tx_dispatched_count,
+        tx_received_count=APCM.tx_received_count,
+        tx_cleared_count=APCM.tx_cleared_count,
+        tx_settled_count=APCM.tx_settled_count,
+        tx_count=APCM.tx_count,
+        tx_min_height=APCM.tx_min_height,
+        tx_max_height=APCM.tx_max_height,
+        date_updated=?1
+    INNER JOIN AccountPaymentCachableMetadata APCM ON APCM.payment_id=AP.payment_id AND
+        APCM.account_id=AP.account_id
+    WHERE AP.flags&{AccountPaymentFlag.DIRTY_HISTORY}={AccountPaymentFlag.DIRTY_HISTORY}
+    RETURNING AP.payment_id, AP.account_id
+    """
+    db.execute(sql, (timestamp,))
 
 
 @replace_db_context_with_connection

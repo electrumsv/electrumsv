@@ -178,13 +178,6 @@ class KeyAllocation:
 
 
 @dataclasses.dataclass
-class HistoryListEntry:
-    sort_key: tuple[int, int]
-    row: HistoryListRow
-    balance: int
-
-
-@dataclasses.dataclass
 class MissingTransactionEntry:
     import_flags: TxImportFlag
     match_metadatas: set[ImportTransactionKeyUsage]
@@ -2776,35 +2769,6 @@ class Wallet:
     def get_visible_accounts(self) -> list[AbstractAccount]:
         return [ account for account in self._accounts.values() if not account.is_petty_cash() ]
 
-    def get_history(self, account_id: int|None=None, keyinstance_ids: Sequence[int]|None=None) \
-            -> list[HistoryListEntry]:
-        """
-        Return the list of transactions in the account kind of sorted from newest to oldest.
-
-        Sorting is nuanced, in that transactions that are in a block are sorted by both block
-        height and position. Transactions that are not in a block are ordered according to when
-        they were added to the account.
-
-        This is called for three uses:
-        - The transaction list in the history tab.
-        - The transaction list in the key usage window.
-        - Exporting the account history.
-        """
-        assert app_state.headers is not None
-
-        history_raw: list[HistoryListEntry] = []
-        for row in self.data.read_payment_history(account_id, keyinstance_ids):
-            sort_key = (row.date_relevant, 0)
-            history_raw.append(HistoryListEntry(sort_key, row, 0))
-        history_raw.sort(key=lambda t: t.sort_key)
-
-        balance = 0
-        for entry in history_raw:
-            balance += entry.row.value_delta
-            entry.balance = balance
-        history_raw.reverse()
-        return history_raw
-
     def get_xpubs_by_fingerprint(self) -> dict[bytes, str]:
         bip32_keystores: list[BIP32_KeyStore] = []
         for account in self._accounts.values():
@@ -3429,6 +3393,7 @@ class Wallet:
         - `DatabaseUpdateError` if the link state indicated that there should be a rollback if
             there were spend conflicts and this has happened.
         """
+        # Currently solely used to propagate header timestamps for mined transactions.
         if payment_ctx.timestamp == 0:
             payment_ctx.timestamp = int(time.time())
 

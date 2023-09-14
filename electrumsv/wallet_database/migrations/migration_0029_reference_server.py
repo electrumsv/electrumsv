@@ -94,6 +94,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
 
     _migrate_merkle_proofs(conn)
 
+    _create_new_views(conn)
+
     ## Migration finalisation.
     callbacks.progress(100, _("Update done"))
     conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
@@ -586,11 +588,12 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     conn.execute("""CREATE TABLE Payments (
         payment_id                              INTEGER     PRIMARY KEY,
         contact_id                              INTEGER     DEFAULT NULL,
-        flags                                   INTEGER     DEFAULT 0,
+        flags                                   INTEGER     NOT NULL DEFAULT 0,
         description                             TEXT        DEFAULT NULL,
+
         date_created                            INTEGER     NOT NULL,
         date_updated                            INTEGER     NOT NULL,
-        FOREIGN KEY (contact_id) REFERENCES Contacts (contact_id)
+        FOREIGN KEY (contact_id)                REFERENCES Contacts (contact_id)
     )""")
     conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
         "VALUES (?1, ?2, ?3)", payment_rows)
@@ -610,17 +613,26 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
 
     # Migrate `AccountTransactions` -> `AccountPayments`. `AccountTransactions.flags` was not
     # used. `AccountTransactions.description` over grouped payment transactions not really used.
-    conn.execute("""
-        CREATE TABLE AccountPayments (
-            account_id                          INTEGER     NOT NULL,
-            payment_id                          INTEGER     NOT NULL,
-            flags                               INTEGER     NOT NULL DEFAULT 0,
-            date_created                        INTEGER     NOT NULL,
-            date_updated                        INTEGER     NOT NULL,
-            FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
-            FOREIGN KEY (payment_id) REFERENCES Payments (payment_id)
-        )
-    """)
+    conn.execute("""CREATE TABLE AccountPayments (
+        account_id                              INTEGER     NOT NULL,
+        payment_id                              INTEGER     NOT NULL,
+        flags                                   INTEGER     NOT NULL DEFAULT 0,
+
+        delta_value                             INTEGER     NOT NULL DEFAULT 0,
+        tx_signed_count                         INTEGER     NOT NULL DEFAULT 0,
+        tx_dispatched_count                     INTEGER     NOT NULL DEFAULT 0,
+        tx_received_count                       INTEGER     NOT NULL DEFAULT 0,
+        tx_cleared_count                        INTEGER     NOT NULL DEFAULT 0,
+        tx_settled_count                        INTEGER     NOT NULL DEFAULT 0,
+        tx_count                                INTEGER     NOT NULL DEFAULT 0,
+        tx_min_height                           INTEGER     NOT NULL DEFAULT 0,
+        tx_max_height                           INTEGER     NOT NULL DEFAULT 0,
+
+        date_created                            INTEGER     NOT NULL,
+        date_updated                            INTEGER     NOT NULL,
+        FOREIGN KEY (account_id)                REFERENCES Accounts (account_id),
+        FOREIGN KEY (payment_id)                REFERENCES Payments (payment_id)
+    )""")
     account_transaction_rows = cast(list[tuple[int, bytes, str|None, int, int]],
         conn.execute("SELECT account_id, tx_hash, description, date_created, "
             "date_updated FROM AccountTransactions"))
@@ -711,7 +723,7 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
             it_old.date_expires, it_old.date_created, it_old.date_updated))
 
     conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
-        "VALUES (?1, ?2, ?3)", payment_rows)
+        "VALUES (?1,?2,?3)", payment_rows)
     conn.executemany("INSERT INTO Invoices2 (invoice_id, payment_id, payment_uri, description, "
         "invoice_flags, value, invoice_data, date_expires, date_created, date_updated) VALUES "
         "(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", invoice_rows)
@@ -864,7 +876,7 @@ def _migrate_merkle_proofs(conn: sqlite3.Connection) -> None:
     # Add the NOT NULL constraint to block_height column. SQLite doesn't allow ADD CONSTRAINT
     # see: https://www.sqlite.org/omitted.html, so it has to be done this way as a workaround.
     conn.execute("ALTER TABLE Transactions ADD COLUMN block_height2 INTEGER NOT NULL DEFAULT 0")
-    conn.execute("UPDATE Transactions SET block_height2=block_height WHERE tx_hash=tx_hash;")
+    conn.execute("UPDATE Transactions SET block_height2=block_height WHERE tx_hash=tx_hash")
     conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
     conn.execute("ALTER TABLE Transactions RENAME COLUMN block_height2 TO block_height")
 
@@ -930,4 +942,26 @@ def _migrate_server_tables(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_Servers_unique
             ON Servers(server_type, url, account_id)
+    """)
+
+def _create_new_views(conn: sqlite3.Connection) -> None:
+    conn.execute(f"""
+    CREATE VIEW AccountPaymentCachableMetadata (payment_id, account_id, tx_count, tx_coinbase,
+        tx_min_height, tx_max_height, tx_signed_count, tx_dispatched_count, tx_received_count,
+        tx_settled_count, tx_cleared_count, delta_value)
+    AS
+        SELECT P.payment_id, TV.account_id, COUNT(T.tx_hash),
+            MAX(CASE WHEN T.block_position=0 THEN 1 ELSE 0 END),
+            MIN(T.block_height), MAX(T.block_height),
+            SUM(CASE WHEN T.flags&{TxFlag.STATE_SIGNED} THEN 1 ELSE 0 END),
+            SUM(CASE WHEN T.flags&{TxFlag.STATE_DISPATCHED} THEN 1 ELSE 0 END),
+            SUM(CASE WHEN T.flags&{TxFlag.STATE_RECEIVED} THEN 1 ELSE 0 END),
+            SUM(CASE WHEN T.flags&{TxFlag.STATE_SETTLED} THEN 1 ELSE 0 END),
+            SUM(CASE WHEN T.flags&{TxFlag.STATE_CLEARED} THEN 1 ELSE 0 END),
+            SUM(TV.value)
+        FROM Payments P
+        LEFT JOIN Transactions T ON T.payment_id=P.payment_id
+        INNER JOIN TransactionValues TV ON TV.tx_hash=T.tx_hash
+        WHERE T.flags IS NULL OR T.flags&{TxFlag.REMOVED}=0
+        GROUP BY P.payment_id, TV.account_id
     """)

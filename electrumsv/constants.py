@@ -147,17 +147,20 @@ class MasterKeyFlag(IntFlag):
 
 
 class PaymentFlag(IntFlag):
-    NONE = 0
+    NONE                                = 0
 
     # This payment has been manually removed by the user.
-    DELETED = 1 << 0
+    DELETED                             = 1 << 0
 
     # This payment and any linked transactions are not to be included for the user by default.
-    REMOVED = DELETED
+    REMOVED                             = DELETED
 
 
 class AccountPaymentFlag(IntFlag):
     NONE = 0
+
+    # This account payment needs to have it's cached columns regenerated.
+    DIRTY_HISTORY                       = 1 << 0
 
 
 class BlockHeight(IntEnum):

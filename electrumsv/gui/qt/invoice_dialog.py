@@ -9,7 +9,7 @@ from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentRequestFlag
 from electrumsv.i18n import _
 from electrumsv.dpp_messages import is_inv_expired, PaymentTermsMessage
-from electrumsv.util import format_posix_timestamp
+from electrumsv.util import format_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_tooltips
@@ -48,12 +48,12 @@ class InvoiceDialog(WindowModalDialog):
             QLabel(app_state.format_amount(total_amount) +" "+ app_state.base_unit()))
         form.add_row(_('Memo'), QLabel(row.description))
         form.add_row(_('Date Created'),
-            QLabel(format_posix_timestamp(dpp_payment_terms.creation_timestamp, _("Unknown"))))
+            QLabel(format_timestamp(dpp_payment_terms.creation_timestamp, _("Unknown"))))
         form.add_row(_('Date Received'),
-            QLabel(format_posix_timestamp(row.date_created, _("Unknown"))))
+            QLabel(format_timestamp(row.date_created, _("Unknown"))))
         if row.date_expires:
             form.add_row(_('Date Expires'),
-                QLabel(format_posix_timestamp(row.date_expires, _("Unknown"))))
+                QLabel(format_timestamp(row.date_expires, _("Unknown"))))
         vbox.addWidget(form)
 
         self._table = table = ButtonsTableWidget()
