@@ -633,6 +633,7 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         FOREIGN KEY (account_id)                REFERENCES Accounts (account_id),
         FOREIGN KEY (payment_id)                REFERENCES Payments (payment_id)
     )""")
+    conn.execute("CREATE UNIQUE INDEX idx_accpay ON AccountPayments (account_id, payment_id)")
     account_transaction_rows = cast(list[tuple[int, bytes, str|None, int, int]],
         conn.execute("SELECT account_id, tx_hash, description, date_created, "
             "date_updated FROM AccountTransactions"))

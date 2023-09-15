@@ -598,7 +598,6 @@ class AbstractAccount:
                     script_type   = coins[0].script_type,
                     x_pubkeys     = coins[0].x_pubkeys) ]
             coin_chooser = coinchooser.CoinChooserPrivacy()
-            print("ZZZ tx_ctx.fee_quote", tx_ctx.fee_quote)
             tx, remaining_coins = coin_chooser.make_tx(tx, change_xtxos, coins, tx_ctx.fee_quote,
                 DUST_THRESHOLD)
         else:
@@ -1006,7 +1005,7 @@ class AbstractAccount:
         date_created = int(time.time())
         # `PaymentRequests.paymentrequest_id` is assigned on insert.
         # `PaymentRequests.payment_id` will have a row created and the id inserted.
-        request_row = PaymentRequestRow(None, contact_id, flags, amount, date_expires,
+        request_row = PaymentRequestRow(None, None, flags, amount, date_expires,
             internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
             encrypted_key_text, date_created, date_created)
         request_output_rows: list[PaymentRequestOutputRow] = [
@@ -1014,7 +1013,7 @@ class AbstractAccount:
                 pushdata_hash, amount, key_data.keyinstance_id, date_created, date_created),
         ]
         request_row, request_output_rows = await self._wallet.data.create_payment_request_async(
-            self._id, None, request_row, request_output_rows)
+            self._id, contact_id, request_row, request_output_rows)
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
             [ key_data.keyinstance_id ])
 
@@ -1985,24 +1984,22 @@ class WalletDataAccess:
             db_functions.create_payment_request_write, account_id, contact_id, request_entry,
                 request_output_entries)
 
-    def read_payment_request(self, *, request_id: int|None=None, payment_id: int|None=None) \
-            -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
-        return db_functions.read_payment_request(self._db_context, request_id, payment_id)
+    def read_payment_request(self, *, request_id: int|None=None, payment_id: int|None=None,
+            keyinstance_id: int|None=None) \
+                -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
+        return db_functions.read_payment_request(self._db_context, request_id, payment_id,
+            keyinstance_id)
 
-    def read_payment_requests(self, *, account_id: int | None=None,
-            flags: PaymentRequestFlag | None=None, mask: PaymentRequestFlag | None=None,
-            server_id: int | None=None) \
+    def read_payment_requests(self, *, account_id: int|None=None,
+            flags: PaymentRequestFlag|None=None, mask: PaymentRequestFlag|None=None,
+            server_id: int|None=None, keyinstance_id: int|None=None) \
                 -> list[PaymentRequestRow]:
         """
         Warning: This database function does not filter out deleted or archived payment requests
             unless the caller specifies `PaymentFlag.MASK_HIDDEN` in the `mask` parameter.
         """
         return db_functions.read_payment_requests(self._db_context, account_id=account_id,
-            flags=flags, mask=mask, server_id=server_id)
-
-    def read_payment_request_ids_for_transaction(self, transaction_hash: bytes) -> list[int]:
-        return db_functions.read_payment_request_ids_for_transaction(self._db_context,
-            transaction_hash)
+            flags=flags, mask=mask, server_id=server_id, keyinstance_id=keyinstance_id)
 
     async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
             -> dict[int, list[bytes]]:
@@ -2028,8 +2025,7 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(
             db_functions.update_payment_request_flags_write, request_id, flags, mask)
 
-    async def close_paid_payment_request_async(self, request_id: int) \
-            -> list[PaymentDescriptionRow]:
+    async def close_paid_payment_request_async(self, request_id: int) -> PaymentDescriptionRow:
         """
         Wrap the database operations required to link a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
@@ -4435,101 +4431,6 @@ class Wallet:
             server_state = self.get_connection_state_for_usage(usage_flags)
         return server_state
 
-    # async def _consume_mapi_callback_messages_async(self, state: ServerStateProtocol) -> None:
-    #         tx_update_rows :list[TransactionProofUpdateRow] = []
-    #         proof_rows: list[MerkleProofRow] = []
-    #         processed_message_ids: list[int] = []
-    #         processed_message_ids_externally_owned: list[int] = []
-    #         headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
-    #         verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
-    #         date_updated = get_posix_timestamp()
-
-    #         for message_row, message in message_entries:
-    #             if response["callbackReason"] == "merkleProof":
-    #                 proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
-    #                 # TODO(1.4.0) Unreliable server, issue#841. Validate the response
-    #                 #'targetType'.
-    #                 #     We should verify it in `validate_mapi_callback_response` or we should
-    #                 #     handle all target types.
-    #                 assert proof_json["targetType"] == "header"
-    #                 proof = TSCMerkleProof.from_json(proof_json)
-
-    #                 # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
-    #                 #      this means the lifetime of the channel has to be long enough to catch
-    #                 #      these.
-
-    #                 if not verify_proof(proof):
-    #                     # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone
-    #                     #     with embedded header, no failure! If we do get a dud proof then we
-    #                     #     throw it away.
-    #                     self.logger.error("Peer channel MAPI proof invalid: '%s'", message)
-    #                     continue
-
-    #                 assert proof.block_header_bytes is not None
-    #                 assert proof.transaction_hash is not None
-
-    #                 block_hash = double_sha256(proof.block_header_bytes)
-    #                 header_match = self.lookup_header_for_hash(block_hash)
-    #                 if header_match is None:
-    #                     self.logger.debug(
-    # "Missing header for merkle proof with block hash: '%s'.",
-    #                         hash_to_hex_str(block_hash))
-    #                     # Reasons why we are here:
-    #                     # - This header is on the wallet's current chain but it is on the
-    #                     #   unprocessed tip. This falls to the headerless proof worker to resolve
-    #                     #   when the tip is connected.
-    #                     # - This header is for a different chain/fork which the MAPI server is
-    #                     #   apparently following and we are not (yet?). It will be present if we
-    #                     #   reorg to the MAPI server's fork.
-
-    #                     # Connecting out of band headers (or trying to) does not necessarily help
-    #                     # this wallet as the wallet follows a specific header source and not
-    #                     # necessarily the longest chain.
-    #                     header, _chain = app_state.connect_out_of_band_header(
-    #                         proof.block_header_bytes)
-
-    #                     block_height: int = BlockHeight.MEMPOOL
-    #                     if header is not None:
-    #                         block_height = cast(int, header.height)
-
-    #                     tx_update_rows.append(TransactionProofUpdateRow(block_hash,
-    #                         BlockHeight.MEMPOOL, proof.transaction_index, TxFlags.STATE_CLEARED,
-    #                         date_updated, proof.transaction_hash))
-    #                     proof_row = MerkleProofRow(block_hash, proof.transaction_index,
-    #                         block_height, proof.to_bytes(), proof.transaction_hash)
-    #                     proof_rows.append(proof_row)
-    #                     headerless_proofs.append((proof, proof_row))
-    #                 else:
-    #                     header, _common_chain = header_match
-    #                     block_height = cast(int, header.height)
-    #                     tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
-    #                         proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
-    #                         proof.transaction_hash))
-    #                     proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
-    #                         block_height, proof.to_bytes(), proof.transaction_hash))
-    #                     verified_entries.append((proof.transaction_hash, header, proof))
-    #                     logger.debug("MCB Storing verified merkle proof for transaction %s",
-    #                         hash_to_hex_str(proof.transaction_hash))
-
-    #         # Set the given merkle proof as the one for the active chain on the given transaction
-    #         # also creating it in the merkle proof table if it is not already there.
-    #         if len(tx_update_rows) > 0 or len(proof_rows) > 0:
-    #             await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
-    #                 processed_message_ids, processed_message_ids_externally_owned,
-    #                 { TxFlags.STATE_SETTLED })
-
-    #         # These are detached proofs, which we do not have a header or chain for. We register
-    #         # them so that when the header comes in, they can be considered for use.
-    #         for headerless_proof in headerless_proofs:
-    #             self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
-    # headerless_proof)
-    #         if headerless_proofs:
-    #             self._connect_headerless_proof_worker_state.proof_event.set()
-
-    #         # We set these proofs on transactions which makes the transactions verified.
-    #         for verified_entry in verified_entries:
-    #             self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, *verified_entry)
-
     def _filter_out_earlier_dpp_message_states(self, dpp_messages: list[DPPMessageRow]) -> \
             list[DPPMessageRow]:
         latest_dpp_messages: dict[str, DPPMessageRow] = {}  # dpp_invoice_id: DPPMessageRow
@@ -5046,53 +4947,12 @@ class Wallet:
             the payment request.
         """
         await self.validate_payment_request_async(request_id, candidates, error_callback)
-        update_rows = await self.data.close_paid_payment_request_async( request_id)
+        update_row = await self.data.close_paid_payment_request_async(request_id)
 
         # Notify any dependent systems including the GUI that the payment request has been updated.
         self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, [ request_id ])
-        if len(update_rows):
-            self.events.trigger_callback(WalletEvent.PAYMENT_LABELS_UPDATE, update_rows)
-
-    async def _check_if_transaction_closes_payment_request(self, transaction_hash: bytes) -> None:
-        """
-        This transaction is expected to be related to an outstanding payment request and we need
-        to locate that payment request, and see if it closes out that payment request as paid.
-
-        At the time of writing this is related to the tip filter and blockchain monitored ones.
-        """
-        paymentrequest_ids = self.data.read_payment_request_ids_for_transaction(transaction_hash)
-        assert len(paymentrequest_ids) > 0, "_check_if_transaction_closes_payment_request given " \
-            "a transaction hash that is not linked to keys associated with outstanding payment " \
-            f"requests {hash_to_hex_str(transaction_hash)}"
-
-        closed_payment_request_ids: list[int] = []
-        all_updated_rows: list[PaymentDescriptionRow] = []
-        for paymentrequest_id in paymentrequest_ids:
-            request_row, request_output_rows = self.data.read_payment_request(
-                request_id=paymentrequest_id)
-            assert request_row is not None
-            assert len(request_output_rows) > 0
-
-            # @BlindPaymentRequests
-            # This is to support the node wallet comparable JSON-RPC API. The GUI does not use it.
-            # The idea is that these payment requests relate to an existing externally registered
-            # tip filter registration and the external party should be notified about all payment
-            # transactions to this key.
-            if request_row.requested_value is None:
-                continue
-
-            try:
-                updated_rows = await self.data.close_paid_payment_request_async(paymentrequest_id)
-            except DatabaseUpdateError:
-                self.logger.debug("Payment request %s partial payment", paymentrequest_id)
-            else:
-                closed_payment_request_ids.append(paymentrequest_id)
-                all_updated_rows.extend(updated_rows)
-
-        # Notify dependent systems including the GUI that these payment requests have been updated.
-        self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, closed_payment_request_ids)
-        if len(all_updated_rows):
-            self.events.trigger_callback(WalletEvent.PAYMENT_LABELS_UPDATE, all_updated_rows)
+        # if len(update_rows):
+        #     self.events.trigger_callback(WalletEvent.PAYMENT_LABELS_UPDATE, update_rows)
 
     def get_transaction(self, transaction_hash: bytes) -> Transaction|None:
         lock = self._obtain_transaction_lock(transaction_hash)
@@ -5869,6 +5729,18 @@ class Wallet:
                 account_id = entry.account_ids[0]
                 account = self._accounts[account_id]
 
+                payment_ctx = PaymentCtx(payment_id=entry.payment_id)
+
+                # Match the entry to any existing payment.
+                paymentrequest_row: PaymentRequestRow|None = None
+                keyinstance_ids = [ m.keyinstance_id for m in entry.match_metadatas ]
+                if len(keyinstance_ids) == 1:
+                    pr_rows = self.data.read_payment_requests(keyinstance_id=keyinstance_ids[0])
+                    if len(pr_rows) == 1:
+                        paymentrequest_row = pr_rows[0]
+                        assert payment_ctx.payment_id is None
+                        payment_ctx.payment_id = pr_rows[0].payment_id
+
                 def create_import_context(entry: MissingTransactionEntry, tx: Transaction) \
                         -> TxImportCtx:
                     return TxImportCtx(
@@ -5921,7 +5793,6 @@ class Wallet:
                         assert tsc_proof.block_hash is not None
 
                         tx = Transaction.from_bytes(tx_bytes)
-                        payment_ctx = PaymentCtx(payment_id=entry.payment_id)
                         await self.import_transactions_async(payment_ctx,
                             [TxImportEntry(tx_hash,tx,TxFlag.STATE_CLEARED,BlockHeight.MEMPOOL,
                             None,None)],{},{tx_hash:create_import_context(entry,tx)})
@@ -5959,16 +5830,15 @@ class Wallet:
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(), tx_hash)
 
+                    payment_ctx.timestamp = header.timestamp
                     block_height = cast(int, header.height)
                     if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
-                        await self.import_transactions_async(
-                            PaymentCtx(payment_id=entry.payment_id, timestamp=header.timestamp),
+                        await self.import_transactions_async(payment_ctx,
                             [TxImportEntry(tx_hash,tx,TxFlag.STATE_SETTLED,block_height,
                             tsc_proof.block_hash,tsc_proof.transaction_index)],{tx_hash:proof_row},
                             {tx_hash:create_import_context(entry,tx)})
                     else:
-                        await self.import_transactions_async(
-                            PaymentCtx(payment_id=entry.payment_id, timestamp=header.timestamp),
+                        await self.import_transactions_async(payment_ctx,
                             [TxImportEntry(tx_hash, tx, TxFlag.STATE_CLEARED, block_height, None,
                             None)], {}, {tx_hash: create_import_context(entry, tx)})
                         await self.data.create_merkle_proofs_async([ proof_row ])
@@ -5977,14 +5847,33 @@ class Wallet:
                 else:
                     tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
                     tx = Transaction.from_bytes(tx_bytes)
-                    payment_ctx = PaymentCtx(payment_id=entry.payment_id)
                     await self.import_transactions_async(payment_ctx,
                         [TxImportEntry(tx_hash, tx, TxFlag.STATE_CLEARED, BlockHeight.MEMPOOL,
                         None, None)], {}, {tx_hash: create_import_context(entry, tx)})
                     assert tx_hash not in self._missing_transactions
 
                 if entry.import_flags & TxImportFlag.TIP_FILTER_MATCH:
-                    await self._check_if_transaction_closes_payment_request(tx_hash)
+                    assert paymentrequest_row is not None
+                    assert paymentrequest_row.paymentrequest_id is not None
+
+                    # @BlindPaymentRequests Those are to support the node wallet comparable
+                    # JSON-RPC API. The GUI does not use it. The idea is that these payment
+                    # requests relate to an existing externally registered tip filter registration
+                    # and the external party should be notified about all payment transactions to
+                    # this key.
+                    if paymentrequest_row.requested_value is not None:
+                        paymentrequest_id = paymentrequest_row.paymentrequest_id
+                        try:
+                            await self.data.close_paid_payment_request_async(paymentrequest_id)
+                        except DatabaseUpdateError:
+                            self.logger.debug("Payment request %s (partial)", paymentrequest_id)
+                        else:
+                            self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID,
+                                [paymentrequest_id])
+
+    # Notify dependent systems including the GUI that these payment requests have been updated.
+    # if len(all_updated_rows):
+    #     self.events.trigger_callback(WalletEvent.PAYMENT_LABELS_UPDATE, all_updated_rows)
 
     async def _obtain_merkle_proofs_worker_async(self) -> None:
         """

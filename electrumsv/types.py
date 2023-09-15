@@ -299,7 +299,6 @@ class PaymentCtx:
     # Output.
     account_ids: set[int] = dataclasses.field(default_factory=set)
 
-
 @dataclasses.dataclass
 class TxImportCtx:
     # If not set by the higher level importing code this will be replaced with the current time.

@@ -1325,25 +1325,6 @@ def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_has
     return rows
 
 
-@replace_db_context_with_connection
-def read_payment_request_ids_for_transaction(db: sqlite3.Connection,
-        transaction_hash: bytes) -> list[int]:
-    """
-    We know this transaction should be involved in payment of a payment request, so try and
-    find which one it is involved with.
-    """
-    assert db is not None
-    sql = \
-    "SELECT DISTINCT PRO.paymentrequest_id " \
-    "FROM PaymentRequestOutputs PRO " \
-    "INNER JOIN PaymentRequests PR ON PR.paymentrequest_id=PRO.paymentrequest_id " \
-    "INNER JOIN TransactionOutputs TXO ON PRO.keyinstance_id=TXO.keyinstance_id " \
-    "WHERE TXO.tx_hash=?1 AND PR.state&?2=0"
-    cursor = db.execute(sql, (transaction_hash,
-        PaymentRequestFlag.ARCHIVED|PaymentRequestFlag.DELETED))
-    return [ cast(int, row[0]) for row in cursor.fetchall() ]
-
-
 def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
         db: sqlite3.Connection | None=None) -> dict[int, list[bytes]]:
     sql = """
@@ -1368,8 +1349,17 @@ def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
 
 
 @replace_db_context_with_connection
-def read_payment_request(db: sqlite3.Connection, request_id: int|None, payment_id: int|None) \
+def read_payment_request(db: sqlite3.Connection, request_id: int|None, payment_id: int|None,
+            keyinstance_id: int|None) \
         -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
+    if keyinstance_id is not None:
+        assert request_id is None and payment_id is None
+        sql = "SELECT DISTINCT paymentrequest_id FROM PaymentRequestOutputs WHERE keyinstance_id=?1"
+        row = db.execute(sql, (keyinstance_id,)).fetchone()
+        if row is None:
+            return None, []
+        request_id = cast(int, row[0])
+
     sql = "SELECT paymentrequest_id,payment_id,state,value,date_expires,description,server_id," \
         "dpp_invoice_id,dpp_ack_json,merchant_reference,encrypted_key_text,date_created," \
         "date_updated FROM PaymentRequests "
@@ -1396,9 +1386,9 @@ def read_payment_request(db: sqlite3.Connection, request_id: int|None, payment_i
     return request_row, request_output_rows
 
 @replace_db_context_with_connection
-def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None,
-        flags: PaymentRequestFlag | None=None, mask: PaymentRequestFlag | None=None,
-        server_id: int | None=None) -> list[PaymentRequestRow]:
+def read_payment_requests(db: sqlite3.Connection, *, account_id: int|None=None,
+        flags: PaymentRequestFlag|None=None, mask: PaymentRequestFlag|None=None,
+        server_id: int|None=None, keyinstance_id: int|None=None) -> list[PaymentRequestRow]:
     sql = """SELECT PR.paymentrequest_id, PR.payment_id, PR.state, PR.value, PR.date_expires,
         PR.description,
         PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference,
@@ -1406,21 +1396,26 @@ def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None
         FROM PaymentRequests PR"""
     sql_values: list[Any] = []
     used_where = False
-    if account_id is not None:
-        sql += " WHERE PR.paymentrequest_id IN " \
-            "(SELECT DISTINCT PRO.paymentrequest_id FROM PaymentRequestOutputs PRO " \
-            "INNER JOIN KeyInstances KI ON PRO.keyinstance_id=KI.keyinstance_id AND " \
-                "KI.account_id=?)"
-        sql_values.append(account_id)
+    if account_id is not None or keyinstance_id is not None:
         used_where = True
+        sql += " WHERE PR.paymentrequest_id IN (SELECT DISTINCT PRO.paymentrequest_id " \
+            "FROM PaymentRequestOutputs PRO INNER JOIN KeyInstances KI ON " \
+            "PRO.keyinstance_id=KI.keyinstance_id"
+        if account_id is not None:
+            sql += " AND KI.account_id=?"
+            sql_values.append(account_id)
+        if keyinstance_id is not None:
+            sql += " AND KI.keyinstance_id=?"
+            sql_values.append(keyinstance_id)
+        sql += ")"
     clause, extra_values = flag_clause("PR.state", flags, mask)
     if clause:
         if used_where:
             sql += f" AND {clause}"
         else:
             sql += f" WHERE {clause}"
+            used_where = True
         sql_values.extend(extra_values)
-        used_where = True
     if server_id is not None:
         if used_where:
             sql += " AND server_id=?"
@@ -2503,6 +2498,10 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
     return db_context.post_to_thread(_write)
 
 
+class _TxStateRow(NamedTuple):
+    tx_hash: bytes
+
+
 def set_transaction_states_write(tx_hashes: list[bytes], flag: TxFlag, ignore_mask: TxFlag | None,
         db: sqlite3.Connection|None=None) -> list[bytes]:
     """
@@ -2515,14 +2514,15 @@ def set_transaction_states_write(tx_hashes: list[bytes], flag: TxFlag, ignore_ma
     assert db is not None and isinstance(db, sqlite3.Connection)
     assert flag.bit_count() == 1, "only one state can be specified at a time"
     # We will clear any existing state bits.
-    mask_bits = ~TxFlag.MASK_STATE
+    mask_bits = TxFlag.MASK_STATE
     if ignore_mask is None:
         ignore_mask = flag
     timestamp = int(time.time())
-    sql = "UPDATE Transactions SET date_updated=?1, flags=(flags&?2)|?3 WHERE tx_hash=?4 AND " \
-        "flags&?5=0 RETURNING tx_hash"
-    params = [ (timestamp, mask_bits, flag, tx_hash, ignore_mask) for tx_hash in tx_hashes ]
-    return [ cast(bytes, row[0]) for row in db.executemany(sql, params).fetchall() ]
+    sql = "UPDATE Transactions SET date_updated=?, flags=(flags&~?)|? WHERE flags&?=0 AND " \
+        "tx_hash IN ({}) RETURNING tx_hash"
+    params = [timestamp, mask_bits, flag, ignore_mask]
+    _discard, returned_rows = execute_sql_by_id(db, sql, params, tx_hashes, return_type=_TxStateRow)
+    return [ row.tx_hash for row in returned_rows ]
 
 
 def update_transaction_flags_write(entries: list[tuple[TxFlag, TxFlag, bytes]], \
@@ -2852,7 +2852,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
 
 
 def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=None) \
-        -> list[PaymentDescriptionRow]:
+        -> PaymentDescriptionRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
 
     read_sql = "SELECT state, value FROM PaymentRequests WHERE paymentrequest_id=?"
@@ -2919,16 +2919,12 @@ def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=No
     if cursor.rowcount != len(keyinstance_ids):
         raise DatabaseUpdateError("Update keyinstances failed")
 
-    update_descriptions_sql = """
-    UPDATE Payments AS P
-    SET description=PR.description
-    FROM Transactions TX
-    INNER JOIN PaymentRequests PR
-    WHERE TX.payment_id=P.payment_id AND PR.paymentrequest_id=?1
-    RETURNING payment_id, description
-    """
-    return [ PaymentDescriptionRow(*row) for row in
-        db.execute(update_descriptions_sql, (request_id,)).fetchall() ]
+    sql = "SELECT PR.payment_id, P.description FROM PaymentRequests PR " \
+        "INNER JOIN Payments P ON PR.payment_id=P.payment_id WHERE PR.paymentrequest_id=?1"
+    row = db.execute(sql, (request_id,)).fetchone()
+    print(row)
+    assert row is not None
+    return PaymentDescriptionRow(*row)
 
 
 def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
@@ -3291,8 +3287,8 @@ def import_transactions(payment_ctx: PaymentCtx, tx_rows: list[TransactionRow],
         payment_ctx.account_ids |= set(krow[0] for krow in krows)
 
     if len(payment_ctx.account_ids) > 0:
-        sql = "INSERT INTO AccountPayments (account_id, payment_id, date_created, date_updated) " \
-            "VALUES (?1,?2,?3,?3)"
+        sql = "INSERT OR IGNORE INTO AccountPayments (account_id, payment_id, date_created, " \
+            "date_updated) VALUES (?1,?2,?3,?3)"
         db.executemany(sql, [ (account_id, payment_ctx.payment_id, payment_ctx.timestamp)
             for account_id in payment_ctx.account_ids ])
 

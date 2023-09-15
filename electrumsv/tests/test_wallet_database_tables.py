@@ -472,7 +472,7 @@ class TestTransactionTable:
         db.execute(f"DELETE FROM Transactions")
         db.commit()
 
-    def _get_store_hashes(self) -> List[bytes]:
+    def _get_store_hashes(self) -> list[bytes]:
         assert self.db_context is not None
         return db_functions.read_transaction_hashes(self.db_context)
 
@@ -520,6 +520,25 @@ class TestTransactionTable:
         existing_tx_hashes = set(self._get_store_hashes())
         added_tx_hashes = set(t[0] for t in to_add)
         assert added_tx_hashes == existing_tx_hashes
+
+        updated_tx_hashes = db_functions.set_transaction_states_write([ to_add[0].tx_hash ],
+            TxFlag.STATE_CLEARED, None, self.db)
+        assert updated_tx_hashes == [ to_add[0].tx_hash ]
+
+        # Do not update to CLEARED if already CLEARED.
+        updated_tx_hashes = db_functions.set_transaction_states_write([ to_add[0].tx_hash ],
+            TxFlag.STATE_CLEARED, TxFlag.STATE_CLEARED, self.db)
+        assert updated_tx_hashes == []
+
+        # Do not update to CLEARED with default ignore mask.
+        updated_tx_hashes = db_functions.set_transaction_states_write([ to_add[0].tx_hash ],
+            TxFlag.STATE_CLEARED, None, self.db)
+        assert updated_tx_hashes == []
+
+        # Do not update to SETTLED if already CLEARED.
+        updated_tx_hashes = db_functions.set_transaction_states_write([ to_add[0].tx_hash ],
+            TxFlag.STATE_SETTLED, TxFlag.STATE_CLEARED, self.db)
+        assert updated_tx_hashes == []
 
     def test_get_all_pending(self) -> None:
         assert self.db_context is not None
@@ -1287,7 +1306,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     future = db_context.post_to_thread(db_functions.create_payment_request_write,
         ACCOUNT_ID, None, create_request2_row, [ create_request2_output_row ])
-    future.result()
+    request2_row, request2_output_rows = future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
@@ -1301,7 +1320,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     future.result()
 
     db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context,
-        request_id=2, payment_id=None)
+        request_id=2, payment_id=None, keyinstance_id=None)
     assert db_request_row is not None
     assert db_request_row.request_flags == PaymentRequestFlag.STATE_PREPARING | PaymentRequestFlag.TYPE_MONITORED
 
@@ -1326,6 +1345,11 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert 2 == len(db_request_rows)
     compare_paymentrequest_rows(create_request1_row, db_request_rows[0])
     compare_paymentrequest_rows(create_request2_row, db_request_rows[1])
+
+    db_request_rows = sorted(db_functions.read_payment_requests(db_context,
+        keyinstance_id=KEYINSTANCE_ID), key=lambda lambda_row: lambda_row.paymentrequest_id)
+    assert 1 == len(db_request_rows)
+    compare_paymentrequest_rows(create_request1_row, db_request_rows[0])
 
     # Read all PAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
@@ -1359,12 +1383,17 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert 2 == len(db_request_rows)
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context, request_id=1,
-        payment_id=None)
+        payment_id=None, keyinstance_id=None)
     assert request_row is not None
     assert 1 == request_row.paymentrequest_id
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context,
-        request_id=100101, payment_id=None)
+        request_id=None, payment_id=None, keyinstance_id=KEYINSTANCE_ID)
+    assert request_row is not None
+    assert 1 == request_row.paymentrequest_id
+
+    request_row, request_output_rows = db_functions.read_payment_request(db_context,
+        request_id=100101, payment_id=None, keyinstance_id=None)
     assert request_row is None
 
     ## Pay the payment request.
@@ -1390,7 +1419,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
             create_request2_row.paymentrequest_id, db)
     finally:
         db_context.release_connection(db)
-    assert payment_description_update_rows == [ (PAYMENT_ID_1, TX_DESC2) ]
+    assert tuple(payment_description_update_rows) == (request2_row.payment_id, TX_DESC2)
 
     ## Continue.
     assert create_request2_row.paymentrequest_id is not None
@@ -1427,14 +1456,6 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert db_request_rows[0].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.DELETED
     assert db_request_rows[1].paymentrequest_id == create_request2_row.paymentrequest_id
     assert db_request_rows[1].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.NONE
-
-    # Check that we get no matches for a transaction that does not exist.
-    payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, b'12')
-    assert payment_request_ids == [ ]
-
-    # Check that we get matches for a payment request-related transaction that does exist.
-    payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, TX_HASH)
-    assert payment_request_ids == [ create_request2_row.paymentrequest_id ]
 
 
 def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:

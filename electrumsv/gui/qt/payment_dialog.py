@@ -149,7 +149,7 @@ def refresh_state(state: SharedState) -> None:
         state.tx_rows = state.dax.read_transactions(payment_id=state.payment_id)
         if state.account_ids:
             # TODO(technical-debt) Payments. Longer term goal is handling multi-account.
-            assert len(state.account_ids) == 1
+            assert len(state.account_ids) == 1, state.account_ids
             state.history_outputs = state.dax.read_history_for_outputs(state.account_ids[0],
                 payment_id=state.payment_id)
 
