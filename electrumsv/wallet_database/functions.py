@@ -185,8 +185,10 @@ def create_invoice_write(entry: InvoiceRow, account_id: int, contact_id: int|Non
     assert entry.invoice_id == 0
     assert entry.payment_id == 0
 
-    sql = "INSERT INTO Payments (contact_id, date_created, date_updated) VALUES (?1,?2,?3)"
-    cursor = db.execute(sql, (contact_id, entry.date_created, entry.date_updated))
+    # The invoice description is a placeholder for the wallet owner to edit/start from.
+    sql = "INSERT INTO Payments (contact_id,description,date_created, date_updated) " \
+        "VALUES (?1,?2,?3,?4)"
+    cursor = db.execute(sql, (contact_id,entry.description,entry.date_created,entry.date_updated))
     assert cursor.lastrowid is not None
     payment_id = cursor.lastrowid
     entry = entry._replace(payment_id=payment_id)
@@ -201,6 +203,7 @@ def create_invoice_write(entry: InvoiceRow, account_id: int, contact_id: int|Non
     cursor = db.execute(sql, (account_id, payment_id, entry.date_created, entry.date_updated))
     assert cursor.rowcount == 1
 
+    # The invoice description is cached here for reference and read only display.
     sql = "INSERT INTO Invoices (payment_id, payment_uri, description, invoice_flags, " \
         "value, invoice_data, date_expires, date_created, date_updated) " \
         "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) RETURNING invoice_id"
