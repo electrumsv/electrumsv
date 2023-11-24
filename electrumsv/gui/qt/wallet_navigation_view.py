@@ -45,6 +45,8 @@ import time
 from typing import Any, cast, Dict, List, Optional, Sequence
 from weakref import proxy
 
+from bitcoinx import hash_to_hex_str
+
 from PyQt6.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QMenu, QSplitter,
@@ -408,26 +410,35 @@ class WalletNavigationView(QSplitter):
             main_window_proxy: ElectrumWindow) -> None:
         menu.clear()
 
-        # This expects a reference to the main window, not the weakref.
+        # This expects a reference to the main window, not the weakref. ??
         account_id = account.get_id()
+        account_row = account.get_row()
 
-        menu.addAction(_("&Information"),
-            partial(self._show_account_information, account_id))
+        menu.addAction(_("&Information"), partial(self._show_account_information, account_id))
         seed_menu = menu.addAction(_("View &secured data"),
             partial(self._view_secured_data, main_window_proxy=main_window_proxy,
                 account_id=account_id))
         seed_menu.setEnabled(self._can_view_secured_data(account))
-        menu.addAction(_("&Rename"),
-            partial(self._rename_account, account_id))
+        menu.addAction(_("&Rename"), partial(self._rename_account, account_id))
         menu.addSeparator()
 
         menu.addAction(_("&Restore account"),
             main_window_proxy.restore_active_account_manual)
+
+        bitcache_menu = menu.addMenu(_("&Bitcache"))
+        if account_row.bitcache_peer_channel_id is None:
+            bitcache_menu.addAction(_("&Setup new"),
+                partial(main_window_proxy.setup_new_bitcache, account_id))
+            bitcache_menu.addAction(_("&Connect to existing"),
+                main_window_proxy.connect_to_existing_bitcache)
+        else:
+            # Options for any existing setup/connected bitcache.
+            bitcache_menu.setEnabled(False)
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
         import_menu = private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
-                main_window_proxy=main_window_proxy, account_id=account_id))
+            main_window_proxy=main_window_proxy, account_id=account_id))
         import_menu.setEnabled(account.can_import_privkey())
         export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
             main_window_proxy=main_window_proxy, account_id=account_id))
@@ -453,6 +464,12 @@ class WalletNavigationView(QSplitter):
         keystore = account.get_keystore()
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
+
+        menu.addSeparator()
+
+        debug_menu = menu.addMenu(_("Debug"))
+        debug_menu.addAction(_("Export txkey data"),
+            partial(self._on_menu_export_txkey_data, account_id))
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         pass
@@ -745,3 +762,21 @@ class WalletNavigationView(QSplitter):
         self.update_notifications_icon(notification_count)
         # Update the contents of the notifications view.
         self._notifications_widget.reset_contents()
+
+    def _on_menu_export_txkey_data(self, account_id: int) -> None:
+        export_path = self._main_window_proxy.getExistingDirectory("Export folder")
+        # List all transactions in the wallet by creation date ascending.
+        # Have key data for each transaction.
+        # Export as named files, tx and key metadata.
+        from ...wallet_support.dump import convert_txokeydata_to_jsondata
+        account = self._wallet.get_account(account_id)
+        assert account is not None
+        key_fingerprint = account.get_fingerprint()
+        for i, row in enumerate(self._wallet.data.read_debug_bitcache_transactions(account_id)):
+            tx_id = hash_to_hex_str(row.tx_hash)
+            tx_prefix = f"A{account_id:06d}_T{i:06d}_{tx_id[:8]}"
+            with open(os.path.join(export_path, tx_prefix+".txn"), "wb") as f:
+                f.write(row.tx_data)
+
+            with open(os.path.join(export_path, tx_prefix+".json"), "w") as f:
+                json.dump(convert_txokeydata_to_jsondata(key_fingerprint, row.key_data), f)

@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Any, cast
 import unittest.mock
+from urllib.parse import urlparse
 import uuid
 
 from aiohttp import web
@@ -12,10 +13,10 @@ import bitcoinx
 from bitcoinx import double_sha256, hash_to_hex_str
 
 from electrumsv.app_state import AppStateProxy
-from electrumsv.constants import NetworkServerType, ServerCapability
+from electrumsv.constants import NetworkServerType, ServerCapability, TokenPermissions
 from electrumsv.network_support.api_server import NewServer
 from electrumsv.network_support.types import ChannelNotification, ServerConnectionState, \
-    ServerWebsocketNotification, TokenPermissions
+    ServerWebsocketNotification
 from electrumsv.network_support.general_api import unpack_binary_restoration_entry
 from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
     get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async, \
@@ -185,10 +186,9 @@ async def mock_general_websocket(request: web.Request) -> WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     try:
-        result = ChannelNotification(id=MOCK_CHANNEL_ID, notification="New message arrived")
-        notification = ServerWebsocketNotification(message_type="bsv.api.channels.notification",
-            result=result)
-        await ws.send_json(notification)
+        await ws.send_json(ServerWebsocketNotification(message_type="bsv.api.channels.notification",
+            result=ChannelNotification(sequence=1, received="datestring",
+            content_type="content_type", channel_id=MOCK_CHANNEL_ID)))
         return ws
     finally:
         if not ws.closed:
@@ -450,6 +450,14 @@ async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohtt
     assert peer_channel_data["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
 
 
+def ensure_testable_url(url: str) -> str:
+    # The aiohttp client only accepts urls with just path and anything following it.
+    u = urlparse(url)
+    s = u.path
+    if u.query:
+        s += "?="+ u.query
+    return s
+
 @unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, aiohttp_client) \
         -> None:
@@ -458,8 +466,8 @@ async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, a
     state = _get_server_state(test_session)
     peer_channel_data = await create_peer_channel_async(state)
     access_token_data = peer_channel_data["access_tokens"][0]
-    message_datas = await list_peer_channel_messages_async(state, peer_channel_data["id"],
-        access_token_data["token"])
+    message_datas = await list_peer_channel_messages_async(state,
+        ensure_testable_url(peer_channel_data["href"]), access_token_data["token"])
     assert len(message_datas) == 1
     assert message_datas[0]['sequence'] == 1
     assert message_datas[0]['received'] == '2021-12-30T06:33:40.374Z'

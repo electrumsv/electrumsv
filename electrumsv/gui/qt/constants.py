@@ -4,8 +4,6 @@ from ...constants import PaymentRequestFlag
 from ...i18n import _
 
 
-ICON_NAME_INVOICE_PAYMENT = "seal"
-
 
 pr_icons = {
     PaymentRequestFlag.STATE_UNPAID: "unpaid.png",

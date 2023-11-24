@@ -21,7 +21,7 @@ except ModuleNotFoundError:
 
 from electrumsv.constants import (AccountFlag, AccountPaymentFlag, BlockHeight, DerivationType,
     KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag, NetworkServerFlag, NetworkServerType,
-    PaymentRequestFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TXIFlag,
+    PaymentRequestFlag, ChannelMessageFlag, ScriptType, ChannelFlag, TXIFlag,
     TXOFlag, TxFlag, WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
@@ -164,9 +164,9 @@ def test_table_accounts_CRUD(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 20
 
     line1 = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name1',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     line2 = AccountRow(ACCOUNT_ID+2, MASTERKEY_ID+1, ScriptType.P2PK, 'name2',
-        AccountFlag(1 << 20), None, None, 1, 1)
+        AccountFlag(1 << 20), None, None, None, None, 1, 1)
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -233,9 +233,9 @@ def test_account_payments(db_context: DatabaseContext) -> None:
 
     # Create the accounts.
     account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
 
     future = db_functions.create_accounts(db_context, [ account1, account2 ])
     future.result()
@@ -357,7 +357,7 @@ def test_table_keyinstances_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -771,7 +771,7 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     db_functions.create_accounts(db_context, [ account_row ]).result()
 
     db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
@@ -922,7 +922,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     db_functions.create_accounts(db_context, [ account_row ]).result()
 
     db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
@@ -1285,7 +1285,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1408,9 +1408,11 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ]).result(timeout=5)
 
-    future = db_functions.create_account_payments_UNITTEST(db_context,
-        [ AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1) ])
-    future.result()
+    # This will have already been created above already.
+    with pytest.raises(sqlite3.IntegrityError):
+        future = db_functions.create_account_payments_UNITTEST(db_context,
+            [ AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1) ])
+        future.result()
 
     assert create_request2_row.paymentrequest_id is not None
     db = db_context.acquire_connection()
@@ -1481,7 +1483,7 @@ def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1557,9 +1559,9 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
@@ -1688,7 +1690,7 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
     assert server_id is not None
 
     # Check that the foreign key constraint fails on the insert with a non-existing server id.
-    create_row = ServerPeerChannelRow(None, 23, None, None, ServerPeerChannelFlag.ALLOCATING,
+    create_row = ServerPeerChannelRow(None, 23, None, None, ChannelFlag.ALLOCATING,
         date_created, date_created)
     future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_row)
@@ -1699,7 +1701,7 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
         future.result()
 
     # Check that a valid insert succeeds.
-    create_row = ServerPeerChannelRow(None, server_id, None, None, ServerPeerChannelFlag.ALLOCATING,
+    create_row = ServerPeerChannelRow(None, server_id, None, None, ChannelFlag.ALLOCATING,
         date_created, date_created)
     future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_row)
@@ -1708,20 +1710,20 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
     created_row = create_row._replace(peer_channel_id=peer_channel_id)
 
     # Check that a read produces the same result as the insert.
-    read_rows = db_functions.read_server_peer_channels(db_context, server_id)
+    read_rows = db_functions.read_server_peer_channels(db_context, server_id=server_id)
     assert len(read_rows) == 1
     read_row = read_rows[0]
     assert read_row == created_row
 
     future = db_context.post_to_thread(db_functions.update_server_peer_channel_write,
-        None, "NOT A REAL URL", ServerPeerChannelFlag.NONE, peer_channel_id, [])
+        None, "NOT A REAL URL", ChannelFlag.NONE, peer_channel_id, [])
     updated_row = future.result()
     assert updated_row.remote_channel_id is None
     assert updated_row.remote_url == "NOT A REAL URL"
-    assert updated_row.peer_channel_flags == ServerPeerChannelFlag.NONE
+    assert updated_row.peer_channel_flags == ChannelFlag.NONE
 
     # Check that a read produces the same result as the update.
-    read_rows = db_functions.read_server_peer_channels(db_context, server_id)
+    read_rows = db_functions.read_server_peer_channels(db_context, server_id=server_id)
     assert len(read_rows) == 1
     read_row = read_rows[0]
     assert read_row == updated_row
@@ -1741,7 +1743,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # CHANNEL: Check that a valid insert succeeds.
     create_channel_row1 = ServerPeerChannelRow(None, server_id, "remote id", None,
-        ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY, date_created,
+        ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY, date_created,
         date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row1, server_id)
@@ -1751,7 +1753,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     # MESSAGE: Create an arbitrary test message.
     sequence = 111
     create_message_row = PeerChannelMessageRow(None, peer_channel_id1, b'abc',
-        PeerChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
+        ChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
         [ create_message_row ])
     created_message_rows1 = future2.result()
@@ -1765,7 +1767,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # CHANNEL: Create a second channel to aid in testing filtering.
     create_channel_row2 = ServerPeerChannelRow(None, server_id, None, None,
-        ServerPeerChannelFlag.PURPOSE_TEST_ALTERNATIVE | ServerPeerChannelFlag.ALLOCATING,
+        ChannelFlag.PURPOSE_TEST_ALTERNATIVE | ChannelFlag.ALLOCATING,
         date_created, date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row2)
@@ -1774,9 +1776,9 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     # MESSAGE: Create an arbitrary test message.
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write, [
         PeerChannelMessageRow(None, peer_channel_id2, b'abc',
-            PeerChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
+            ChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
         PeerChannelMessageRow(None, peer_channel_id2, b'abc',
-            PeerChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
+            ChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
                 date_created),
     ])
     created_message_rows2 = future2.result()
@@ -1792,19 +1794,19 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # MESSAGES: Filter by server peer channel flag.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
-        PeerChannelMessageFlag.NONE, PeerChannelMessageFlag.NONE,
-        ServerPeerChannelFlag.PURPOSE_TEST_ALTERNATIVE, ServerPeerChannelFlag.MASK_PURPOSE)
+        ChannelMessageFlag.NONE, ChannelMessageFlag.NONE,
+        ChannelFlag.PURPOSE_TEST_ALTERNATIVE, ChannelFlag.MASK_PURPOSE)
     assert len(read_rows) == 2
     assert { message_row.message_id for message_row in read_rows } == \
         { created_message_rows2[0].message_id, created_message_rows2[1].message_id }
 
     # MESSAGES: Filter by server peer channel flag.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
-        PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-        ServerPeerChannelFlag.NONE, ServerPeerChannelFlag.NONE)
+        ChannelMessageFlag.UNPROCESSED, ChannelMessageFlag.UNPROCESSED,
+        ChannelFlag.NONE, ChannelFlag.NONE)
     assert len(read_rows) == 1
     assert read_rows[0].message_id == [ message_row for message_row in created_message_rows2
-        if message_row.message_flags & PeerChannelMessageFlag.UNPROCESSED ][0].message_id
+        if message_row.message_flags & ChannelMessageFlag.UNPROCESSED ][0].message_id
 
 
 def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
@@ -1833,11 +1835,11 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     account_row1 = AccountRow(ACCOUNT1_ID, MASTERKEY1_ID, ScriptType.P2PKH, 'name1',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row2 = AccountRow(ACCOUNT2_ID, MASTERKEY2_ID, ScriptType.P2PK, 'name2',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row3 = AccountRow(ACCOUNT3_ID, MASTERKEY3_ID, ScriptType.P2PK, 'name2',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2, account_row3 ])
     future.result()
 
@@ -2014,7 +2016,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         masterkey_future.result(timeout=5)
 
         line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-            AccountFlag.NONE, None, None, 1, 1)
+            AccountFlag.NONE, None, None, None, None, 1, 1)
         account_future = db_functions.create_accounts(db_context, [ line1 ])
         account_future.result(timeout=5)
 
@@ -2205,7 +2207,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
     if True:
         # Check that a valid insert succeeds.
         create_row = ServerPeerChannelRow(None, SERVER_ID, None, None,
-            ServerPeerChannelFlag.ALLOCATING, date_created, date_created)
+            ChannelFlag.ALLOCATING, date_created, date_created)
         future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
             create_row)
         peer_channel_id = future.result()

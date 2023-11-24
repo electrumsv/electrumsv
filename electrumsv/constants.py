@@ -1,11 +1,8 @@
 from enum import Enum, IntEnum, IntFlag
-from typing import Literal, Sequence, TYPE_CHECKING
+from typing import Literal, Sequence
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
-
-if TYPE_CHECKING:
-    from .types import FeeQuoteTypeEntry2
 
 
 ## Local functions to avoid circular dependencies. This file should be independent
@@ -583,23 +580,24 @@ MAX_VALUE = -1
 NO_BLOCK_HASH = bytes(32)
 
 
-class ServerPeerChannelFlag(IntFlag):
+class ChannelFlag(IntFlag):
     NONE                                        = 0
     # This gets set immediately before we create the actual peer channel remotely.
     ALLOCATING                                  = 1 << 0
-    DEACTIVATED                                 = 1 << 19
+    DEACTIVATED                                 = 1 << 1
 
-    # Bits 16-18: Isolated purposes that the channels are used for.
-    PURPOSE_TIP_FILTER_DELIVERY                 = 0b001 << 16
-    PURPOSE_CONTACT_CONNECTION                  = 0b010 << 16
+    PURPOSE_TIP_FILTER_DELIVERY                 = 1 << 16
+    PURPOSE_CONTACT_CONNECTION                  = 1 << 17
+    PURPOSE_BITCACHE                            = 1 << 18
     # NOTE(rt12) This is not persisted and can be dropped when there is
     #     an alternative purpose that can be used in the tests (at this time
     #     there is only the tip filter option).
-    PURPOSE_TEST_ALTERNATIVE                    = 0b111 << 16
-    MASK_PURPOSE                                = 0b111 << 16
+    PURPOSE_TEST_ALTERNATIVE                    = 1 << 19
+    MASK_PURPOSE                                = PURPOSE_TIP_FILTER_DELIVERY | \
+        PURPOSE_CONTACT_CONNECTION | PURPOSE_BITCACHE | PURPOSE_TEST_ALTERNATIVE
 
 
-class PeerChannelMessageFlag(IntFlag):
+class ChannelMessageFlag(IntFlag):
     NONE                                        = 0
 
     UNPROCESSED                                 = 1 << 31
@@ -614,11 +612,12 @@ class PeerChannelAccessTokenFlag(IntFlag):
     FOR_THIRD_PARTY_USAGE                       = 1 << 1
 
     # Use cases
-    FOR_TIP_FILTER_SERVER                       = 1 << 2
-    FOR_CONTACT_CONNECTION                      = 1 << 3
+    FOR_TIP_FILTER_SERVER                       = 0b001 << 2
+    FOR_CONTACT_CONNECTION                      = 0b010 << 2
+    FOR_BITCACHE                                = 0b011 << 2
 
     # This should include all use case masks.
-    MASK_FOR                                    = FOR_TIP_FILTER_SERVER | FOR_CONTACT_CONNECTION
+    MASK_FOR                                    = 0b111 << 2
 
 
 class PushDataHashRegistrationFlag(IntFlag):
@@ -711,3 +710,16 @@ class BackupMessageFlag(IntFlag):
     INCLUDES_ACCOUNT_TRANSACTIONS               = 1 << 3
     INCLUDES_TRANSACTIONS                       = 1 << 4
     INCLUDES_PAYMENTS                           = 1 << 5
+
+
+class BitcacheTxFlag(IntFlag):
+    NONE            = 0
+
+    SENT            = 0b001 << 1
+    RECEIVED        = 0b010 << 1
+    MASK_PROCESSED  = 0b111 << 1
+
+class TokenPermissions(IntFlag):
+    NONE            = 0
+    READ_ACCESS     = 1 << 1
+    WRITE_ACCESS    = 1 << 2

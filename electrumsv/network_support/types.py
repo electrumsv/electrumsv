@@ -11,17 +11,15 @@ import asyncio
 import concurrent.futures
 import dataclasses
 import enum
-from enum import IntFlag
-from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict
+from typing import Any, NamedTuple, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
-from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
+from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag, TokenPermissions
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, PeerChannelMessageRow
 from .constants import ServerProblemKind
 
 if TYPE_CHECKING:
     from ..wallet import Wallet, WalletDataAccess
-    from ..wallet_database.types import ServerPeerChannelRow
 
     from .api_server import NewServer
 
@@ -45,11 +43,6 @@ class TipResponse(NamedTuple):
 
 
 # ----- Peer Channel Types ----- #
-class TokenPermissions(IntFlag):
-    NONE            = 0
-    READ_ACCESS     = 1 << 1
-    WRITE_ACCESS    = 1 << 2
-
 
 class PeerChannelToken(NamedTuple):
     remote_token_id: int
@@ -96,7 +89,7 @@ class GenericPeerChannelMessage(TypedDict):
 
 
 class TipFilterPushDataMatchesData(TypedDict):
-    blockId: Optional[str]
+    blockId: str|None
     matches: list[TipFilterPushDataMatch]
 
 
@@ -107,7 +100,7 @@ class TipFilterPushDataMatch(TypedDict):
     flags: int
 
 
-class MessageViewModelGetBinary(TypedDict):
+class PeerChannelBinaryMessage(TypedDict):
     sequence: int
     received: str
     content_type: str
@@ -116,8 +109,10 @@ class MessageViewModelGetBinary(TypedDict):
 
 # ----- General Websocket Types ----- #
 class ChannelNotification(TypedDict):
-    id: str
-    notification: str
+    sequence: int
+    received: str
+    content_type: str
+    channel_id: str
 
 
 class ServerWebsocketNotification(TypedDict):
@@ -160,19 +155,25 @@ class TipFilterRegistrationResponse(TypedDict):
 
 
 class IndexerServerSettings(TypedDict):
-    tipFilterCallbackUrl: Optional[str]
-    tipFilterCallbackToken: Optional[str]
+    tipFilterCallbackUrl: str|None
+    tipFilterCallbackToken: str|None
 
 
 ServerConnectionProblem = tuple[ServerProblemKind, str]
 ServerConnectionProblems = dict[ServerProblemKind, list[str]]
 
+@dataclasses.dataclass
+class BitcacheProducerState:
+    account_id: int
+    event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    future: concurrent.futures.Future[None]|None = None
+
 
 class ServerStateProtocol(Protocol):
-    wallet_proxy: Wallet | None
-    wallet_data: WalletDataAccess | None
+    wallet_proxy: Wallet|None
+    wallet_data: WalletDataAccess|None
     session: aiohttp.ClientSession
-    credential_id: IndefiniteCredentialId | None
+    credential_id: IndefiniteCredentialId|None
 
     # This should only be used to send problems that occur that should result in the connection
     # being closed and the user informed.
@@ -183,35 +184,41 @@ class ServerStateProtocol(Protocol):
     stage_change_event: asyncio.Event
 
     # Wallet individual futures (all servers).
-    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]]
+    connection_future: concurrent.futures.Future[ServerConnectionProblems]|None
 
     # Server consuming: Incoming peer channel message notifications from the server.
-    peer_channel_message_queue: asyncio.Queue[str]
+    peer_channel_message_queue: asyncio.Queue[ChannelNotification]
+
+    # Wallet consuming: Post tip filter matches here to get them registered with the server.
+    tip_filter_matches_queue: \
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+    # Wallet consuming: Post direct connection matches here to get them registered with the server.
+    direct_connection_matches_queue: \
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+    # Wallet consuming: Post bitcache matches here to get them registered with the server.
+    bitcache_matches_queue: \
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]]
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
-            -> None:
-        ...
+            -> None: ...
 
     @property
-    def server_url(self) -> str:
-        ...
+    def is_external(self) -> bool: ...
+    @property
+    def server_url(self) -> str: ...
 
 
 @dataclasses.dataclass
 class PeerChannelServerState(ServerStateProtocol):
-    wallet_proxy: Wallet | None
-    wallet_data: WalletDataAccess | None
+    wallet_proxy: Wallet|None
+    wallet_data: WalletDataAccess|None
     session: aiohttp.ClientSession
-    credential_id: IndefiniteCredentialId | None
-    remote_channel_id: str
+    credential_id: IndefiniteCredentialId|None
 
     external_channel_row: ExternalPeerChannelRow
-
-    # The garbage collector will wait until message processing is complete before deactivating
-    processing_message_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
     # This should only be used to send problems that occur that should result in the connection
     # being closed and the user informed.
@@ -223,11 +230,30 @@ class PeerChannelServerState(ServerStateProtocol):
     stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
     # Wallet individual futures (all servers).
-    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]] = None
+    connection_future: concurrent.futures.Future[ServerConnectionProblems]|None = None
 
     # Server consuming: Incoming peer channel message notifications from the server.
-    peer_channel_message_queue: asyncio.Queue[str] = dataclasses.field(
-        default_factory=asyncio.Queue[str])
+    peer_channel_message_queue: asyncio.Queue[ChannelNotification] = dataclasses.field(
+        default_factory=asyncio.Queue[ChannelNotification])
+
+    # Wallet consuming: Post tip filter matches here to get them registered with the server.
+    tip_filter_matches_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+    # Wallet consuming: Post direct connection matches here to get them registered with the server.
+    direct_connection_matches_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+    # Wallet consuming: Post bitcache matches here to get them registered with the server.
+    bitcache_matches_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
@@ -245,6 +271,8 @@ class PeerChannelServerState(ServerStateProtocol):
             self.disconnection_event_queue.get_nowait()
 
     @property
+    def is_external(self) -> bool: return True
+    @property
     def server_url(self) -> str:
         assert self.external_channel_row.remote_url is not None
         return self.external_channel_row.remote_url
@@ -260,7 +288,6 @@ class ServerConnectionState(ServerStateProtocol):
     server: NewServer
 
     credential_id: IndefiniteCredentialId | None = None
-    cached_peer_channel_rows: dict[str, ServerPeerChannelRow] | None = None
 
     # This should only be used to send problems that occur that should result in the connection
     # being closed and the user informed.
@@ -273,8 +300,8 @@ class ServerConnectionState(ServerStateProtocol):
     output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[Outpoint]])
     # Server consuming: Incoming peer channel message notifications from the server.
-    peer_channel_message_queue: asyncio.Queue[str] = dataclasses.field(
-        default_factory=asyncio.Queue[str])
+    peer_channel_message_queue: asyncio.Queue[ChannelNotification] = dataclasses.field(
+        default_factory=asyncio.Queue[ChannelNotification])
     # Server consuming: Set this if there are new pushdata hashes that need to be monitored.
     tip_filter_new_registration_queue: asyncio.Queue[TipFilterRegistrationJob] = \
         dataclasses.field(default_factory=asyncio.Queue[TipFilterRegistrationJob])
@@ -294,12 +321,18 @@ class ServerConnectionState(ServerStateProtocol):
             list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
             list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+    # Wallet consuming: Post bitcache matches here to get them registered with the server.
+    bitcache_matches_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
         default_factory=asyncio.Queue[DPPMessageRow])
     # dpp_invoice ID -> open websocket. If websocket is None, it means the ws:// is closed
-    dpp_websockets: dict[str, Optional[ClientWebSocketResponse]] = dataclasses.field(
-        default_factory=dict[str, Optional[ClientWebSocketResponse]])
+    dpp_websockets: dict[str, ClientWebSocketResponse] = dataclasses.field(
+        default_factory=dict[str, ClientWebSocketResponse])
     dpp_websocket_connection_events: dict[str, asyncio.Event] = dataclasses.field(
         default_factory=dict[str, asyncio.Event])
 
@@ -309,26 +342,30 @@ class ServerConnectionState(ServerStateProtocol):
     upgrade_lock: asyncio.Lock = dataclasses.field(default_factory=asyncio.Lock)
 
     # Wallet individual futures (all servers).
-    stage_change_pipeline_future: Optional[concurrent.futures.Future[None]] = None
-    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]] = None
+    stage_change_pipeline_future: concurrent.futures.Future[None]|None = None
+    connection_future: concurrent.futures.Future[ServerConnectionProblems]|None = None
 
     # Wallet individual futures (servers used for blockchain services only).
-    output_spends_consumer_future: Optional[concurrent.futures.Future[None]] = None
-    tip_filter_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    output_spends_consumer_future: concurrent.futures.Future[None]|None = None
+    tip_filter_consumer_future: concurrent.futures.Future[None]|None = None
     contact_message_consumer_future: concurrent.futures.Future[None] | None = None
+    bitcache_consumer_future: concurrent.futures.Future[None] | None = None
+    bitcache_producer_states: dict[int,BitcacheProducerState] = dataclasses.field(
+        default_factory=dict[int,BitcacheProducerState])
     # For each DPP Proxy server there is a manager task to create ws:// connections and
     # a corresponding consumer task associated with the `Wallet` instance (which uses a shared
     # queue)
-    manage_dpp_connections_future: Optional[concurrent.futures.Future[None]] = None
-    dpp_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    manage_dpp_connections_future: concurrent.futures.Future[None]|None = None
+    dpp_consumer_future: concurrent.futures.Future[None]|None = None
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
         default_factory=list[concurrent.futures.Future[None]])
 
     @property
-    def server_url(self) -> str:
-        return self.server.url
+    def is_external(self) -> bool: return False
+    @property
+    def server_url(self) -> str: return self.server.url
 
     @property
     def used_with_reference_server_api(self) -> bool:
@@ -340,7 +377,6 @@ class ServerConnectionState(ServerStateProtocol):
         self.stage_change_event.set()
         self.stage_change_event.clear()
 
-        self.cached_peer_channel_rows = None
         self.indexer_settings = None
 
         # When we establish a new websocket we will register all the outstanding output spend
@@ -361,3 +397,4 @@ class VerifiableKeyData(TypedDict):
 class AccountRegisteredDict(TypedDict):
     public_key_hex: str
     api_key: str
+

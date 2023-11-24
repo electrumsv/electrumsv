@@ -54,8 +54,8 @@ except ModuleNotFoundError:
     import sqlite3
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
-    ServerPeerChannelFlag
+from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, ChannelMessageFlag, \
+    ChannelFlag
 from ..exceptions import ServerConnectionError
 from ..i18n import _
 from ..logs import logs
@@ -189,7 +189,7 @@ async def create_peer_channel_for_contact_async(wallet: Wallet, contact_id: int)
     # do not consider it as in use until it is fully associated with the contact.
     peer_channel_row, writeonly_access_token, _discard = \
         await create_peer_channel_locally_and_remotely_async(server_state,
-            ServerPeerChannelFlag.ALLOCATING | ServerPeerChannelFlag.PURPOSE_CONTACT_CONNECTION,
+            ChannelFlag.ALLOCATING | ChannelFlag.PURPOSE_CONTACT_CONNECTION,
             PeerChannelAccessTokenFlag.FOR_CONTACT_CONNECTION)
 
     # Associate the peer channel as in use for direct connections with this contact. Removal of
@@ -323,11 +323,11 @@ async def consume_contact_messages_async(state: ServerConnectionState) -> None:
     assert state.wallet_data is not None
 
     message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
-    for message_row in await state.wallet_data.read_server_peer_channel_messages_async(
+    for message_row in state.wallet_data.read_server_peer_channel_messages(
             state.server.server_id,
-            PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-            ServerPeerChannelFlag.PURPOSE_CONTACT_CONNECTION,
-            ServerPeerChannelFlag.MASK_PURPOSE):
+            ChannelMessageFlag.UNPROCESSED, ChannelMessageFlag.UNPROCESSED,
+            ChannelFlag.PURPOSE_CONTACT_CONNECTION,
+            ChannelFlag.MASK_PURPOSE):
         channel_message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
         message_entries.append((message_row, channel_message))
 

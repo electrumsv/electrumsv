@@ -77,7 +77,7 @@ from ...util import UpdateCheckResultType, format_fee_satoshis, get_identified_r
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlag, Wallet
 from ...wallet_database.types import PaymentDescriptionRow, InvoiceRow, KeyDataProtocol, \
-    UTXOProtocol
+    ServerPeerChannelRow, UTXOProtocol
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -141,7 +141,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     payment_deleted_signal = pyqtSignal(object, object)
     payment_labels_updated_signal = pyqtSignal(object)
     payment_requests_paid_signal = pyqtSignal(list)
-    show_error_signal = pyqtSignal(str, object)
+    show_error_signal = pyqtSignal(str)
     show_secured_data_signal = pyqtSignal(object)
     transaction_state_signal = pyqtSignal(object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
@@ -964,11 +964,29 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         assert self._account is not None
 
         from . import account_restoration_dialog
-        # from importlib import reload # TODO(dev-helper) Remove at some point.
+        # from importlib import reload
         # reload(account_restoration_dialog)
         dialog = account_restoration_dialog.AccountRestorationDialog(weakref.proxy(self),
             self._wallet, self._account_id, scan_role)
         dialog.show()
+
+    def setup_new_bitcache(self, account_id: int) -> None:
+        from . import bitcache
+        from importlib import reload
+        reload(bitcache)
+        def on_bitcache_created(account_id: int, peer_channel_row: ServerPeerChannelRow) -> None:
+            self._logger.debug("Bitcache created for account %d", account_id)
+        def on_msgbox_server_ready() -> None:
+            bc = bitcache.BitcacheThinger(self)
+            bc.success_signal.connect(on_bitcache_created)
+            bc.create_bitcache_peer_channel(self._wallet, account_id)
+        bitcache.show_server_registration_dialog(self, self._wallet, on_msgbox_server_ready)
+
+    def connect_to_existing_bitcache(self, account_id: int) -> None:
+        from . import bitcache
+        from importlib import reload
+        reload(bitcache)
+        bitcache.show_connection_dialog(self, self._wallet, account_id)
 
     def new_payment(self) -> None:
         from . import payment
@@ -1073,6 +1091,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # custom wrappers for getOpenFileName and getSaveFileName, that remember the path
     # selected by the user
+    def getExistingDirectory(self, title: str) -> str:
+        directory = self.config.get_explicit_type(str, 'io_dir', os.path.expanduser('~'))
+        directoryPath = QFileDialog.getExistingDirectory(self, title, directory)
+        if directoryPath and directory != directoryPath:
+            self.config.set_key('io_dir', directoryPath, True)
+        return directoryPath
+
     def getOpenFileName(self, title: str, filter: str="") -> str:
         directory = self.config.get_explicit_type(str, 'io_dir', os.path.expanduser('~'))
         fileName, __ = QFileDialog.getOpenFileName(self, title, directory, filter)

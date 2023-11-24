@@ -50,7 +50,7 @@ from ...wallet import AbstractAccount
 from ...wallet_database.types import HistoryListRow, PaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 
-from .constants import ICON_NAME_INVOICE_PAYMENT, ViewPaymentMode
+from .constants import ViewPaymentMode
 from .table_widgets import TableTopButtonLayout
 from .util import MyTreeWidget, read_QIcon, SortableTreeWidgetItem
 
@@ -164,7 +164,9 @@ class HistoryList(MyTreeWidget):
 
         self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
-        self.invoiceIcon = read_QIcon(ICON_NAME_INVOICE_PAYMENT)
+        self._invoice_icon = read_QIcon("icons8-bill-80-blueui.png")
+        self._imported_icon = read_QIcon("icons8-communication-80-blueui.png")
+        self._legacy_payment_icon = read_QIcon("icons8-signal-80-blueui.png")
 
         # self._delegate = ItemDelegate(None, 50)
         # self.setItemDelegate(self._delegate)
@@ -272,8 +274,31 @@ class HistoryList(MyTreeWidget):
             timestamp = payment_row.date_relevant
             description = payment_row.description or ""
             paymentrequest_id = payment_row.paymentrequest_id
-            invoice_id = payment_row.paymentrequest_id
+            invoice_id = payment_row.invoice_id
             conf: int = 0
+
+            request_state = PaymentRequestFlag.NONE
+            request_type = PaymentRequestFlag.NONE
+            if invoice_id is not None:              # Outgoing payment request.
+                assert payment_row.invoice_flags is not None
+                request_state = payment_row.invoice_flags & PaymentRequestFlag.MASK_STATE
+                request_type = payment_row.invoice_flags & PaymentRequestFlag.MASK_TYPE
+                # Pre-1.4.0 invoices should be treated as the equivalent "monitored" payments.
+                if request_type == PaymentRequestFlag.TYPE_LEGACY:
+                    request_type = PaymentRequestFlag.TYPE_MONITORED
+            elif paymentrequest_id is not None:     # Incoming payment request.
+                assert payment_row.paymentrequest_state is not None
+                request_state = payment_row.paymentrequest_state & PaymentRequestFlag.MASK_STATE
+                request_type = payment_row.paymentrequest_state & PaymentRequestFlag.MASK_TYPE
+
+            payment_icon: QIcon|None = None
+            if request_type == PaymentRequestFlag.TYPE_INVOICE:
+                payment_icon = self._invoice_icon
+            elif request_type == PaymentRequestFlag.TYPE_MONITORED:
+                payment_icon = self._legacy_payment_icon
+            elif request_type == PaymentRequestFlag.TYPE_IMPORTED:
+                payment_icon = self._imported_icon
+
             if payment_row.account_id is None:
                 # This payment has no transactions and therefore no discernable account.
                 status = TxStatus.MISSING
@@ -308,13 +333,13 @@ class HistoryList(MyTreeWidget):
                     line.append(text)
 
             item = SortableTreeWidgetItem(line)
-            icon = get_tx_icon(status)
-            if icon is not None:
-                item.setIcon(Columns.STATUS, icon)
+            status_icon = get_tx_icon(status)
+            if status_icon is not None:
+                item.setIcon(Columns.STATUS, status_icon)
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
+            if payment_icon is not None:
+                item.setIcon(Columns.DESCRIPTION, payment_icon)
 
-            if invoice_id is not None:
-                item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
             # TODO(technical-debt) Payments. Show custom icon for payment requests.
             for i in range(len(line)):
                 if i > Columns.DESCRIPTION:
@@ -435,7 +460,7 @@ class HistoryList(MyTreeWidget):
                 lambda: self._main_window.show_payment(ViewPaymentMode.FROM_HISTORY, payment_id)))
 
         if invoice_id is not None:
-            menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
+            menu.addAction(self._invoice_icon, _("View invoice"),
                 partial(self._show_invoice_window, invoice_id))
 
         menu.addSeparator()
@@ -448,7 +473,7 @@ class HistoryList(MyTreeWidget):
         #             partial(self._main_window.cpfp, account, tx, child_tx))
 
         if invoice_id is not None:
-            broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
+            broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"))
             row = self._wallet.data.read_invoice(invoice_id=invoice_id)
             if row is None:
                 # The associated invoice has been deleted.

@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel,
     QStyle, QStyleOption, QToolBar, QVBoxLayout, QWidget)
 
 from ...app_state import app_state, get_app_state_qt
-from ...constants import NetworkServerFlag
+from ...constants import NetworkServerFlag, TokenPermissions
 from ...contacts import IdentityCheckResult
 from ...exceptions import ServerConnectionError
 from ...i18n import _
@@ -45,7 +45,6 @@ from ...logs import logs
 from ...network_support.direct_connection_protocol import create_peer_channel_for_contact_async, \
     encode_invitation
 from ...network_support.exceptions import GeneralAPIError
-from ...network_support.types import TokenPermissions
 from ...wallet_database.types import ContactAddRow, ContactRow, PeerChannelAccessTokenRow, \
     ServerPeerChannelRow
 
@@ -336,7 +335,7 @@ class ContactCard(QWidget):
 
             assert self._contact_row.local_peer_channel_id is not None
             peer_channel_rows = self._context.wallet_data.read_server_peer_channels(
-                peer_channel_id=self._contact_row.local_peer_channel_id)
+                channel_id=self._contact_row.local_peer_channel_id)
             assert len(peer_channel_rows) == 1
             peer_channel_row = peer_channel_rows[0]
 

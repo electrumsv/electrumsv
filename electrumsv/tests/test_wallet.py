@@ -408,7 +408,7 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
         raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-            AccountFlag.NONE, None, None, 1, 1)
+            AccountFlag.NONE, None, None, None, None, 1, 1)
         account_row = wallet.add_accounts([ raw_account_row ])[0]
         account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
@@ -431,7 +431,7 @@ class TestLegacyWalletCreation:
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-            AccountFlag.NONE, None, None, 1, 1)
+            AccountFlag.NONE, None, None, None, None, 1, 1)
         account_row = wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
@@ -510,7 +510,7 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(keystore)
 
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text',
-            AccountFlag.NONE, None, None, 1, 1)
+            AccountFlag.NONE, None, None, None, None, 1, 1)
         account_row = wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
@@ -1026,7 +1026,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
@@ -1100,7 +1100,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
@@ -1247,7 +1247,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
@@ -1348,7 +1348,7 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
@@ -1525,7 +1525,7 @@ async def test_extend_transaction_sequence() -> None:
     assert masterkey_row.flags == MasterKeyFlag.ELECTRUM_SEED
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlag.NONE, None, None, 1, 1)
+        AccountFlag.NONE, None, None, None, None, 1, 1)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)

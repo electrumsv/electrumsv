@@ -48,6 +48,8 @@ EXPIRATION_VALUES: list[tuple[str, int | None]] = [
 if Net.NAME in TEST_NETWORK_NAMES:
     EXPIRATION_VALUES = [
         # This is the minimum the regtest "simple indexer" project supports.
+        (_('30 seconds'), 1*30),
+        (_('1 minutes'), 1*60),
         (_('5 minutes'), 5*60),
 
         *EXPIRATION_VALUES,
@@ -283,7 +285,7 @@ class ReceiveDialog(QDialog):
         self._their_description_edit.setPlaceholderText(_("Reason for payment"))
         self._their_description_edit.setToolTip(_("Your counterparty will see this, telling them "
             "what they are paying for"))
-        form.add_row(_("Purpose"), self._their_description_edit)
+        form.add_row(_("Their reference"), self._their_description_edit)
         self._their_description_edit.setText(
             "" if self._request_row is None or self._request_row.merchant_reference is None
             else self._request_row.merchant_reference)

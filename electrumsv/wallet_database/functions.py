@@ -38,11 +38,12 @@ from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, e
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
 from ..bitcoin import COIN
-from ..constants import (AccountPaymentFlag, BackupMessageFlag, BlockHeight, DerivationType,
+from ..constants import (AccountPaymentFlag, BackupMessageFlag, BitcacheTxFlag, BlockHeight,
+    DerivationType,
     DerivationPath, KeyInstanceFlag, MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path,
-    PaymentFlag, PaymentRequestFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag,
+    PaymentFlag, PaymentRequestFlag, PeerChannelAccessTokenFlag, ChannelMessageFlag,
     PushDataHashRegistrationFlag,
-    ScriptType, ServerPeerChannelFlag, TXOFlag, TxFlag, unpack_derivation_path,
+    ScriptType, ChannelFlag, TokenPermissions, TXOFlag, TxFlag, unpack_derivation_path,
     WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
@@ -53,18 +54,18 @@ from ..types import BackupAccountEntry, BackupAccountPaymentEntry, BackupMasterK
     Outpoint, OutputSpend, PaymentCtx, ServerAccountKey, TxImportCtx
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
-from .types import (AccountRow, AccountHistoryOutputRow, AccountPaymentRow,
+from .types import (AccountRow, AccountHistoryOutputRow, AccountPaymentRow, BitcacheTransactionRow,
     PaymentDescriptionRow, AccountTransactionOutputSpendableRow,
     AccountUTXOExRow, BackupMessageRow, ContactAddRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRow, PaymentRequestRow,
     PaymentRequestOutputRow, PaymentRequestUpdateRow,
-    PeerChannelIds, MerkleProofUpdateRow, PeerChannelAccessTokenRow, PushDataMatchMetadataRow,
+    MerkleProofUpdateRow, PeerChannelAccessTokenRow, PushDataMatchMetadataRow,
     PushDataMatchRow, PushDataHashRegistrationRow, ServerPeerChannelRow,
     PeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
     TransactionExistsRow, TransactionInputAddRow,
-    TransactionInputSnapshotRow, TransactionOutputAddRow, STXORow,
+    TransactionInputSnapshotRow, TransactionOutputAddRow, TransactionOutputKeyDataRow, STXORow,
     UTXORow,
     TransactionValueRow, TXOFullRow, TransactionProoflessRow, UNITTEST_TxProofData,
     TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
@@ -73,17 +74,53 @@ from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
 
+ACCOUNT_ROW_COLUMNS = "account_id, default_masterkey_id, default_script_type, account_name, " \
+    "flags, blockchain_server_id, peer_channel_server_id, bitcache_peer_channel_id, " \
+    "external_bitcache_peer_channel_id, date_created, date_updated"
 
 def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) \
         -> concurrent.futures.Future[None]:
-    query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
-        "account_name, flags, blockchain_server_id, peer_channel_server_id, date_created, "
-        "date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+    query = (f"INSERT INTO Accounts ({ACCOUNT_ROW_COLUMNS}) "
+        "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, entries)
     return db_context.post_to_thread(_write)
 
+
+def update_account_for_bitcache_peer_channel_write(account_id: int, local_id: int|None,
+        external_id: int|None, db: sqlite3.Connection|None=None) -> AccountRow:
+    assert db is not None
+    assert (local_id or external_id) and not (local_id and external_id)
+
+    timestamp = int(time.time())
+    sql = "UPDATE Accounts SET bitcache_peer_channel_id=?1,external_bitcache_peer_channel_id=?2," \
+        "date_updated=?3 WHERE account_id=?4 RETURNING "+ ACCOUNT_ROW_COLUMNS
+    cursor = db.execute(sql, (local_id, external_id, timestamp, account_id))
+    row = cursor.fetchone()
+    assert row is not None
+
+    if local_id:
+        # Mark the peer channel as in use now, so it does not get cleaned up as lost and unused.
+        update_server_peer_channel_flags_write(local_id, ChannelFlag.NONE,
+            ~ChannelFlag.ALLOCATING, db)
+
+    return AccountRow(*row)
+
+@replace_db_context_with_connection
+def read_account_id_for_bitcache_peer_channel_id(db: sqlite3.Connection, local_id: int|None,
+        external_id: int|None) -> int|None:
+    if local_id is not None:
+        assert external_id is None
+        sql = "SELECT account_id FROM Accounts WHERE bitcache_peer_channel_id=?1"
+        args = (local_id,)
+    else:
+        assert external_id is not None
+        sql = "SELECT account_id FROM Accounts WHERE external_bitcache_peer_channel_id=?1"
+        args = (external_id,)
+    row = db.execute(sql, args).fetchone()
+    if row is None: return None
+    return cast(int, row[0])
 
 def create_contacts_write(add_rows: list[ContactAddRow], db: sqlite3.Connection|None=None) \
         -> list[ContactRow]:
@@ -157,8 +194,8 @@ def update_contact_for_local_peer_channel_write(contact_id: int, peer_channel_id
     assert row is not None
 
     # Mark the peer channel as in use now, so it does not get cleaned up as lost and unused.
-    update_server_peer_channel_flags_write(peer_channel_id, ServerPeerChannelFlag.NONE,
-        ~ServerPeerChannelFlag.ALLOCATING, db)
+    update_server_peer_channel_flags_write(peer_channel_id, ChannelFlag.NONE,
+        ~ChannelFlag.ALLOCATING, db)
 
     return ContactRow(*row)
 
@@ -422,23 +459,11 @@ def create_wallet_events(db_context: DatabaseContext, entries: list[WalletEventI
 
 def delete_invoices(db_context: DatabaseContext, invoice_ids: list[int]) \
         -> concurrent.futures.Future[None]:
-    read_sql = "SELECT peer_channel_id FROM ExternalPeerChannels WHERE invoice_id IN ({})"
-    sql_write1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
-    sql_write2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
-    sql_write3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
-    sql_write4 = "DELETE FROM Invoices WHERE invoice_id=?"
+    sql = "DELETE FROM Invoices WHERE invoice_id=?"
 
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
-        # Delete External Peer Channel Data
-        row_matches = read_rows_by_id(PeerChannelIds, db, read_sql, [], invoice_ids)
-        peer_channel_ids = [(row.peer_channel_id,) for row in row_matches]
-        invoice_id_sql_values = [(invoice_id,) for invoice_id in invoice_ids]
-
-        db.executemany(sql_write1, peer_channel_ids)
-        db.executemany(sql_write2, peer_channel_ids)
-        db.executemany(sql_write3, peer_channel_ids)
-        db.executemany(sql_write4, invoice_id_sql_values)
+        db.executemany(sql, [(invoice_id,) for invoice_id in invoice_ids])
     return db_context.post_to_thread(_write)
 
 
@@ -446,14 +471,12 @@ def delete_external_peer_channels(db_context: DatabaseContext,
         peer_channel_ids: list[int]) -> concurrent.futures.Future[None]:
     sql_values = [(peer_channel_id,) for peer_channel_id in peer_channel_ids]
     sql1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
-    sql2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
-    sql3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
+    sql2 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
 
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql1, sql_values)
         db.executemany(sql2, sql_values)
-        db.executemany(sql3, sql_values)
     return db_context.post_to_thread(_write)
 
 
@@ -671,9 +694,7 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
 
 
 def _read_accounts(db: sqlite3.Connection) -> list[AccountRow]:
-    sql = ("SELECT account_id, default_masterkey_id, default_script_type, account_name, flags, "
-        "blockchain_server_id, peer_channel_server_id, date_created, date_updated "
-        "FROM Accounts")
+    sql = "SELECT "+ ACCOUNT_ROW_COLUMNS +" FROM Accounts"
     return [ AccountRow(*row) for row in db.execute(sql).fetchall() ]
 
 @replace_db_context_with_connection
@@ -696,12 +717,80 @@ def update_account_server_ids_write(blockchain_server_id: int|None,
 
 @replace_db_context_with_connection
 def UNITTEST_read_account_ids_for_transaction(db: sqlite3.Connection, tx_hash: bytes) -> list[int]:
-    sql = """
-    SELECT AP.account_id FROM AccountPayments AS AP
-    INNER JOIN Transactions TX ON AP.payment_id=TX.payment_id WHERE TX.tx_hash=?1
-    """
+    sql =\
+    "SELECT AP.account_id FROM AccountPayments AS AP "\
+    "INNER JOIN Transactions TX ON AP.payment_id=TX.payment_id WHERE TX.tx_hash=?1"
     sql_values = (tx_hash,)
     return [ row[0] for row in db.execute(sql, sql_values).fetchall() ]
+
+
+def create_bitcache_sync_entry_write(account_id: int, tx_hash: bytes, flags: BitcacheTxFlag,
+        sequence: int, db: sqlite3.Connection|None=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql =\
+    "INSERT INTO BitcacheTransactions (account_id,tx_hash,flags,channel_sequence,date_created) "\
+    "VALUES (?1,?2,?3,?4,?5)"
+    cursor = db.execute(sql, (account_id, tx_hash, flags, sequence, int(time.time())))
+    assert cursor.rowcount == 1
+
+@replace_db_context_with_connection
+def read_next_unsynced_bitcache_transaction(db: sqlite3.Connection, account_id: int) \
+        -> BitcacheTransactionRow|None:
+    sql1 =\
+    "SELECT TX.tx_hash, TX.tx_data, BT.flags "\
+    "FROM Transactions TX "\
+    "INNER JOIN AccountPayments AP ON AP.payment_id=TX.payment_id "\
+    "LEFT JOIN BitcacheTransactions BT ON TX.tx_hash=BT.tx_hash AND AP.account_id=BT.account_id "\
+    "WHERE TX.flags&?1=0 AND AP.account_id=?2 AND COALESCE(BT.flags,0)&?3=0 "\
+    "ORDER BY TX.date_created "\
+    "LIMIT 1"
+    cursor = db.execute(sql1, (TxFlag.MASK_UNLINKED, account_id, BitcacheTxFlag.MASK_PROCESSED))
+    tx_row = cursor.fetchone()
+    if tx_row is None:
+        return None
+
+    sql2 =\
+    "SELECT TXO.tx_hash, TXO.txo_index, TXO.script_type, KI.masterkey_id, KI.derivation_type, "\
+        "KI.derivation_data2 "\
+    "FROM TransactionOutputs TXO "\
+    "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "\
+    "WHERE TXO.tx_hash=?1 AND KI.account_id=?2 "\
+    "ORDER BY TXO.txo_index"
+    key_data = [
+        TransactionOutputKeyDataRow(r[0],r[1],ScriptType(r[2]),r[3],DerivationType(r[4]),r[5])
+        for r in db.execute(sql2, (tx_row[0],account_id)).fetchall() ]
+    return BitcacheTransactionRow(tx_row[0],tx_row[1],tx_row[2], key_data)
+
+@replace_db_context_with_connection
+def read_debug_bitcache_transactions(db: sqlite3.Connection, account_id: int) \
+        -> list[BitcacheTransactionRow]:
+    sql1 =\
+    "SELECT TX.tx_hash, TX.tx_data "\
+    "FROM Transactions TX "\
+    "INNER JOIN AccountPayments AP ON AP.payment_id=TX.payment_id "\
+    "WHERE TX.flags&?1=0 AND AP.account_id=?2 "\
+    "ORDER BY TX.date_created "
+    tx_rows = db.execute(sql1, (TxFlag.MASK_UNLINKED, account_id)).fetchall()
+    tx_hashes = [ r[0] for r in tx_rows ]
+
+    sql2 =\
+    "SELECT TXO.tx_hash, TXO.txo_index, TXO.script_type, KI.masterkey_id, KI.derivation_type, "\
+        "KI.derivation_data2 "\
+    "FROM TransactionOutputs TXO "\
+    "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "\
+    "WHERE KI.account_id=?1 AND TXO.tx_hash IN ({}) "\
+    "ORDER BY TXO.txo_index"
+    key_usage_by_tx_hash: dict[bytes, list[TransactionOutputKeyDataRow]] = {}
+    for r in read_rows_by_id(TransactionOutputKeyDataRow, db, sql2, [account_id], tx_hashes):
+        if r[0] not in key_usage_by_tx_hash: key_usage_by_tx_hash[r[0]] = []
+        key_usage_by_tx_hash[r[0]].append(
+            TransactionOutputKeyDataRow(r[0],r[1],ScriptType(r[2]),r[3],DerivationType(r[4]),r[5]))
+
+    ret: list[BitcacheTransactionRow] = []
+    for tx_hash, tx_data in tx_rows:
+        ret.append(BitcacheTransactionRow(tx_hash, tx_data, BitcacheTxFlag.NONE,
+            key_usage_by_tx_hash.get(tx_hash, [])))
+    return ret
 
 
 def _write_backup_messages(backup_entries: list[BackupMessageRow], db: sqlite3.Connection) -> None:
@@ -882,7 +971,8 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         APCM.tx_count, APCM.tx_coinbase, APCM.tx_min_height, APCM.tx_max_height,
         APCM.tx_signed_count, APCM.tx_dispatched_count, APCM.tx_received_count,
         APCM.tx_cleared_count, APCM.tx_settled_count, APCM.delta_value,
-        PR.paymentrequest_id, INV.invoice_id
+        PR.paymentrequest_id, PR.state as request_state, INV.invoice_id,
+        INV.invoice_flags as inv_flags
     FROM Payments P
     INNER JOIN AccountPaymentCachableMetadata APCM ON APCM.payment_id=P.payment_id
     LEFT JOIN PaymentRequests PR ON PR.payment_id=P.payment_id
@@ -894,7 +984,10 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         params = (account_id,)
     sql += " ORDER BY P.date_created DESC, APCM.payment_id DESC"
     cursor = db.execute(sql, params)
-    return [ HistoryListRow(*t) for t in cursor.fetchall() ]
+    # NOTE(typing) False alarm? Too many arguments for "HistoryListRow"  [call-arg]
+    return [ HistoryListRow(*t[:17], # type: ignore[call-arg]
+        PaymentRequestFlag(t[17]) if t[17] is not None else None, t[18],
+        PaymentRequestFlag(t[19]) if t[19] is not None else None) for t in cursor.fetchall() ]
 
 
 def update_payment_cache(db: sqlite3.Connection|None=None) -> None:
@@ -1738,18 +1831,18 @@ def read_transaction_outputs_with_key_data(db: sqlite3.Connection, *,
     elif tx_hash:
         assert txo_keys is None
         join_term = "INNER" if require_keys else "LEFT"
-        sql = (
-            "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
-                "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
-                "KI.derivation_data2 "
-            "FROM TransactionOutputs TXO "
-            f"{join_term} JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
-            "WHERE TXO.tx_hash=?")
-        if account_id is not None:
-            sql += " AND KI.account_id=?"
-            cursor = db.execute(sql, (tx_hash, account_id))
-        else:
+        sql = f"""
+            SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type,
+                TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2
+            FROM TransactionOutputs TXO
+            {join_term} JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
+            WHERE TXO.tx_hash=?1
+        """
+        if account_id is None:
             cursor = db.execute(sql, (tx_hash,))
+        else:
+            sql += " AND KI.account_id=?2"
+            cursor = db.execute(sql, (tx_hash, account_id))
         rows = cursor.fetchall()
         cursor.close()
         return [ UTXORow(*row) for row in rows ]
@@ -1854,40 +1947,41 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
 
 
 
-@replace_db_context_with_connection
-def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
-        masterkey_id: int, prefix_bytes: bytes) -> int:
-    """
-    Identify the trailing BIP32 gap (of unused keys) at the end of a derivation sequence.
+# @replace_db_context_with_connection
+# def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
+#         masterkey_id: int, prefix_bytes: bytes) -> int:
+#     """
+#     Identify the trailing BIP32 gap (of unused keys) at the end of a derivation sequence.
 
-    For now we create keys in a BIP32 sequence sequentially with no gaps, so we can take the
-    `window_size` from the query as indicating how many unused keys are in the trailing BIP32
-    gap.
-    """
-    sql = """
-    SELECT derivation_data2, flags, window_size FROM
-        (SELECT KI.keyinstance_id, KI.derivation_data2, KI.flags, COUNT(*) OVER win AS window_size,
-            row_number() OVER win AS window_row
-        FROM KeyInstances KI
-        WHERE account_id=? AND masterkey_id=? AND length(KI.derivation_data2)=?
-            AND substr(KI.derivation_data2,1,?)=?
-        WINDOW win AS (PARTITION BY flags&? ORDER BY keyinstance_id DESC
-            RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
-    WHERE window_row=1
-    ORDER BY keyinstance_id DESC
-    LIMIT 1
-    """
-    sql_values = [ account_id, masterkey_id, len(prefix_bytes)+4, len(prefix_bytes), prefix_bytes,
-        KeyInstanceFlag.USED ]
-    read_rows = db.execute(sql, sql_values).fetchall()
-    if not len(read_rows):
-        return 0
-    # This should be the last sequence in the given derivation path, and the number of
-    # entries with the given USED status.
-    flags, gap_size = KeyInstanceFlag(read_rows[0][1]), cast(int, read_rows[0][2])
-    if flags & KeyInstanceFlag.USED:
-        return 0
-    return gap_size
+#     For now we create keys in a BIP32 sequence sequentially with no gaps, so we can take the
+#     `window_size` from the query as indicating how many unused keys are in the trailing BIP32
+#     gap.
+#     """
+#     sql = """
+#     SELECT derivation_data2, flags, window_size FROM
+#         (SELECT KI.keyinstance_id, KI.derivation_data2, KI.flags, COUNT(*) OVER win
+# AS window_size,
+#             row_number() OVER win AS window_row
+#         FROM KeyInstances KI
+#         WHERE account_id=? AND masterkey_id=? AND length(KI.derivation_data2)=?
+#             AND substr(KI.derivation_data2,1,?)=?
+#         WINDOW win AS (PARTITION BY flags&? ORDER BY keyinstance_id DESC
+#             RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+#     WHERE window_row=1
+#     ORDER BY keyinstance_id DESC
+#     LIMIT 1
+#     """
+#     sql_values = [ account_id, masterkey_id, len(prefix_bytes)+4, len(prefix_bytes), prefix_bytes,
+#         KeyInstanceFlag.USED ]
+#     read_rows = db.execute(sql, sql_values).fetchall()
+#     if not len(read_rows):
+#         return 0
+#     # This should be the last sequence in the given derivation path, and the number of
+#     # entries with the given USED status.
+#     flags, gap_size = KeyInstanceFlag(read_rows[0][1]), cast(int, read_rows[0][2])
+#     if flags & KeyInstanceFlag.USED:
+#         return 0
+#     return gap_size
 
 
 
@@ -1915,9 +2009,9 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     # Ensure the inserted record gets an automatically allocated primary key.
     assert row.peer_channel_id is None
     # Ensure the remote id is only non-`None` outside of allocation operations.
-    assert row.remote_channel_id is None or flags & ServerPeerChannelFlag.ALLOCATING == 0
+    assert row.remote_channel_id is None or flags & ChannelFlag.ALLOCATING == 0
     # Ensure the remote id is only `None` in an allocation operation.
-    assert row.remote_channel_id is not None or flags & ServerPeerChannelFlag.ALLOCATING != 0
+    assert row.remote_channel_id is not None or flags & ChannelFlag.ALLOCATING != 0
 
     sql = """
         INSERT INTO ServerPeerChannels (peer_channel_id, server_id, remote_channel_id,
@@ -1932,8 +2026,8 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     # TODO(1.4.0) Tip filters, issue#904. Can we get delete the `tip_filter_peer_channel_id` field?
     #     We should just be able to do a preread based on the flags and enforce it.
     peer_channel_id = cast(int, insert_result_1[0])
-    if row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE == \
-            ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
+    if row.peer_channel_flags & ChannelFlag.MASK_PURPOSE == \
+            ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
         assert tip_filter_server_id is not None
         sql = """
             UPDATE Servers
@@ -1954,17 +2048,11 @@ def create_external_peer_channel_write(row: ExternalPeerChannelRow,
     flags = row.peer_channel_flags
     # Ensure the inserted record gets an automatically allocated primary key.
     assert row.peer_channel_id is None
-    # Ensure the remote id is only non-`None` outside of allocation operations.
-    assert row.remote_channel_id is None or flags & ServerPeerChannelFlag.ALLOCATING == 0
-    # Ensure the remote id is only `None` in an allocation operation.
-    assert row.remote_channel_id is not None or flags & ServerPeerChannelFlag.ALLOCATING != 0
-
-    sql = """
-        INSERT INTO ExternalPeerChannels (peer_channel_id, invoice_id, remote_channel_id,
-            remote_url, peer_channel_flags, date_created, date_updated)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        RETURNING peer_channel_id
-    """
+    # We are recording peer channels that another party has allocated for us in their app.
+    assert flags & ChannelFlag.ALLOCATING == 0
+    sql = "INSERT INTO ExternalPeerChannels (peer_channel_id,remote_url,peer_channel_flags," \
+        "access_token,token_permissions,date_created,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7) " \
+        "RETURNING peer_channel_id"
     insert_result_1 = db.execute(sql, row).fetchone()
     if insert_result_1 is None:
         raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
@@ -1973,89 +2061,101 @@ def create_external_peer_channel_write(row: ExternalPeerChannelRow,
 
 
 @replace_db_context_with_connection
-def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None,
-        peer_channel_id: int | None=None) -> list[ServerPeerChannelRow]:
-    sql = """
-        SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
-            date_created, date_updated
-        FROM ServerPeerChannels
-        """
-    sql_values = []
-    where_clause = False
-    if server_id is not None:
-        sql += "WHERE server_id=? "
-        sql_values.append(server_id)
-        where_clause = True
-
-    if peer_channel_id is not None:
-        if where_clause:
-            sql += "AND peer_channel_id=?"
-            sql_values.append(peer_channel_id)
-        else:
-            sql += "WHERE peer_channel_id=? "
-            sql_values.append(peer_channel_id)
-            where_clause = True
-
-    cursor = db.execute(sql, sql_values)
-    return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
-        row[5], row[6]) for row in cursor.fetchall() ]
-
-
-@replace_db_context_with_connection
-def read_external_peer_channels(db: sqlite3.Connection, remote_channel_id: str | None=None,
-        peer_channel_flags: ServerPeerChannelFlag | None = None,
-        mask: ServerPeerChannelFlag | None = None) -> list[ExternalPeerChannelRow]:
-    sql = """
-        SELECT peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
-            date_created, date_updated
-        FROM ExternalPeerChannels
-        """
+def read_server_peer_channels(db: sqlite3.Connection, server_id: int|None=None,
+        peer_channel_id: int|None=None, remote_channel_id: str|None=None,
+        flags: ChannelFlag|None=None, mask: ChannelFlag|None=None) \
+            -> list[ServerPeerChannelRow]:
+    sql = "SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags," \
+        "date_created, date_updated FROM ServerPeerChannels"
     sql_values: list[Any] = []
-    where_clause = False
-    if remote_channel_id is not None:
-        sql += "WHERE remote_channel_id=? "
-        sql_values.append(remote_channel_id)
-        where_clause = True
-
-    clause, extra_values = flag_clause("peer_channel_flags", peer_channel_flags, mask)
+    clause, extra_values = flag_clause("peer_channel_flags", flags, mask)
     if clause:
-        if where_clause:
-            sql += f"AND {clause}"
-        else:
-            sql += f"WHERE {clause} "
-            where_clause = True
+        sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-
+    if server_id is not None:
+        sql += f"{' AND' if sql_values else ' WHERE'} server_id=?"
+        sql_values.append(server_id)
+    if peer_channel_id is not None:
+        sql += f"{' AND' if sql_values else ' WHERE'} peer_channel_id=?"
+        sql_values.append(peer_channel_id)
+    if remote_channel_id is not None:
+        sql += f"{' AND' if sql_values else ' WHERE'} remote_channel_id=?"
+        sql_values.append(remote_channel_id)
     cursor = db.execute(sql, sql_values)
-    return [ ExternalPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+    return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ChannelFlag(row[4]),
         row[5], row[6]) for row in cursor.fetchall() ]
 
 
 @replace_db_context_with_connection
-def read_external_peer_channel_messages_by_id(db: sqlite3.Connection, peer_channel_id: int,
-        most_recent_only: bool=False) -> list[PeerChannelMessageRow]:
-    sql = """
-        SELECT message_id, peer_channel_id, message_data, message_flags, sequence,
-            date_received, date_created, date_updated
-        FROM ExternalPeerChannelMessages
-    """
+def read_external_peer_channels(db: sqlite3.Connection, flags: ChannelFlag|None,
+        mask: ChannelFlag|None, peer_channel_id: int|None) \
+            -> list[ExternalPeerChannelRow]:
+    sql = "SELECT peer_channel_id,remote_url,peer_channel_flags,access_token,token_permissions," \
+        "date_created,date_updated FROM ExternalPeerChannels"
     sql_values: list[Any] = []
-    where_clause = False
+    clause, extra_values = flag_clause("peer_channel_flags", flags, mask)
+    if clause:
+        sql += f" WHERE {clause}"
+        sql_values.extend(extra_values)
     if peer_channel_id is not None:
-        sql += "WHERE peer_channel_id=? "
+        sql += f"{' AND' if sql_values else ' WHERE'} peer_channel_id=?"
         sql_values.append(peer_channel_id)
-        where_clause = True
+    cursor = db.execute(sql, sql_values)
+    return [ ExternalPeerChannelRow(row[0], row[1], ChannelFlag(row[2]), row[3],
+        TokenPermissions(row[4]), row[5], row[6]) for row in cursor.fetchall() ]
 
-    if most_recent_only is not None:
-        sql += "ORDER BY date_received DESC LIMIT 1"
+
+@replace_db_context_with_connection
+def read_external_peer_channel_messages(db: sqlite3.Connection, peer_channel_id: int,
+        message_flags: ChannelMessageFlag|None, message_mask: ChannelMessageFlag|None,
+        channel_flags: ChannelFlag|None, channel_mask: ChannelFlag|None) \
+            -> list[PeerChannelMessageRow]:
+    sql = """
+        SELECT PCM.message_id, PCM.peer_channel_id, PCM.message_data, PCM.message_flags,
+            PCM.sequence, PCM.date_received, PCM.date_created, PCM.date_updated
+        FROM ExternalPeerChannelMessages PCM
+        INNER JOIN ExternalPeerChannels PC ON PC.peer_channel_id=PCM.peer_channel_id
+            AND PC.peer_channel_id=?
+    """
+    sql_values: list[Any] = [peer_channel_id]
+    clause, extra_values1 = flag_clause("PCM.message_flags", message_flags, message_mask)
+    if clause:
+        sql += f"{' AND' if sql_values else ' WHERE'} ({clause})"
+        sql_values.extend(extra_values1)
+    clause, extra_values2 = flag_clause("PC.peer_channel_flags", channel_flags, channel_mask)
+    if clause:
+        sql += f"{' AND' if sql_values else ' WHERE'} ({clause})"
+        sql_values.extend(extra_values2)
 
     cursor = db.execute(sql, sql_values)
-    return [ PeerChannelMessageRow(row[0], row[1], row[2], PeerChannelMessageFlag(row[3]), row[4],
+    return [ PeerChannelMessageRow(row[0], row[1], row[2], ChannelMessageFlag(row[3]), row[4],
         row[5], row[6], row[7]) for row in cursor.fetchall() ]
 
+@replace_db_context_with_connection
+def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
+        message_flags: ChannelMessageFlag|None, message_mask: ChannelMessageFlag|None,
+        channel_flags: ChannelFlag|None, channel_mask: ChannelFlag|None) \
+            -> list[PeerChannelMessageRow]:
+    sql = """
+        SELECT SPCM.message_id, SPCM.peer_channel_id, SPCM.message_data, SPCM.message_flags,
+            SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
+        FROM ServerPeerChannelMessages AS SPCM
+        INNER JOIN ServerPeerChannels AS SPC ON SPC.peer_channel_id=SPCM.peer_channel_id
+            AND SPC.server_id=?1
+    """
+    sql_values: list[Any] = [ server_id ]
+    clause, extra_values1 = flag_clause("SPCM.message_flags", message_flags, message_mask)
+    if clause:
+        sql += f" AND ({clause})"
+        sql_values.extend(extra_values1)
+    clause, extra_values2 = flag_clause("SPC.peer_channel_flags", channel_flags, channel_mask)
+    if clause:
+        sql += f" AND ({clause})"
+        sql_values.extend(extra_values2)
+    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
 
 def update_server_peer_channel_write(remote_channel_id: str|None,
-        remote_url: str|None, peer_channel_flags: ServerPeerChannelFlag,
+        remote_url: str|None, peer_channel_flags: ChannelFlag,
         peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
         db: sqlite3.Connection|None=None) -> ServerPeerChannelRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
@@ -2073,7 +2173,7 @@ def update_server_peer_channel_write(remote_channel_id: str|None,
     rows = cursor.fetchall()
     assert len(rows) == 1
     row = rows[0]
-    result_row = ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+    result_row = ServerPeerChannelRow(row[0], row[1], row[2], row[3], ChannelFlag(row[4]),
             row[5], row[6])
 
     if len(addable_access_tokens) > 0:
@@ -2102,37 +2202,8 @@ def update_external_peer_channel_message_flags_write(processed_message_ids: list
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = "UPDATE ExternalPeerChannelMessages SET message_flags=message_flags&? " \
         "WHERE message_id IN ({})"
-    sql_values = [ ~PeerChannelMessageFlag.UNPROCESSED ]
+    sql_values = [ ~ChannelMessageFlag.UNPROCESSED ]
     execute_sql_by_id(db, sql, sql_values, processed_message_ids)
-
-
-def update_external_peer_channel_write(remote_channel_id: str | None,
-        remote_url: str|None, peer_channel_flags: ServerPeerChannelFlag,
-        peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
-        db: sqlite3.Connection|None=None) -> ExternalPeerChannelRow:
-    assert db is not None and isinstance(db, sqlite3.Connection)
-    sql = """
-        UPDATE ExternalPeerChannels
-        SET remote_channel_id=?1, remote_url=?2, peer_channel_flags=?3
-        WHERE peer_channel_id=?4
-        RETURNING peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
-            date_created, date_updated
-    """
-    cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags, peer_channel_id))
-    rows = cursor.fetchall()
-    assert len(rows) == 1
-    row = rows[0]
-    result_row = ExternalPeerChannelRow(row[0], row[1], row[2], row[3],
-        ServerPeerChannelFlag(row[4]), row[5], row[6])
-
-    if len(addable_access_tokens) > 0:
-        sql = "INSERT INTO ExternalPeerChannelAccessTokens (peer_channel_id, " \
-            "token_flags, permission_flags, access_token) VALUES (?,?,?,?)"
-        cursor = db.executemany(sql, addable_access_tokens)
-        assert cursor.rowcount == len(addable_access_tokens)
-
-    return result_row
-
 
 
 def update_server_peer_channel_message_flags_write(processed_message_ids: list[int],
@@ -2140,7 +2211,7 @@ def update_server_peer_channel_message_flags_write(processed_message_ids: list[i
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = "UPDATE ServerPeerChannelMessages SET message_flags=message_flags&? " \
         "WHERE message_id IN ({})"
-    sql_values = [ ~PeerChannelMessageFlag.UNPROCESSED ]
+    sql_values = [ ~ChannelMessageFlag.UNPROCESSED ]
     execute_sql_by_id(db, sql, sql_values, processed_message_ids)
 
 
@@ -2150,22 +2221,6 @@ def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_
             -> list[PeerChannelAccessTokenRow]:
     sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
         "FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
-    sql_values: list[Any] = [peer_channel_id]
-    clause, extra_values = flag_clause("token_flags", flags, mask)
-    if clause:
-        sql += " AND "+ clause
-        sql_values.extend(extra_values)
-
-    return [ PeerChannelAccessTokenRow(*row)
-        for row in db.execute(sql, sql_values).fetchall() ]
-
-
-@replace_db_context_with_connection
-def read_external_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
-        mask: PeerChannelAccessTokenFlag|None, flags: PeerChannelAccessTokenFlag|None) \
-            -> list[PeerChannelAccessTokenRow]:
-    sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
-        "FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_values: list[Any] = [peer_channel_id]
     clause, extra_values = flag_clause("token_flags", flags, mask)
     if clause:
@@ -2212,53 +2267,6 @@ def create_external_peer_channel_messages_write(create_rows: list[PeerChannelMes
     # because SQLite cannot guarantee the row order matches the returned assigned id order.
     return bulk_insert_returning(PeerChannelMessageRow, db, insert_prefix_sql,
         insert_suffix_sql, create_rows)
-
-
-@replace_db_context_with_connection
-def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
-        message_flags: PeerChannelMessageFlag|None, message_mask: PeerChannelMessageFlag|None,
-        channel_flags: ServerPeerChannelFlag|None, channel_mask: ServerPeerChannelFlag|None) \
-            -> list[PeerChannelMessageRow]:
-    sql = """
-        SELECT SPCM.message_id, SPCM.peer_channel_id, SPCM.message_data, SPCM.message_flags,
-            SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
-        FROM ServerPeerChannelMessages AS SPCM
-        INNER JOIN ServerPeerChannels AS SPC ON SPC.peer_channel_id=SPCM.peer_channel_id
-            AND SPC.server_id=?1
-    """
-    sql_values: list[Any] = [ server_id ]
-    clause, extra_values1 = flag_clause("SPCM.message_flags", message_flags, message_mask)
-    if clause:
-        sql += f" AND ({clause})"
-        sql_values.extend(extra_values1)
-    clause, extra_values2 = flag_clause("SPC.peer_channel_flags", channel_flags, channel_mask)
-    if clause:
-        sql += f" AND ({clause})"
-        sql_values.extend(extra_values2)
-    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
-
-
-@replace_db_context_with_connection
-def read_external_peer_channel_messages(db: sqlite3.Connection,
-        message_flags: PeerChannelMessageFlag|None, message_mask: PeerChannelMessageFlag|None,
-        channel_flags: ServerPeerChannelFlag|None, channel_mask: ServerPeerChannelFlag|None) \
-            -> list[PeerChannelMessageRow]:
-    sql = """
-        SELECT EPCM.message_id, EPCM.peer_channel_id, EPCM.message_data, EPCM.message_flags,
-            EPCM.sequence, EPCM.date_received, EPCM.date_created, EPCM.date_updated
-        FROM ExternalPeerChannelMessages AS EPCM
-        INNER JOIN ExternalPeerChannels AS EPC ON EPC.peer_channel_id=EPCM.peer_channel_id
-    """
-    sql_values = list[Any]()
-    clause, extra_values1 = flag_clause("EPCM.message_flags", message_flags, message_mask)
-    if clause:
-        sql += f" AND ({clause})"
-        sql_values.extend(extra_values1)
-    clause, extra_values2 = flag_clause("EPC.peer_channel_flags", channel_flags, channel_mask)
-    if clause:
-        sql += f" AND ({clause})"
-        sql_values.extend(extra_values2)
-    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
 
 
 @replace_db_context_with_connection
@@ -2925,7 +2933,6 @@ def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=No
     sql = "SELECT PR.payment_id, P.description FROM PaymentRequests PR " \
         "INNER JOIN Payments P ON PR.payment_id=P.payment_id WHERE PR.paymentrequest_id=?1"
     row = db.execute(sql, (request_id,)).fetchone()
-    print(row)
     assert row is not None
     return PaymentDescriptionRow(*row)
 

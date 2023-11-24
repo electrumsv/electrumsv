@@ -88,6 +88,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     _introduce_tip_filter(conn)
     _introduce_contacts(conn)
     _introduce_backups(conn)
+    _introduce_bitcache(conn)
 
     _migrate_payment_requests(conn)
     _introduce_payments(conn, date_updated)
@@ -170,8 +171,11 @@ def _introduce_wallet_masterkey(conn: sqlite3.Connection, password_token: Passwo
     conn.execute("ALTER TABLE Accounts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
     conn.execute("ALTER TABLE Accounts ADD COLUMN blockchain_server_id INTEGER DEFAULT NULL")
     conn.execute("ALTER TABLE Accounts ADD COLUMN peer_channel_server_id INTEGER DEFAULT NULL")
+    conn.execute("ALTER TABLE Accounts ADD COLUMN bitcache_peer_channel_id INTEGER DEFAULT NULL")
+    conn.execute("ALTER TABLE Accounts ADD COLUMN external_bitcache_peer_channel_id "
+        "INTEGER DEFAULT NULL")
     conn.execute("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
-        "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "account_name, flags, date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         (account_id, account_masterkey_id, ScriptType.P2PKH, "Petty cash",
         AccountFlag.IS_PETTY_CASH, date_updated, date_updated))
 
@@ -218,13 +222,12 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE ExternalPeerChannels (
             peer_channel_id             INTEGER     PRIMARY KEY,
-            invoice_id                  INTEGER     NOT NULL,
-            remote_channel_id           TEXT        DEFAULT NULL,
             remote_url                  TEXT        DEFAULT NULL,
             peer_channel_flags          INTEGER     NOT NULL,
+            access_token                TEXT        NOT NULL,
+            token_permissions           INTEGER     NOT NULL,
             date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (invoice_id) REFERENCES Invoices (invoice_id)
+            date_updated                INTEGER     NOT NULL
         )
     """)
 
@@ -235,16 +238,6 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
             permission_flags            INTEGER     NOT NULL,
             access_token                TEXT        NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE ExternalPeerChannelAccessTokens (
-            peer_channel_id             INTEGER     NOT NULL,
-            token_flags                 INTEGER     NOT NULL,
-            permission_flags            INTEGER     NOT NULL,
-            access_token                TEXT        NOT NULL,
-            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
         )
     """)
 
@@ -343,6 +336,18 @@ def _introduce_backups(conn: sqlite3.Connection) -> None:
         local_flags                             INTEGER     NOT NULL,
         message_data                            BLOB        NOT NULL,
         date_created                            INTEGER     NOT NULL
+    )""")
+
+def _introduce_bitcache(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE BitcacheTransactions (
+        account_id                              INTEGER     NOT NULL,
+        tx_hash                                 BLOB        NOT NULL,
+        flags                                   INTEGER     NOT NULL,
+        channel_sequence                        INTEGER     NOT NULL,
+        date_created                            INTEGER     NOT NULL,
+        PRIMARY KEY (account_id, tx_hash),
+        FOREIGN KEY (account_id)                REFERENCES Accounts (account_id),
+        FOREIGN KEY (tx_hash)                   REFERENCES Transactions (tx_hash)
     )""")
 
 def _migrate_payment_requests(conn: sqlite3.Connection) -> None:

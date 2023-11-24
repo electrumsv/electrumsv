@@ -582,7 +582,8 @@ class PaymentMessage:
             raise DPPRemoteException("Missing list typed key 'mode.transactions'")
 
         ancestors: dict[str, Any]|None = None
-        if "ancestors" in mode:
+        # NOTE(rt12) DPP proxy de/reserialises the payment message injecting a `null` if missing.
+        if "ancestors" in mode and mode["ancestors"] is not None:
             if type(mode["ancestors"]) is not dict:
                 raise DPPRemoteException("Invalid object typed key 'mode.ancestors'")
             # TODO(nocheckin) Payments. Validate ancestors.
