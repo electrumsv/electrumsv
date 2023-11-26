@@ -425,15 +425,18 @@ class WalletNavigationView(QSplitter):
         menu.addAction(_("&Restore account"),
             main_window_proxy.restore_active_account_manual)
 
+        owned_bitcache = account_row.bitcache_peer_channel_id is not None
+        no_bitcache = account_row.bitcache_peer_channel_id is None and \
+            account_row.external_bitcache_peer_channel_id is None
+
         bitcache_menu = menu.addMenu(_("&Bitcache"))
-        if account_row.bitcache_peer_channel_id is None:
-            bitcache_menu.addAction(_("&Setup new"),
-                partial(main_window_proxy.setup_new_bitcache, account_id))
-            bitcache_menu.addAction(_("&Connect to existing"),
-                main_window_proxy.connect_to_existing_bitcache)
-        else:
-            # Options for any existing setup/connected bitcache.
-            bitcache_menu.setEnabled(False)
+        bitcache_menu.addAction(_("&Setup new"),
+            partial(main_window_proxy.setup_new_bitcache, account_id)).setEnabled(no_bitcache)
+        bitcache_menu.addAction(_("&Connect to existing"),
+            main_window_proxy.connect_to_existing_bitcache).setEnabled(no_bitcache)
+        bitcache_menu.addAction(_("&Grant access"),
+            partial(main_window_proxy.show_bitcache_access_dialog, account_id)).setEnabled(
+                owned_bitcache)
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))

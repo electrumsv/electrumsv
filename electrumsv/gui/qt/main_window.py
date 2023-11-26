@@ -988,6 +988,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         reload(bitcache)
         bitcache.show_connection_dialog(self, self._wallet, account_id)
 
+    def show_bitcache_access_dialog(self, account_id: int) -> None:
+        from . import bitcache
+        from importlib import reload
+        reload(bitcache)
+        bitcache.show_access_dialog(self, self._wallet, account_id)
+
     def new_payment(self) -> None:
         from . import payment
         from importlib import reload

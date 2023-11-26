@@ -6,7 +6,7 @@ from typing import Any, NamedTuple, Protocol
 from ..constants import (AccountFlag, AccountPaymentFlag, BackupMessageFlag, BitcacheTxFlag,
     DerivationType, DPPMessageType, KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlag,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PaymentRequestFlag,
-    PeerChannelAccessTokenFlag, ChannelMessageFlag, PushDataMatchFlag,
+    ChannelAccessTokenFlag, ChannelMessageFlag, PushDataMatchFlag,
     PushDataHashRegistrationFlag, ScriptType, ChannelFlag, TokenPermissions, TXOFlag,
     TxFlag, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
@@ -612,15 +612,17 @@ class ExternalPeerChannelRow(NamedTuple):
 
 
 # Only used for "server" peer channels which we manage/own.
-class PeerChannelAccessTokenRow(NamedTuple):
+class ChannelAccessTokenRow(NamedTuple):
+    remote_id: int
     peer_channel_id: int
-    token_flags: PeerChannelAccessTokenFlag
+    token_flags: ChannelAccessTokenFlag
     permission_flags: int
     access_token: str
+    description: str
 
 
 # Used for both owned and externally owned peer channel tables
-class PeerChannelMessageRow(NamedTuple):
+class ChannelMessageRow(NamedTuple):
     message_id: int|None
     peer_channel_id: int
     message_data: bytes

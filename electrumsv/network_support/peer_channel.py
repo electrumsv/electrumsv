@@ -408,6 +408,29 @@ async def list_peer_channel_api_tokens_async(state: ServerStateProtocol, remote_
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
+async def delete_peer_channel_api_token_async(state: ServerStateProtocol, channel_id: str,
+        remote_token_id: int) -> None:
+    """
+    Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+    Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    url = f"{state.server_url}api/v1/channel/manage/{channel_id}/api-token/{remote_token_id}"
+    assert state.credential_id is not None
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+    headers = {"Authorization": f"Bearer {master_token}"}
+    try:
+        async with state.session.delete(url, headers=headers) as response:
+            if response.status != HTTPStatus.NO_CONTENT:
+                raise GeneralAPIError(
+                    f"Bad response status code: {response.status}, reason: {response.reason}")
+    except aiohttp.ClientError:
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
+
+
 
 async def get_peer_channel_max_sequence_number_async(state: ServerStateProtocol,
         remote_channel_id: str, access_token: str) -> int | None:

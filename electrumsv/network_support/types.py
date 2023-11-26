@@ -15,7 +15,7 @@ from typing import Any, NamedTuple, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
 from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag, TokenPermissions
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, PeerChannelMessageRow
+from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, ChannelMessageRow
 from .constants import ServerProblemKind
 
 if TYPE_CHECKING:
@@ -191,13 +191,13 @@ class ServerStateProtocol(Protocol):
 
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+        asyncio.Queue[list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]]
     # Wallet consuming: Post direct connection matches here to get them registered with the server.
     direct_connection_matches_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+        asyncio.Queue[list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]]
     # Wallet consuming: Post bitcache matches here to get them registered with the server.
     bitcache_matches_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+        asyncio.Queue[list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]]
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]]
@@ -239,21 +239,21 @@ class PeerChannelServerState(ServerStateProtocol):
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Post direct connection matches here to get them registered with the server.
     direct_connection_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Post bitcache matches here to get them registered with the server.
     bitcache_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
@@ -312,21 +312,21 @@ class ServerConnectionState(ServerStateProtocol):
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Post direct connection matches here to get them registered with the server.
     direct_connection_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Post bitcache matches here to get them registered with the server.
     bitcache_matches_queue: \
         asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
-            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+            list[tuple[ChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
         default_factory=asyncio.Queue[DPPMessageRow])

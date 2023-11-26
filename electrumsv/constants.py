@@ -603,21 +603,13 @@ class ChannelMessageFlag(IntFlag):
     UNPROCESSED                                 = 1 << 31
 
 
-class PeerChannelAccessTokenFlag(IntFlag):
+class ChannelAccessTokenFlag(IntFlag):
     NONE                                        = 0
 
     # This token is for use by this wallet.
     FOR_LOCAL_USAGE                             = 1 << 0
     # This token was given out to a third party for them to use accessing the given channel.
     FOR_THIRD_PARTY_USAGE                       = 1 << 1
-
-    # Use cases
-    FOR_TIP_FILTER_SERVER                       = 0b001 << 2
-    FOR_CONTACT_CONNECTION                      = 0b010 << 2
-    FOR_BITCACHE                                = 0b011 << 2
-
-    # This should include all use case masks.
-    MASK_FOR                                    = 0b111 << 2
 
 
 class PushDataHashRegistrationFlag(IntFlag):

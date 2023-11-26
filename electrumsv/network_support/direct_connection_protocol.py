@@ -54,13 +54,13 @@ except ModuleNotFoundError:
     import sqlite3
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, ChannelMessageFlag, \
+from ..constants import NetworkServerFlag, ChannelAccessTokenFlag, ChannelMessageFlag, \
     ChannelFlag
 from ..exceptions import ServerConnectionError
 from ..i18n import _
 from ..logs import logs
-from ..wallet_database.types import ContactAddRow, ContactRow, PeerChannelAccessTokenRow, \
-    PeerChannelMessageRow, ServerPeerChannelRow
+from ..wallet_database.types import ContactAddRow, ContactRow, ChannelAccessTokenRow, \
+    ChannelMessageRow, ServerPeerChannelRow
 
 from .exceptions import GeneralAPIError
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -176,7 +176,7 @@ def decode_invitation(invitation_text: str) -> ConnectionInvitationDict | None:
 
 
 async def create_peer_channel_for_contact_async(wallet: Wallet, contact_id: int) \
-        -> tuple[ServerPeerChannelRow, PeerChannelAccessTokenRow]:
+        -> tuple[ServerPeerChannelRow, ChannelAccessTokenRow]:
     """
     Via `create_peer_channel_locally_and_remotely_async`:
         Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
@@ -189,12 +189,12 @@ async def create_peer_channel_for_contact_async(wallet: Wallet, contact_id: int)
     # do not consider it as in use until it is fully associated with the contact.
     peer_channel_row, writeonly_access_token, _discard = \
         await create_peer_channel_locally_and_remotely_async(server_state,
-            ChannelFlag.ALLOCATING | ChannelFlag.PURPOSE_CONTACT_CONNECTION,
-            PeerChannelAccessTokenFlag.FOR_CONTACT_CONNECTION)
-
+            ChannelFlag.ALLOCATING|ChannelFlag.PURPOSE_CONTACT_CONNECTION,
+            writeonly_access_token_flag=ChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE)
+    assert peer_channel_row.peer_channel_id is not None
+    assert writeonly_access_token is not None
     # Associate the peer channel as in use for direct connections with this contact. Removal of
     # the ALLOCATING flag ensures the peer channel is no longer considered unused/discarded.
-    assert peer_channel_row.peer_channel_id is not None
     await wallet.data.update_contact_for_local_peer_channel_async(contact_id,
         peer_channel_row.peer_channel_id)
 
@@ -322,7 +322,7 @@ async def consume_contact_messages_async(state: ServerConnectionState) -> None:
     """
     assert state.wallet_data is not None
 
-    message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
+    message_entries: list[tuple[ChannelMessageRow, GenericPeerChannelMessage]] = []
     for message_row in state.wallet_data.read_server_peer_channel_messages(
             state.server.server_id,
             ChannelMessageFlag.UNPROCESSED, ChannelMessageFlag.UNPROCESSED,

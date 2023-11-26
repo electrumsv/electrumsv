@@ -57,7 +57,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlag, 
     KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
     MasterKeyFlag, MAX_FEE, MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
     NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentRequestFlag,
-    PeerChannelAccessTokenFlag, ChannelMessageFlag, PushDataHashRegistrationFlag,
+    ChannelAccessTokenFlag, ChannelMessageFlag, PushDataHashRegistrationFlag,
     RECEIVING_SUBPATH, SERVER_USES, ServerCapability, ServerConnectionFlag, ChannelFlag,
     ScriptType, TokenPermissions, TxImportFlag, TXIFlag, TXOFlag, TxFlag,
     unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
@@ -128,7 +128,7 @@ from .wallet_database.types import (AccountRow, BitcacheTransactionRow, PaymentD
     MAPIBroadcastRow, MasterKeyRow, MerkleProofRow, NetworkServerRow, PasswordUpdateResult,
     PaymentRequestRow, PaymentRequestOutputRow, PaymentRequestUpdateRow, PaymentRow,
     MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
-    ServerPeerChannelRow, PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
+    ServerPeerChannelRow, ChannelAccessTokenRow, ChannelMessageRow, SpentOutputRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
     TransactionOutputAddRow, STXORow,
     UTXOProtocol, UTXORow, TransactionProofUpdateRow,
@@ -2109,36 +2109,42 @@ class WalletDataAccess:
         return db_functions.read_server_peer_channels(self._db_context, server_id, channel_id,
             remote_channel_id, flags, mask)
 
-    async def update_server_peer_channel_async(self, remote_channel_id: str | None,
-                remote_url: str | None, peer_channel_flags: ChannelFlag,
-                peer_channel_id: int,
-            addable_access_tokens: list[PeerChannelAccessTokenRow]) -> ServerPeerChannelRow:
+    async def update_server_peer_channel_async(self, remote_channel_id: str|None,
+            remote_url: str|None, peer_channel_flags: ChannelFlag, peer_channel_id: int,
+            addable_access_tokens: list[ChannelAccessTokenRow]) \
+                -> ServerPeerChannelRow:
         return await self._db_context.run_in_thread_async(
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
                 peer_channel_flags, peer_channel_id, addable_access_tokens)
 
     # Server peer channel access tokens.
 
+    async def create_server_channel_access_tokens_async(self, l: list[ChannelAccessTokenRow]) \
+            -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.create_server_channel_access_tokens_write, l)
+
     def read_server_peer_channel_access_tokens(self, peer_channel_id: int,
-            mask: PeerChannelAccessTokenFlag|None=None,
-            flags: PeerChannelAccessTokenFlag|None=None) \
-                -> list[PeerChannelAccessTokenRow]:
+            mask: ChannelAccessTokenFlag|None=None, flags: ChannelAccessTokenFlag|None=None) \
+                -> list[ChannelAccessTokenRow]:
         return db_functions.read_server_peer_channel_access_tokens(self._db_context,
             peer_channel_id, mask, flags)
 
+    async def delete_server_channel_access_tokens_async(self, l: list[tuple[int, int]]) -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.delete_server_channel_access_tokens_write, l)
+
     # Server peer channel messages.
 
-    async def create_server_peer_channel_messages_async(self,
-            rows: list[PeerChannelMessageRow]) -> list[PeerChannelMessageRow]:
+    async def create_server_peer_channel_messages_async(self, l: list[ChannelMessageRow]) \
+            -> list[ChannelMessageRow]:
         return await self._db_context.run_in_thread_async(
-            db_functions.create_server_peer_channel_messages_write, rows)
+            db_functions.create_server_peer_channel_messages_write, l)
 
     def read_server_peer_channel_messages(self, server_id: int,
-            message_flags: ChannelMessageFlag|None=None,
-            message_mask: ChannelMessageFlag|None=None,
-            channel_flags: ChannelFlag|None=None,
-            channel_mask: ChannelFlag|None=None) \
-                -> list[PeerChannelMessageRow]:
+            message_flags: ChannelMessageFlag|None=None, message_mask: ChannelMessageFlag|None=None,
+            channel_flags: ChannelFlag|None=None, channel_mask: ChannelFlag|None=None) \
+                -> list[ChannelMessageRow]:
         return db_functions.read_server_peer_channel_messages(self._db_context, server_id,
             message_flags, message_mask, channel_flags, channel_mask)
 
@@ -2171,7 +2177,7 @@ class WalletDataAccess:
     # External peer channel messages.
 
     async def create_external_peer_channel_messages_async(self,
-            rows: list[PeerChannelMessageRow]) -> list[PeerChannelMessageRow]:
+            rows: list[ChannelMessageRow]) -> list[ChannelMessageRow]:
         return await self._db_context.run_in_thread_async(
             db_functions.create_external_peer_channel_messages_write, rows)
 
@@ -2179,7 +2185,7 @@ class WalletDataAccess:
             message_flags: ChannelMessageFlag|None=None,
             message_mask: ChannelMessageFlag|None=None,
             channel_flags: ChannelFlag|None=None,
-            channel_mask: ChannelFlag|None=None) -> list[PeerChannelMessageRow]:
+            channel_mask: ChannelFlag|None=None) -> list[ChannelMessageRow]:
         return db_functions.read_external_peer_channel_messages(self._db_context,
             peer_channel_id, message_flags, message_mask, channel_flags, channel_mask)
 

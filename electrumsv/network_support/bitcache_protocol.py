@@ -21,20 +21,19 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
-import asyncio, base64, binascii, io, json, random
+import asyncio, base64, binascii, io, json
 from typing import cast, TYPE_CHECKING
 
 from bitcoinx import hash_to_hex_str
 
-from ..constants import BitcacheTxFlag, NetworkServerFlag, PeerChannelAccessTokenFlag, \
+from ..constants import BitcacheTxFlag, NetworkServerFlag, ChannelAccessTokenFlag, \
     ChannelMessageFlag, ChannelFlag, TokenPermissions, TxFlag
 from ..exceptions import ServerConnectionError
 from ..logs import logs
 from ..standards.bitcache import BitcacheMessage, BitcacheTxoKeyUsage, \
     read_bitcache_message, write_bitcache_transaction_message
 from ..transaction import Transaction
-from ..wallet_database.types import PeerChannelAccessTokenRow, PeerChannelMessageRow, \
-    ServerPeerChannelRow
+from ..wallet_database.types import ChannelMessageRow, ServerPeerChannelRow
 
 from .exceptions import GeneralAPIError
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -50,7 +49,7 @@ logger = logs.get_logger("bitcache")
 
 
 async def create_peer_channel_for_bitcache_async(wallet: Wallet, account_id: int) \
-        -> tuple[ServerPeerChannelRow, PeerChannelAccessTokenRow]:
+        -> ServerPeerChannelRow:
     """
     Via `create_peer_channel_locally_and_remotely_async`:
         Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
@@ -63,10 +62,8 @@ async def create_peer_channel_for_bitcache_async(wallet: Wallet, account_id: int
 
     # Create a remote peer channel and register it locally. We retain the ALLOCATING flag as we
     # do not consider it as in use until it is fully associated with the contact.
-    channel_row, writeonly_access_token, _discard = \
-        await create_peer_channel_locally_and_remotely_async(server_state,
-            ChannelFlag.ALLOCATING | ChannelFlag.PURPOSE_BITCACHE,
-            PeerChannelAccessTokenFlag.FOR_BITCACHE)
+    channel_row, _discard1, _discard2 = await create_peer_channel_locally_and_remotely_async(
+        server_state, ChannelFlag.ALLOCATING|ChannelFlag.PURPOSE_BITCACHE)
 
     # Associate the peer channel as in use for direct connections with this contact. Removal of
     # the ALLOCATING flag ensures the peer channel is no longer considered unused/discarded.
@@ -74,7 +71,7 @@ async def create_peer_channel_for_bitcache_async(wallet: Wallet, account_id: int
     logger.debug("Local peer channel %d created for account %d", channel_row.peer_channel_id,
         account_id)
 
-    return channel_row, writeonly_access_token
+    return channel_row
 
 
 async def add_external_bitcache_connection_async(wallet: Wallet, account_id: int, channel_url: str,
@@ -109,7 +106,7 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
     """
     assert state.wallet_data is not None
 
-    message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
+    message_entries: list[tuple[ChannelMessageRow, GenericPeerChannelMessage]] = []
     if state.is_external:
         # This is attached to a per-external peer channel web socket connection.
         e_state = cast(PeerChannelServerState, state)
@@ -209,8 +206,8 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
                 logger.debug("Bitcache[%d] loop exiting (no server channel)", account_id)
                 return
             token_rows = wallet_data.read_server_peer_channel_access_tokens(channel_id,
-                PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE,
-                PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+                ChannelAccessTokenFlag.FOR_LOCAL_USAGE,
+                ChannelAccessTokenFlag.FOR_LOCAL_USAGE)
             if not token_rows:
                 logger.debug("Bitcache[%d] loop exiting (no token)", account_id)
                 return
@@ -252,7 +249,7 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
                 match.tx_hash, BitcacheTxFlag.SENT, result["sequence"])
             logger.debug("Bitcache[%d] loop tx sent hash=%s, sequence=%d", account_id,
                 hash_to_hex_str(match.tx_hash)[:8], result["sequence"])
-            await asyncio.sleep(random.random()) # Avoid hammering the server?
+            # await asyncio.sleep(random.random()) # Avoid hammering the server?
         if fail_count:
             logger.debug("Bitcache[%d] loop sleeping for %d seconds", account_id,
                 delay:=min(fail_count,25)**2)

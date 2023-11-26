@@ -45,7 +45,7 @@ from ...logs import logs
 from ...network_support.direct_connection_protocol import create_peer_channel_for_contact_async, \
     encode_invitation
 from ...network_support.exceptions import GeneralAPIError
-from ...wallet_database.types import ContactAddRow, ContactRow, PeerChannelAccessTokenRow, \
+from ...wallet_database.types import ContactAddRow, ContactRow, ChannelAccessTokenRow, \
     ServerPeerChannelRow
 
 if TYPE_CHECKING:
@@ -255,7 +255,7 @@ class ContactCard(QWidget):
         name_layout.addWidget(label)
 
         def event_peer_channel_creation_done(future: concurrent.futures.Future[
-                tuple[ServerPeerChannelRow, PeerChannelAccessTokenRow]]) -> None:
+                tuple[ServerPeerChannelRow, ChannelAccessTokenRow]]) -> None:
             """
             `run_coro` ensures this completion callback happens on the GUI thread. The result will
             implicitly be ready and no blocking should occur waiting for it.

@@ -233,13 +233,17 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
 
     conn.execute("""
         CREATE TABLE ServerPeerChannelAccessTokens (
+            remote_id                   INTEGER     NOT NULL,
             peer_channel_id             INTEGER     NOT NULL,
             token_flags                 INTEGER     NOT NULL,
             permission_flags            INTEGER     NOT NULL,
             access_token                TEXT        NOT NULL,
+            description                 TEXT        NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
         )
     """)
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPeerChannelAccessTokens_unique "
+        "ON ServerPeerChannelAccessTokens(remote_id,peer_channel_id)")
 
     conn.execute("""
         CREATE TABLE ServerPeerChannelMessages (

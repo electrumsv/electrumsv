@@ -54,7 +54,7 @@ from ..standards.mapi import MAPIBroadcastResponse, validate_mapi_broadcast_resp
 from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
 from ..transaction import Transaction
 from ..types import ServerAndCredential
-from ..wallet_database.types import MAPIBroadcastRow, PeerChannelAccessTokenRow
+from ..wallet_database.types import MAPIBroadcastRow, ChannelAccessTokenRow
 
 from .api_server import RequestFeeQuoteResult
 
@@ -72,7 +72,7 @@ logger = logs.get_logger("network-mapi")
 @dataclass
 class PeerChannelCallback:
     callback_url: str
-    callback_access_token: PeerChannelAccessTokenRow
+    callback_access_token: ChannelAccessTokenRow
     merkle_proof: bool
     double_spend_check: bool
 
