@@ -306,19 +306,14 @@ async def list_peer_channel_messages_async(state: ServerStateProtocol, channel_u
     WARNING: This does not set the messages to read when it reads them.. that needs to be done
         manually after this call with another to `mark_peer_channel_read_or_unread`.
     """
-    headers = {
-        "Authorization": f"Bearer {access_token}"
-    }
-    query_parameters: dict[str, str] = {}
-    if unread_only:
-        query_parameters["unread"] = "true"
+    headers = { "Authorization": f"Bearer {access_token}" }
+    params: dict[str, str] = {}
+    if unread_only: params["unread"] = "true"
     try:
-        async with state.session.get(channel_url, headers=headers, params=query_parameters) \
-                as response:
+        async with state.session.get(channel_url, headers=headers, params=params) as response:
             if response.status != HTTPStatus.OK:
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
-
             return cast(list[GenericPeerChannelMessage], await response.json())
     except aiohttp.ClientError:
         # NOTE(exception-details) We log this because we are not sure yet that we do not need

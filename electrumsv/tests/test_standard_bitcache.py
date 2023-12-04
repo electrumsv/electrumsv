@@ -32,11 +32,9 @@ def test_read_bitcache_messages() -> None:
             for i, o in enumerate(cast(list[JSONTxoKeyUsage], json.load(f))):
                 k = message.key_data[i]
                 assert o["vout"] == k.txo_index
-                assert decode_script_type(o["script_type"]) == k.script_type
+                assert o["script_type"] == k.script_type
                 assert bytes.fromhex(o["key_fingerprint"]) == k.parent_key_fingerprint
-                derivation_type, derivation_data2 = decode_derivation_data(o["key_derivation"])
-                assert derivation_type == k.derivation_type
-                assert derivation_data2 == k.derivation_data2
+                assert o["key_derivation"] == k.derivation_text
         # Verify that reconstructing the message gives matching bytes.
         output_stream = io.BytesIO()
         write_bitcache_transaction_message(output_stream, message)

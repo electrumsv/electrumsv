@@ -1370,18 +1370,21 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
 @replace_db_context_with_connection
 def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
         derivation_type: DerivationType, derivation_data2s: list[bytes],
-        masterkey_id: int|None=None) -> list[KeyInstanceRow]:
+        masterkey_id: int|None, ignore_masterkey: bool) -> list[KeyInstanceRow]:
     """Locate the keyinstance with the given `derivation_data2` field."""
     sql = ("SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
         "FROM KeyInstances AS KI "
         "WHERE account_id=?1 AND derivation_type=?2")
     sql_values: list[Any] = [ account_id, derivation_type ]
-    if masterkey_id is not None:
-        sql += " AND masterkey_id=?3"
-        sql_values.append(masterkey_id)
+    if ignore_masterkey:
+        assert masterkey_id is None
     else:
-        sql += " AND masterkey_id IS NULL"
+        if masterkey_id is not None:
+            sql += " AND masterkey_id=?3"
+            sql_values.append(masterkey_id)
+        else:
+            sql += " AND masterkey_id IS NULL"
     # This needs to be last as the batch read message appends the "id" values after the sql values.
     sql += " AND derivation_data2 IN ({})"
     return read_rows_by_id(KeyInstanceRow, db, sql, sql_values, derivation_data2s)

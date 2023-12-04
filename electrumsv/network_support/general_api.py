@@ -782,9 +782,14 @@ async def process_incoming_peer_channel_messages_async(state: ServerStateProtoco
             message_map[message["sequence"]] = message
 
         # These cached values are passed on to whatever system processes these types of messages.
-        message_entries = [ (message_row, message_map[message_row.sequence]) for
-            message_row in await state.wallet_data.create_server_peer_channel_messages_async(
-                creation_message_rows) ]
+        if state.is_external:
+            message_entries = [ (message_row, message_map[message_row.sequence]) for
+                message_row in await state.wallet_data.create_external_peer_channel_messages_async(
+                    creation_message_rows) ]
+        else:
+            message_entries = [ (message_row, message_map[message_row.sequence]) for
+                message_row in await state.wallet_data.create_server_peer_channel_messages_async(
+                    creation_message_rows) ]
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:

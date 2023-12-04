@@ -1179,13 +1179,14 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
 
     # This is the best place to test this function.
     derivation_keyinstances = db_functions.read_keyinstances_for_derivations(db_context,
-        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1 ], MASTERKEY_ID)
+        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1 ], MASTERKEY_ID, False)
     assert len(derivation_keyinstances) == 1
     assert derivation_keyinstances[0] == key_rows[0]
 
     # This is the best place to test this function.
     derivation_keyinstances = db_functions.read_keyinstances_for_derivations(db_context,
-        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1, DERIVATION_DATA2 ], MASTERKEY_ID)
+        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1, DERIVATION_DATA2 ], MASTERKEY_ID,
+        False)
     # Sqlite returns the rows in order, but we should not rely on that as it is not a guarantee.
     derivation_keyinstances.sort(key=lambda r: r.keyinstance_id)
     assert len(derivation_keyinstances) == 2

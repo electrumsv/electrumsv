@@ -355,13 +355,13 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
 
         last_allocation_index = next_index + count - 1
         if count == 0:
-            future4, created_keyinstance_rows = account.derive_new_keys_until(
+            future4, created_keyinstance_rows, next_index = account.derive_new_keys_until(
                 RECEIVING_SUBPATH + (last_allocation_index,))
             assert future4 is None
             assert len(created_keyinstance_rows) == 0
             continue
 
-        future3, created_keyinstance_rows = account.derive_new_keys_until(
+        future3, created_keyinstance_rows, next_index = account.derive_new_keys_until(
             RECEIVING_SUBPATH + (last_allocation_index,))
         assert future3 is not None
         future3.result()
@@ -1355,7 +1355,8 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     wallet.register_account(account.get_id(), account)
 
     # Ensure that the keys used by the transaction are present to be linked to.
-    keyinstance_future, keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    keyinstance_future, keyinstance_rows, next_index = account.derive_new_keys_until(
+        RECEIVING_SUBPATH + (2,))
     assert keyinstance_future is not None
     keyinstance_future.result()
 
@@ -1537,7 +1538,7 @@ async def test_extend_transaction_sequence() -> None:
     try:
         tx_1 = Transaction.from_hex(SEQUENCE_TX_1_HEX)
         # We know these are the used keys, and we approximate them being active.
-        future, keyinstance_rows = account.derive_new_keys_until((0, 0))
+        future, keyinstance_rows, next_index = account.derive_new_keys_until((0, 0))
         if future is not None:
             future.result()
         assert len(keyinstance_rows) == 1
@@ -1611,7 +1612,7 @@ async def test_extend_transaction_sequence() -> None:
 
         ## Try again with the transaction not in the database, but change keys created.
         # We know these are the used change keys, and we approximate them being active.
-        future, keyinstance_rows = account.derive_new_keys_until((1, 9))
+        future, keyinstance_rows, next_index = account.derive_new_keys_until((1, 9))
         if future is not None:
             future.result()
         assert len(keyinstance_rows) == 10

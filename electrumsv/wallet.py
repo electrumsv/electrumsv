@@ -262,7 +262,7 @@ class AbstractAccount:
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> tuple[concurrent.futures.Future[None] | None, list[KeyInstanceRow]]:
+                -> tuple[concurrent.futures.Future[None]|None, list[KeyInstanceRow], int]:
         raise NotImplementedError
 
     def derive_script_template(self, derivation_path: DerivationPath,
@@ -290,8 +290,7 @@ class AbstractAccount:
             derivation_data = json.dumps(derivation_data_dict).encode()
             derivation_data2 = create_derivation_data2(ka.derivation_type, derivation_data_dict)
             keyinstance_rows.append(KeyInstanceRow(-1, account_id, ka.masterkey_id,
-                ka.derivation_type, derivation_data, derivation_data2,
-                keyinstance_flags, None))
+                ka.derivation_type, derivation_data, derivation_data2, keyinstance_flags, None))
         return self._wallet.create_keyinstances(self._id, keyinstance_rows)
 
     def _create_derivation_data_dict(self, key_allocation: KeyAllocation) \
@@ -1501,7 +1500,7 @@ class DeterministicAccount(AbstractAccount):
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> tuple[concurrent.futures.Future[None] | None, list[KeyInstanceRow]]:
+                -> tuple[concurrent.futures.Future[None]|None, list[KeyInstanceRow], int]:
         """
         Ensure that keys are created up to and including the given derivation path.
 
@@ -1516,7 +1515,7 @@ class DeterministicAccount(AbstractAccount):
             next_index = self.get_next_derivation_index(derivation_subpath)
             required_count = (final_index - next_index) + 1
             if required_count < 1:
-                return None, []
+                return None, [], next_index
 
             self._logger.debug("derive_new_keys_until path=%s index=%d count=%d",
                 derivation_subpath, final_index, required_count)
@@ -1524,11 +1523,12 @@ class DeterministicAccount(AbstractAccount):
             # Identify the metadata for each key that is to be created.
             key_allocations = self.allocate_keys(required_count, derivation_subpath)
             if not key_allocations:
-                return None, []
+                return None, [], next_index
         finally:
             self._value_locks.release_lock(derivation_subpath)
 
-        return self.create_preallocated_keys(key_allocations, keyinstance_flags)
+        future, keyinstance_rows = self.create_preallocated_keys(key_allocations, keyinstance_flags)
+        return future, keyinstance_rows, next_index
 
     def allocate_and_create_keys(self, count: int, derivation_subpath: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
@@ -1797,9 +1797,9 @@ class WalletDataAccess:
     # Bitcache
 
     async def create_bitcache_sync_entry_async(self, account_id: int, tx_hash: bytes,
-            flags: BitcacheTxFlag, sequence: int) -> concurrent.futures.Future[None]:
-        return self._db_context.post_to_thread(db_functions.create_bitcache_sync_entry_write,
-            account_id, tx_hash, flags, sequence)
+            flags: BitcacheTxFlag, sequence: int) -> None:
+        return await self._db_context.run_in_thread_async(
+            db_functions.create_bitcache_sync_entry_write, account_id, tx_hash, flags, sequence)
 
     def read_next_unsynced_bitcache_transaction(self, account_id: int) \
             -> BitcacheTransactionRow|None:
@@ -1904,9 +1904,9 @@ class WalletDataAccess:
 
     def read_keyinstances_for_derivations(self, account_id: int,
             derivation_type: DerivationType, derivation_data2s: list[bytes],
-            masterkey_id: int|None=None) -> list[KeyInstanceRow]:
+            masterkey_id: int|None=None, ignore_masterkey: bool=False) -> list[KeyInstanceRow]:
         return db_functions.read_keyinstances_for_derivations(self._db_context,
-            account_id, derivation_type, derivation_data2s, masterkey_id)
+            account_id, derivation_type, derivation_data2s, masterkey_id, ignore_masterkey)
 
     def read_keyinstance(self, *, account_id: int | None=None, keyinstance_id: int) \
             -> KeyInstanceRow|None:
@@ -3492,7 +3492,8 @@ class Wallet:
         return payment_ctx.payment_id
 
     def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlag,
-            error_callback: Callable[[str], None]) -> None:
+            error_callback: Callable[[str], None],
+            output_key_usage: dict[int, tuple[int, ScriptType]]|None=None) -> None:
         def callback(callback_future: concurrent.futures.Future[int]) -> None:
             if callback_future.cancelled():
                 return
@@ -3504,7 +3505,8 @@ class Wallet:
                 error_callback(_("That transaction has already been imported"))
 
         tx_hash = tx.hash()
-        import_ctxs = {tx_hash: TxImportCtx(flags=TxImportFlag.MANUAL_IMPORT)}
+        import_ctxs = {tx_hash: TxImportCtx(flags=TxImportFlag.MANUAL_IMPORT,
+            output_key_usage={} if output_key_usage is None else output_key_usage)}
         entry = TxImportEntry(tx_hash, tx, tx_state, BlockHeight.LOCAL, None, None)
         payment_ctx = PaymentCtx()
         future = app_state.async_.spawn(self.import_transactions_async(payment_ctx,[entry],{},
@@ -3546,7 +3548,7 @@ class Wallet:
             for extended_public_key in txin.unused_x_pubkeys():
                 account = self.find_account_for_extended_public_key(extended_public_key)
                 if account is not None:
-                    last_future, new_keyinstance_rows = account.derive_new_keys_until(
+                    last_future, new_keyinstance_rows, next_index = account.derive_new_keys_until(
                         extended_public_key.derivation_path)
                     keyinstance_rows.extend(new_keyinstance_rows)
 
@@ -3560,7 +3562,7 @@ class Wallet:
             for extended_public_key in txout.x_pubkeys.values():
                 account = self.find_account_for_extended_public_key(extended_public_key)
                 if account is not None:
-                    last_future, new_keyinstance_rows = account.derive_new_keys_until(
+                    last_future, new_keyinstance_rows, next_index = account.derive_new_keys_until(
                         extended_public_key.derivation_path)
                     keyinstance_rows.extend(new_keyinstance_rows)
 

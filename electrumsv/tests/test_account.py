@@ -53,7 +53,8 @@ async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
     wallet.register_account(account.get_id(), account)
 
     # Create two keys via `derive_new_keys_until`.
-    scripthash_future, keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    scripthash_future, keyinstance_rows, next_index = account.derive_new_keys_until(
+        RECEIVING_SUBPATH + (2,))
     assert scripthash_future is not None
     scripthash_future.result(5)
 
@@ -78,7 +79,8 @@ async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
         < keyinstance_rows[2].derivation_data2)
 
     # Create seven more keys via `derive_new_keys_until`.
-    derive_future, _keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (10,))
+    derive_future, _keyinstance_rows, next_index = account.derive_new_keys_until(
+        RECEIVING_SUBPATH + (10,))
     if derive_future is not None:
         derive_future.result()
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 11

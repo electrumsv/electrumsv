@@ -789,7 +789,7 @@ class AccountRestorationDialog(WindowModalDialog):
         assert account is not None
         last_keyinstance_future: concurrent.futures.Future[None] | None = None
         for subpath, subpath_index in furthest_subpath_indexes.items():
-            keyinstance_future, keyinstance_rows = account.derive_new_keys_until(
+            keyinstance_future, keyinstance_rows, next_index = account.derive_new_keys_until(
                 tuple(subpath) + (subpath_index,))
             if keyinstance_future is not None:
                 last_keyinstance_future = keyinstance_future

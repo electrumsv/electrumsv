@@ -21,19 +21,23 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
-import asyncio, base64, binascii, io, json
+import asyncio, base64, binascii, concurrent.futures, io, json
 from typing import cast, TYPE_CHECKING
 
-from bitcoinx import hash_to_hex_str
+from bitcoinx import bip32_decompose_chain_string, hash_to_hex_str
 
-from ..constants import BitcacheTxFlag, NetworkServerFlag, ChannelAccessTokenFlag, \
-    ChannelMessageFlag, ChannelFlag, TokenPermissions, TxFlag
+from ..constants import BitcacheTxFlag, BlockHeight, ChannelAccessTokenFlag, ChannelFlag, \
+    ChannelMessageFlag, DerivationPath, DerivationType, NetworkServerFlag, pack_derivation_path, \
+    ScriptType, TokenPermissions, TxFlag, TxImportFlag, unpack_derivation_path
 from ..exceptions import ServerConnectionError
 from ..logs import logs
 from ..standards.bitcache import BitcacheMessage, BitcacheTxoKeyUsage, \
     read_bitcache_message, write_bitcache_transaction_message
 from ..transaction import Transaction
+from ..types import PaymentCtx, TxImportCtx, TxImportEntry
+from ..wallet_database.exceptions import TransactionAlreadyExistsError
 from ..wallet_database.types import ChannelMessageRow, ServerPeerChannelRow
+from ..wallet_support.dump import encode_derivation_data, decode_script_type, encode_script_type
 
 from .exceptions import GeneralAPIError
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -91,11 +95,12 @@ async def add_external_bitcache_connection_async(wallet: Wallet, account_id: int
     # On failure `GeneralAPIError` and `ServerConnectionError` raise up to the caller.
     metadata = await read_peer_channel_metadata_async(wallet._network.aiohttp_session, channel_url,
         access_token)
-    permissions = TokenPermissions.READ_ACCESS | TokenPermissions.WRITE_ACCESS \
+    permissions = TokenPermissions.READ_ACCESS|TokenPermissions.WRITE_ACCESS \
         if metadata.flags_text == "rw" else TokenPermissions.READ_ACCESS
     channel_row = await wallet.data.create_external_peer_channel_async(channel_url,
         ChannelFlag.PURPOSE_BITCACHE, access_token, permissions)
     await account.set_bitcache_peer_channel_id_async(external_channel_row=channel_row)
+    await wallet.subscribe_to_external_peer_channel_async(channel_row)
 
 
 async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
@@ -127,12 +132,12 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
     if len(message_entries) > 0:
         state.bitcache_matches_queue.put_nowait(message_entries)
 
+    bitcache_is_valid = True
     assert state.wallet_proxy is not None
-    while state.wallet_proxy.is_running():
+    while state.wallet_proxy.is_running() and bitcache_is_valid:
         processed_message_ids: list[int] = []
         for message_row, channel_message in await state.bitcache_matches_queue.get():
             assert message_row.message_id is not None
-            processed_message_ids.append(message_row.message_id)
 
             if not isinstance(channel_message["payload"], str):
                 # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
@@ -149,10 +154,10 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
                 continue
             if state.is_external:
                 account_id = state.wallet_data.read_account_id_for_bitcache_peer_channel_id(
-                    local_id=message_row.peer_channel_id)
+                    external_id=message_row.peer_channel_id)
             else:
                 account_id = state.wallet_data.read_account_id_for_bitcache_peer_channel_id(
-                    external_id=message_row.peer_channel_id)
+                    local_id=message_row.peer_channel_id)
             assert account_id is not None, "Application completely broken, bitcache account unknown"
             account = state.wallet_proxy.get_account(account_id)
             assert account is not None, "Application completely broken, bitcache account missing"
@@ -161,17 +166,90 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
             stream = io.BytesIO(channel_message_bytes)
             message = read_bitcache_message(stream)
             tx = Transaction.from_bytes(message.tx_data)
+            logger.debug("Consumer processing tx %s", hash_to_hex_str(tx.hash())[:6])
+
+            # Pass 1: Check that the key usage for the transaction is mapped to valid masterkeys.
+            fingerprints = { kd.parent_key_fingerprint for kd in message.key_data }
+            masterkey_ids: dict[bytes, int] = {}
+            for keystore in account.get_keystores():
+                # TODO(1.4.0) Bitcache. This should flag the channel as containing corrupt data.
+                if keystore.get_fingerprint() in fingerprints:
+                    masterkey_ids[keystore.get_fingerprint()] = keystore.get_id()
+            if not fingerprints.issubset(masterkey_ids):
+                bitcache_is_valid = False
+                logger.error("Consumer exiting. Unrecognised parent key fingerprints %s",
+                    set(masterkey_ids) - fingerprints)
+                break
+
+            # Pass 2: Index the derivation path usage.
+            path_indices: dict[DerivationPath, set[int]] = {}
+            required_keys_data: list[tuple[int, int, ScriptType, bytes]] = []
+            for key_data in message.key_data:
+                # TODO(1.4.0) Bitcache. Handle unknown derivation scheme. Contract break, corrupt.
+                scheme, path_text = key_data.derivation_text[:6], key_data.derivation_text[6:]
+                if scheme != "bip32:":
+                    bitcache_is_valid = False
+                    logger.error("Consumer exiting. Unknown key derivation scheme %s", scheme)
+                    break
+                path = cast(DerivationPath, tuple(bip32_decompose_chain_string(path_text)))
+                path_prefix, path_index = path[:-1], path[-1]
+                assert len(path_prefix) > 0 # At least a relative receiving/change subpath?
+                if path_prefix not in path_indices: path_indices[path_prefix] = set()
+                path_indices[path_prefix].add(path_index)
+                required_keys_data.append((key_data.txo_index,
+                    masterkey_ids[key_data.parent_key_fingerprint],
+                    decode_script_type(key_data.script_type), pack_derivation_path(path)))
+            if not bitcache_is_valid:
+                break
+
+            # If any keys are created we can ensure the rows are inserted into the database by
+            # waiting on the last future (writes are processed in order on the DB thread).
+            last_future: concurrent.futures.Future[None]|None = None
+            key_map: dict[tuple[int, bytes], int] = {}
+            for path_prefix, observed_indices in path_indices.items():
+                # BIP32 keys are always created in order of derivation index. Create any needed.
+                key_future, new_key_rows, next_index = \
+                    account.derive_new_keys_until(path_prefix + (max(observed_indices),))
+                if key_future is not None: last_future = key_future
+                # Merge in any of the newly created keys that are used.
+                for key_row in new_key_rows:
+                    path_index = unpack_derivation_path(cast(bytes, key_row.derivation_data2))[-1]
+                    if path_index in observed_indices:
+                        assert key_row.masterkey_id is not None
+                        assert key_row.derivation_data2 is not None
+                        key_map[(key_row.masterkey_id, key_row.derivation_data2)] = \
+                            key_row.keyinstance_id
+                if len(new_key_rows) > 0:
+                    derivation_data2s = [ pack_derivation_path(path_prefix + (path_index,))
+                        for path_index in observed_indices if path_index < next_index ]
+                else:
+                    derivation_data2s = [ pack_derivation_path(path_prefix + (path_index,))
+                        for path_index in observed_indices ]
+                for key_row in state.wallet_data.read_keyinstances_for_derivations(account_id,
+                        DerivationType.BIP32_SUBPATH, derivation_data2s, ignore_masterkey=True):
+                    assert key_row.masterkey_id is not None and key_row.derivation_data2 is not None
+                    key_map[(key_row.masterkey_id, key_row.derivation_data2)] = \
+                        key_row.keyinstance_id
+            if last_future is not None: await asyncio.wrap_future(last_future)
+
+            # TODO(1.4.0) Bitcache. What if there are multiple keys per txo??
+            txo_key_usage = { txo_index: (key_map[(masterkey_id, derivation_data2)], script_type)
+                for txo_index, masterkey_id, script_type, derivation_data2 in required_keys_data }
+
             tx_hash = tx.hash()
-            pass
-
-
-            if False:
-                def transaction_import_callback(message: str) -> None:
-                    nonlocal tx
-                    # TODO(1.4.0) Bitcache. Do something with the error handling.
-                    print(f"Unhandled error importing bitcache transaction {message}")
-                state.wallet_proxy.import_transaction_with_error_callback(tx, TxFlag.STATE_RECEIVED,
-                    transaction_import_callback)
+            import_ctxs = {tx_hash: TxImportCtx(flags=TxImportFlag.MANUAL_IMPORT,
+                output_key_usage=txo_key_usage)}
+            entry = TxImportEntry(tx_hash, tx, TxFlag.STATE_RECEIVED, BlockHeight.LOCAL, None, None)
+            payment_ctx = PaymentCtx()
+            try:
+                await state.wallet_proxy.import_transactions_async(payment_ctx, [entry], {},
+                    import_ctxs, rollback_on_spend_conflict=True)
+            except TransactionAlreadyExistsError:
+                logger.error("Bitcache consumer exiting. Encountered duplicate transaction %s",
+                    hash_to_hex_str(tx.hash())[:6])
+                bitcache_is_valid = False
+                break
+            processed_message_ids.append(message_row.message_id)
 
         logger.debug("Marking %d bitcache messages processed", len(processed_message_ids))
         await state.wallet_data.update_server_peer_channel_message_flags_async(
@@ -206,8 +284,7 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
                 logger.debug("Bitcache[%d] loop exiting (no server channel)", account_id)
                 return
             token_rows = wallet_data.read_server_peer_channel_access_tokens(channel_id,
-                ChannelAccessTokenFlag.FOR_LOCAL_USAGE,
-                ChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+                ChannelAccessTokenFlag.FOR_LOCAL_USAGE, ChannelAccessTokenFlag.FOR_LOCAL_USAGE)
             if not token_rows:
                 logger.debug("Bitcache[%d] loop exiting (no token)", account_id)
                 return
@@ -230,8 +307,10 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
         message = BitcacheMessage(match.tx_data, [])
         for key_row in match.key_data:
             assert key_row.masterkey_id == account.get_masterkey_id()
-            message.key_data.append(BitcacheTxoKeyUsage(key_row.txo_index, key_row.script_type,
-                key_fingerprint, key_row.derivation_type, cast(bytes, key_row.derivation_data2)))
+            derivation_text = encode_derivation_data(key_row.derivation_type,
+                cast(bytes, key_row.derivation_data2))
+            message.key_data.append(BitcacheTxoKeyUsage(key_row.txo_index,
+                encode_script_type(key_row.script_type), key_fingerprint, derivation_text))
         write_bitcache_transaction_message(stream, message)
         payload_bytes = stream.getbuffer()
         try:

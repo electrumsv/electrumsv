@@ -1,15 +1,14 @@
+"""
+MIT license.
+Copyright Roger Taylor 2023.
+"""
+
 from __future__ import annotations
-import dataclasses, io, os, struct
+import dataclasses, io, logging, os, struct
 from typing import cast
 
-from bitcoinx import pack_le_uint16, pack_le_uint32, read_le_uint16, read_le_uint32, read_le_uint64
 
-from ..constants import DerivationType, ScriptType
-from ..logs import logs
-from ..wallet_support.dump import encode_derivation_data, encode_script_type, \
-    decode_derivation_data, decode_script_type
-
-logger = logs.get_logger("bitcache-data")
+logger = logging.getLogger("bitcache")
 
 class ChunkIds:
     # Message focus.
@@ -22,10 +21,9 @@ class ChunkIds:
 @dataclasses.dataclass
 class BitcacheTxoKeyUsage:
     txo_index: int
-    script_type: ScriptType
+    script_type: str
     parent_key_fingerprint: bytes
-    derivation_type: DerivationType
-    derivation_data2: bytes
+    derivation_text: str
 
 @dataclasses.dataclass
 class BitcacheMessage:
@@ -46,7 +44,7 @@ def read_bitcache_message(stream: io.BytesIO) -> BitcacheMessage:
             return BitcacheMessage(tx_bytes, key_data)
         elif len(chunk_id) != 8:
             raise ValueError(f"Incorrect chunk id size '{chunk_id!r}'")
-        chunk_length = read_le_uint64(stream.read)
+        chunk_length = struct.unpack("<Q", stream.read(8))[0]
         if chunk_id == ChunkIds.TX.encode():
             tx_bytes = stream.read(chunk_length)
             if len(tx_bytes) != chunk_length:
@@ -80,31 +78,31 @@ def read_bitcache_txokey(stream: io.BytesIO) -> BitcacheTxoKeyUsage:
         Raises `ValueError` if the derivation type is unrecognised.
     """
     return BitcacheTxoKeyUsage(read_bitcache_txo_index(stream), read_bitcache_script_type(stream),
-        read_bitcache_key_fingerprint(stream), *read_bitcache_key_derivation(stream))
+        read_bitcache_key_fingerprint(stream), read_bitcache_key_derivation(stream))
 
 def read_bitcache_txo_index(stream: io.BytesIO) -> int:
-    return cast(int, read_le_uint32(stream.read))
+    return cast(int, struct.unpack("<I", stream.read(4))[0])
 
-def read_bitcache_script_type(stream: io.BytesIO) -> ScriptType:
-    field_length = read_le_uint16(stream.read)
+def read_bitcache_script_type(stream: io.BytesIO) -> str:
+    field_length = struct.unpack("<H", stream.read(2))[0]
     if field_length < 4 or field_length > 32:
         raise ValueError(f"Bad key scripttype length {field_length}")
-    return decode_script_type(stream.read(field_length).decode())
+    return stream.read(field_length).decode()
 
 def read_bitcache_key_fingerprint(stream: io.BytesIO) -> bytes:
-    field_length = read_le_uint16(stream.read)
+    field_length = struct.unpack("<H", stream.read(2))[0]
     if field_length > 20*4 or field_length < 4 or field_length % 4:
         raise ValueError(f"Bad key fingerprint length {field_length}")
     return stream.read(field_length)
 
-def read_bitcache_key_derivation(stream: io.BytesIO) -> tuple[DerivationType, bytes]:
+def read_bitcache_key_derivation(stream: io.BytesIO) -> str:
     """
     Raises `UnicodeDecodeError` if the derivation text is not valid ASCII.
     """
-    field_length = read_le_uint16(stream.read)
+    field_length = struct.unpack("<H", stream.read(2))[0]
     if field_length < 4 or field_length > 32:
         raise ValueError(f"Bad key derivation length {field_length}")
-    return decode_derivation_data(stream.read(field_length).decode("ascii"))
+    return stream.read(field_length).decode("ascii")
 
 def write_bitcache_transaction_message(stream: io.BytesIO, data: BitcacheMessage) -> None:
     write_bitcache_transaction_chunk(stream, data.tx_data)
@@ -115,8 +113,7 @@ def write_bitcache_transaction_chunk(stream: io.BytesIO, tx_value: bytes) -> Non
     stream.write(struct.pack("<Q", len(tx_value)))
     stream.write(tx_value)
 
-def write_bitcache_txokeys_chunk(stream: io.BytesIO, entries: list[BitcacheTxoKeyUsage]) \
-        -> None:
+def write_bitcache_txokeys_chunk(stream: io.BytesIO, entries: list[BitcacheTxoKeyUsage]) -> None:
     stream.write(ChunkIds.KEY_USAGE.encode())
     length_offset = stream.tell()
     stream.write(b"\0" * 8)
@@ -132,22 +129,21 @@ def write_bitcache_txokey(stream: io.BytesIO, data: BitcacheTxoKeyUsage) -> None
     write_bitcache_txo_index(stream, data.txo_index)
     write_bitcache_script_type(stream, data.script_type)
     write_bitcache_key_fingerprint(stream, data.parent_key_fingerprint)
-    write_bitcache_key_derivation(stream, data.derivation_type, data.derivation_data2)
+    write_bitcache_key_derivation(stream, data.derivation_text)
 
 def write_bitcache_txo_index(stream: io.BytesIO, txo_index: int) -> None:
-    stream.write(pack_le_uint32(txo_index))
+    stream.write(struct.pack("<I", txo_index))
 
-def write_bitcache_script_type(stream: io.BytesIO, script_type: ScriptType) -> None:
-    value = encode_script_type(script_type).encode()
-    stream.write(pack_le_uint16(len(value)))
+def write_bitcache_script_type(stream: io.BytesIO, script_type: str) -> None:
+    value = script_type.encode()
+    stream.write(struct.pack("<H", len(value)))
     stream.write(value)
 
 def write_bitcache_key_fingerprint(stream: io.BytesIO, key_fingerprint: bytes) -> None:
-    stream.write(pack_le_uint16(len(key_fingerprint)))
+    stream.write(struct.pack("<H", len(key_fingerprint)))
     stream.write(key_fingerprint)
 
-def write_bitcache_key_derivation(stream: io.BytesIO, derivation_type: DerivationType,
-        derivation_data2: bytes) -> None:
-    value = encode_derivation_data(derivation_type, derivation_data2).encode()
-    stream.write(pack_le_uint16(len(value)))
-    stream.write(value)
+def write_bitcache_key_derivation(stream: io.BytesIO, derivation_text: str) -> None:
+    derivation_bytes = derivation_text.encode()
+    stream.write(struct.pack("<H", len(derivation_bytes)))
+    stream.write(derivation_bytes)

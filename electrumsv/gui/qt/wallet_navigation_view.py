@@ -433,7 +433,8 @@ class WalletNavigationView(QSplitter):
         bitcache_menu.addAction(_("&Setup new"),
             partial(main_window_proxy.setup_new_bitcache, account_id)).setEnabled(no_bitcache)
         bitcache_menu.addAction(_("&Connect to existing"),
-            main_window_proxy.connect_to_existing_bitcache).setEnabled(no_bitcache)
+            partial(main_window_proxy.connect_to_existing_bitcache, account_id)).setEnabled(
+                no_bitcache)
         bitcache_menu.addAction(_("&Grant access"),
             partial(main_window_proxy.show_bitcache_access_dialog, account_id)).setEnabled(
                 owned_bitcache)
