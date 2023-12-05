@@ -185,6 +185,7 @@ class AccessTokenList(MyTreeWidget):
 
     def __init__(self, parent: QWidget, main_window: ElectrumWindow, account_id: int) -> None:
         self._main_window = weakref.proxy(main_window)
+        self._parent_widget = parent
         self._account_id: int = account_id
         account = main_window._wallet.get_account(account_id)
         assert account is not None
@@ -204,7 +205,7 @@ class AccessTokenList(MyTreeWidget):
         if item is None: return
         if not item.isSelected(): return
         token_row = cast(ChannelAccessTokenRow, item.data(0, Qt.ItemDataRole.UserRole))
-        show_view_token_dialog(self, token_row)
+        show_view_token_dialog(self._parent_widget, self, token_row)
 
     def on_edited(self, item: QTreeWidgetItem, column: int, prior_text: str) -> None:
         '''Called only when the text actually changes'''
@@ -238,11 +239,12 @@ class AccessTokenList(MyTreeWidget):
 
         menu = QMenu()
         menu.addAction(_("View token"), cast(Callable[[], None],
-            partial(show_view_token_dialog, self, token_row)))
+            partial(show_view_token_dialog, self._parent_widget, self, token_row)))
         menu.exec(self.viewport().mapToGlobal(position))
 
 
-def show_view_token_dialog(list_widget: AccessTokenList, token_row: ChannelAccessTokenRow) -> None:
+def show_view_token_dialog(parent_dialog: WindowModalDialog, list_widget: AccessTokenList,
+        token_row: ChannelAccessTokenRow) -> None:
     wallet = list_widget._account._wallet
     wallet_data = wallet.data
     channel_rows = wallet.data.read_server_peer_channels(channel_id=token_row.peer_channel_id)
@@ -253,7 +255,7 @@ def show_view_token_dialog(list_widget: AccessTokenList, token_row: ChannelAcces
     assert server_state is not None
 
     title = _("View token")
-    dialog = WindowModalDialog(list_widget, title)
+    dialog = WindowModalDialog(parent_dialog, title)
     vbox = QVBoxLayout()
     form = FormSectionWidget()
     form.add_row(_("Note"), QLabel(token_row.description))
@@ -276,19 +278,18 @@ def show_view_token_dialog(list_widget: AccessTokenList, token_row: ChannelAcces
     url_edit = QPlainTextEdit(channel_row.remote_url)
     url_edit.setReadOnly(True)
     url_edit.setMaximumHeight(90)
-    url_edit.setMaximumWidth(300)
+    url_edit.setMaximumWidth(400)
     form.add_row(_("Channel URL"), url_edit)
     token_edit = QPlainTextEdit(token_row.access_token)
     token_edit.setReadOnly(True)
-    token_edit.setMaximumHeight(70)
-    token_edit.setMaximumWidth(300)
+    token_edit.setMaximumHeight(90)
+    token_edit.setMaximumWidth(400)
     form.add_row(_("Access token"), token_edit)
     revoke_button = QPushButton(_("Revoke"))
     cancel_button = CancelButton(dialog, _("Close"))
     buttons = Buttons(revoke_button, cancel_button)
     vbox.addLayout(buttons)
     dialog.setLayout(vbox)
-    dialog.show()
     async def revoke_token_async() -> None:
         nonlocal channel_row, server_state, token_row, wallet_data
         assert channel_row.peer_channel_id is not None
@@ -311,6 +312,7 @@ def show_view_token_dialog(list_widget: AccessTokenList, token_row: ChannelAcces
         app_state.app.run_coro(revoke_token_async(), on_done=event_revoke_done)
     revoke_button.clicked.connect(on_revoke_clicked)
     dialog.accepted.connect(list_widget.update)
+    dialog.show()
 
 def show_add_token_dialog(parent_dialog: WindowModalDialog, wallet_data: WalletDataAccess,
         messagebox_server: ServerConnectionState, channel_id: int) -> WindowModalDialog:

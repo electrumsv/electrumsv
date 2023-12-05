@@ -28,18 +28,24 @@ Functions to aid in informal debug dumping of wallet contents.
 from __future__ import annotations
 from typing import cast, TypedDict
 
-from bitcoinx import bip32_build_chain_string, bip32_decompose_chain_string
+from bitcoinx import bip32_build_chain_string, bip32_decompose_chain_string, hash_to_hex_str
 
 from ..constants import DerivationPath, DerivationType, pack_derivation_path, ScriptType, \
     unpack_derivation_path
-from ..wallet_database.types import TransactionOutputKeyDataRow
-
+from ..wallet_database.types import BitcacheTransactionRow
 
 class JSONTxoKeyUsage(TypedDict):
-    vout: int
-    script_type: str
-    key_fingerprint: str
-    key_derivation: str
+    vout:               int
+    script_type:        str
+    key_fingerprint:    str
+    key_derivation:     str
+
+class JSONTx(TypedDict):
+    tsc_proof:          str|None
+    block_hash:         str|None
+    block_height:       int|None
+    block_position:     int|None
+    key_usage:          list[JSONTxoKeyUsage]
 
 class ScriptTypeNames:
     P2PKH           = "p2pkh"
@@ -81,14 +87,19 @@ def decode_script_type(text: str) -> ScriptType:
     raise ValueError(f"Bad script type {text!r}")
 
 
-def convert_txokeydata_to_jsondata(key_fingerprint: bytes,
-        rows: list[TransactionOutputKeyDataRow]) -> list[JSONTxoKeyUsage]:
-    return [
-        {
-            "vout": row.txo_index,
-            "script_type": encode_script_type(row.script_type),
-            "key_fingerprint": key_fingerprint.hex(),
-            "key_derivation": encode_derivation_data(row.derivation_type,
-                cast(bytes, row.derivation_data2)),
-        } for row in rows
-    ]
+def convert_txrow_to_jsondata(row: BitcacheTransactionRow, key_fingerprint: bytes) -> JSONTx:
+    return {
+        "tsc_proof": None if row.proof_bytes is None else row.proof_bytes.hex(),
+        "block_hash": None if row.block_hash is None else hash_to_hex_str(row.block_hash),
+        "block_height": row.block_height,
+        "block_position": row.block_position,
+        "key_usage": [
+            {
+                "vout": key_row.txo_index,
+                "script_type": encode_script_type(key_row.script_type),
+                "key_fingerprint": key_fingerprint.hex(),
+                "key_derivation": encode_derivation_data(key_row.derivation_type,
+                    cast(bytes, key_row.derivation_data2)),
+            } for key_row in row.key_data
+        ]
+    }

@@ -1,11 +1,12 @@
 import io, json, os
 from typing import cast
 
+from bitcoinx import hex_str_to_hash
+
 from electrumsv.standards.bitcache import BitcacheMessage, BitcacheTxoKeyUsage, \
     read_bitcache_message, write_bitcache_transaction_message
 from electrumsv.tests.util import TEST_TRANSACTION_PATH
-from electrumsv.wallet_support.dump import decode_derivation_data, decode_script_type, \
-    JSONTxoKeyUsage
+from electrumsv.wallet_support.dump import JSONTx, JSONTxoKeyUsage
 
 # This is the data from the exported regtest mining wallet we have in the simple indexer.
 MINING_TEST_PATH = os.path.join(TEST_TRANSACTION_PATH, "regtest_mining")
@@ -29,7 +30,11 @@ def test_read_bitcache_messages() -> None:
         metadata_path = os.path.join(MINING_TEST_PATH, filename_prefix+".json")
         assert os.path.exists(metadata_path)
         with open(metadata_path, "r") as f:
-            for i, o in enumerate(cast(list[JSONTxoKeyUsage], json.load(f))):
+            data = cast(list[JSONTx], json.load(f))
+            assert (None if data["tsc_proof"] is None else bytes.fromhex(data["tsc_proof"]))== \
+                message.tsc_proof_bytes
+            assert (data["block_height"] or 0) == message.block_height
+            for i, o in enumerate(data["key_usage"]):
                 k = message.key_data[i]
                 assert o["vout"] == k.txo_index
                 assert o["script_type"] == k.script_type
@@ -51,17 +56,21 @@ def _generate_test_data() -> None:
         prefix, suffix = os.path.splitext(filename)
         if suffix != ".txn":
             continue
+        metadata_path = os.path.join(MINING_TEST_PATH, prefix+".json")
+        assert os.path.exists(metadata_path)
+        with open(metadata_path, "r") as f:
+            data = cast(JSONTx, json.load(f))
+
         transaction_path = os.path.join(MINING_TEST_PATH, prefix+".txn")
         with open(transaction_path, "rb") as f:
-            msg = BitcacheMessage(f.read(), [])
+            msg = BitcacheMessage(f.read(), [],
+                None if data["tsc_proof"] is None else bytes.fromhex(data["tsc_proof"]),
+                data["block_height"] or 0, None)
 
-        key_usage_path = os.path.join(MINING_TEST_PATH, prefix+".json")
-        assert os.path.exists(key_usage_path)
-        with open(key_usage_path, "r") as f:
-            for o in cast(list[JSONTxoKeyUsage], json.load(f)):
-                msg.key_data.append(BitcacheTxoKeyUsage(o["vout"],
-                    decode_script_type(o["script_type"]), bytes.fromhex(o["key_fingerprint"]),
-                    *decode_derivation_data(o["key_derivation"])))
+        for o in data["key_usage"]:
+            msg.key_data.append(BitcacheTxoKeyUsage(o["vout"],
+                o["script_type"], bytes.fromhex(o["key_fingerprint"]),
+                o["key_derivation"]))
 
         output_path = os.path.join(MINING_BITCACHE_PATH, prefix+".bin")
         with open(output_path, "wb") as f:

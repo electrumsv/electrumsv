@@ -772,7 +772,7 @@ class WalletNavigationView(QSplitter):
         # List all transactions in the wallet by creation date ascending.
         # Have key data for each transaction.
         # Export as named files, tx and key metadata.
-        from ...wallet_support.dump import convert_txokeydata_to_jsondata
+        from ...wallet_support.dump import convert_txrow_to_jsondata
         account = self._wallet.get_account(account_id)
         assert account is not None
         key_fingerprint = account.get_fingerprint()
@@ -783,4 +783,4 @@ class WalletNavigationView(QSplitter):
                 f.write(row.tx_data)
 
             with open(os.path.join(export_path, tx_prefix+".json"), "w") as f:
-                json.dump(convert_txokeydata_to_jsondata(key_fingerprint, row.key_data), f)
+                json.dump(convert_txrow_to_jsondata(row, key_fingerprint), f)

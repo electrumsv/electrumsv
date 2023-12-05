@@ -737,10 +737,12 @@ def create_bitcache_sync_entry_write(account_id: int, tx_hash: bytes, flags: Bit
 def read_next_unsynced_bitcache_transaction(db: sqlite3.Connection, account_id: int) \
         -> BitcacheTransactionRow|None:
     sql1 =\
-    "SELECT TX.tx_hash, TX.tx_data, BT.flags "\
+    "SELECT TX.tx_hash,TX.tx_data,COALESCE(BT.flags,0),TP.proof_data,TP.block_hash,"\
+        "TP.block_height,TP.block_position "\
     "FROM Transactions TX "\
     "INNER JOIN AccountPayments AP ON AP.payment_id=TX.payment_id "\
     "LEFT JOIN BitcacheTransactions BT ON TX.tx_hash=BT.tx_hash AND AP.account_id=BT.account_id "\
+    "LEFT JOIN TransactionProofs TP ON TX.tx_hash=TP.tx_hash AND TX.block_hash=TP.block_hash "\
     "WHERE TX.flags&?1=0 AND AP.account_id=?2 AND COALESCE(BT.flags,0)&?3=0 "\
     "ORDER BY TX.date_created "\
     "LIMIT 1"
@@ -759,15 +761,18 @@ def read_next_unsynced_bitcache_transaction(db: sqlite3.Connection, account_id: 
     key_data = [
         TransactionOutputKeyDataRow(r[0],r[1],ScriptType(r[2]),r[3],DerivationType(r[4]),r[5])
         for r in db.execute(sql2, (tx_row[0],account_id)).fetchall() ]
-    return BitcacheTransactionRow(tx_row[0],tx_row[1],tx_row[2], key_data)
+    return BitcacheTransactionRow(tx_row[0],tx_row[1],BitcacheTxFlag(tx_row[2]),tx_row[3],
+        tx_row[4],tx_row[5],tx_row[6],key_data)
 
 @replace_db_context_with_connection
 def read_debug_bitcache_transactions(db: sqlite3.Connection, account_id: int) \
         -> list[BitcacheTransactionRow]:
     sql1 =\
-    "SELECT TX.tx_hash, TX.tx_data "\
+    "SELECT TX.tx_hash, TX.tx_data, TP.proof_data, TP.block_hash, TP.block_height, " \
+        "TP.block_position "\
     "FROM Transactions TX "\
     "INNER JOIN AccountPayments AP ON AP.payment_id=TX.payment_id "\
+    "LEFT JOIN TransactionProofs TP ON TX.tx_hash=TP.tx_hash AND TX.block_hash=TP.block_hash "\
     "WHERE TX.flags&?1=0 AND AP.account_id=?2 "\
     "ORDER BY TX.date_created "
     tx_rows = db.execute(sql1, (TxFlag.MASK_UNLINKED, account_id)).fetchall()
@@ -787,9 +792,9 @@ def read_debug_bitcache_transactions(db: sqlite3.Connection, account_id: int) \
             TransactionOutputKeyDataRow(r[0],r[1],ScriptType(r[2]),r[3],DerivationType(r[4]),r[5]))
 
     ret: list[BitcacheTransactionRow] = []
-    for tx_hash, tx_data in tx_rows:
-        ret.append(BitcacheTransactionRow(tx_hash, tx_data, BitcacheTxFlag.NONE,
-            key_usage_by_tx_hash.get(tx_hash, [])))
+    for tx_hash, tx_data, proof_bytes, block_hash, block_height, block_position in tx_rows:
+        ret.append(BitcacheTransactionRow(tx_hash, tx_data, BitcacheTxFlag.NONE, proof_bytes,
+            block_hash, block_height, block_position, key_usage_by_tx_hash.get(tx_hash, [])))
     return ret
 
 

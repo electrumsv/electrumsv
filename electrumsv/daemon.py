@@ -240,11 +240,12 @@ class Daemon(DaemonThread):
 
         def _watcher() -> None:
             while True:
-                for th in threading.enumerate():
-                    th_text = str(th)
+                print("---- ---- ---- ----")
+                for i, th in enumerate(threading.enumerate()):
+                    # th_text = str(th)
                     # if "GUI" not in th_text:
                     #     continue
-                    print(th)
+                    print(f"---- {i}: {th}")
                     # NOTE(typing) Optional debugging code, not too invested in the typing error.
                     traceback.print_stack(sys._current_frames()[th.ident]) # type: ignore
                     print()

@@ -1,1 +1,1 @@
-[{"vout": 0, "script_type": "p2pkh", "key_fingerprint": "9341cb4c", "key_derivation": "bip32:m/0/0"}]
+{"tsc_proof": "00003794e9ff78638475b94d307862771ece83e42a144a903a80723df2375c7170ee79ce513a9e2f56cb0b0ac58b57a05bf9a6170174b7d29868eca64831eed1e83d00", "block_hash": "3de8d1ee3148a6ec6898d2b7740117a6f95ba0578bc50a0bcb562f9e3a51ce79", "block_height": 5, "block_position": 0, "key_usage": [{"vout": 0, "script_type": "p2pkh", "key_fingerprint": "9341cb4c", "key_derivation": "bip32:m/0/0"}]}

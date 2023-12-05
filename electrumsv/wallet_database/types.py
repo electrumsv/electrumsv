@@ -730,4 +730,8 @@ class BitcacheTransactionRow(NamedTuple):
     tx_hash: bytes
     tx_data: bytes
     flags: BitcacheTxFlag
+    proof_bytes: bytes|None
+    block_hash: bytes|None
+    block_height: int|None
+    block_position: int|None
     key_data: list[TransactionOutputKeyDataRow]

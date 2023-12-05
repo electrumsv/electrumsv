@@ -21,7 +21,7 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
-import asyncio, base64, binascii, concurrent.futures, io, json
+import asyncio, base64, binascii, concurrent.futures, io, json, struct
 from typing import cast, TYPE_CHECKING
 
 from bitcoinx import bip32_decompose_chain_string, hash_to_hex_str
@@ -33,10 +33,11 @@ from ..exceptions import ServerConnectionError
 from ..logs import logs
 from ..standards.bitcache import BitcacheMessage, BitcacheTxoKeyUsage, \
     read_bitcache_message, write_bitcache_transaction_message
+from ..standards.tsc_merkle_proof import TSCMerkleProof, TSCMerkleProofError
 from ..transaction import Transaction
 from ..types import PaymentCtx, TxImportCtx, TxImportEntry
 from ..wallet_database.exceptions import TransactionAlreadyExistsError
-from ..wallet_database.types import ChannelMessageRow, ServerPeerChannelRow
+from ..wallet_database.types import ChannelMessageRow, MerkleProofRow, ServerPeerChannelRow
 from ..wallet_support.dump import encode_derivation_data, decode_script_type, encode_script_type
 
 from .exceptions import GeneralAPIError
@@ -164,9 +165,15 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
 
             # TODO(1.4.0) Bitcache. Catch parsing exceptions. Skip this tx or abandon bitcache?
             stream = io.BytesIO(channel_message_bytes)
-            message = read_bitcache_message(stream)
+            try:
+                message = read_bitcache_message(stream)
+            except (struct.error, ValueError):
+                bitcache_is_valid = False
+                logger.exception("Consumer exiting. Unable to parse message correctly")
+                break
             tx = Transaction.from_bytes(message.tx_data)
-            logger.debug("Consumer processing tx %s", hash_to_hex_str(tx.hash())[:6])
+            tx_hash = tx.hash()
+            logger.debug("Consumer processing tx %s", hash_to_hex_str(tx_hash)[:6])
 
             # Pass 1: Check that the key usage for the transaction is mapped to valid masterkeys.
             fingerprints = { kd.parent_key_fingerprint for kd in message.key_data }
@@ -232,21 +239,39 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
                         key_row.keyinstance_id
             if last_future is not None: await asyncio.wrap_future(last_future)
 
-            # TODO(1.4.0) Bitcache. What if there are multiple keys per txo??
+            tx_state = TxFlag.STATE_RECEIVED
+            proofs: dict[bytes, MerkleProofRow] = {}
+            if message.tsc_proof_bytes is not None:
+                try:
+                    tsc_proof = TSCMerkleProof.from_bytes(message.tsc_proof_bytes)
+                except TSCMerkleProofError:
+                    logger.exception("Bitcache consumer exiting. Invalid TSC merkle proof %s",
+                        hash_to_hex_str(tx_hash)[:6])
+                    bitcache_is_valid = False
+                    break
+                assert tsc_proof.transaction_hash == tx_hash
+                assert tsc_proof.block_hash is not None
+                proofs[tx_hash] = MerkleProofRow(tsc_proof.block_hash, tsc_proof.transaction_index,
+                    message.block_height, message.tsc_proof_bytes, tx_hash)
+                tx_state = TxFlag.STATE_SETTLED
+
+            payment_ctx = PaymentCtx()
+            entry = TxImportEntry(tx_hash, tx, tx_state,
+                BlockHeight.LOCAL if message.tsc_proof_bytes is None else message.block_height,
+                None if message.tsc_proof_bytes is None else tsc_proof.block_hash,
+                None if message.tsc_proof_bytes is None else tsc_proof.transaction_index)
+            # TODO(1.4.0) Bitcache. What if there are multiple keys per txo?
             txo_key_usage = { txo_index: (key_map[(masterkey_id, derivation_data2)], script_type)
                 for txo_index, masterkey_id, script_type, derivation_data2 in required_keys_data }
-
-            tx_hash = tx.hash()
+            # TODO(1.4.0) Bitcache. Extract date created from the metadata?
             import_ctxs = {tx_hash: TxImportCtx(flags=TxImportFlag.MANUAL_IMPORT,
                 output_key_usage=txo_key_usage)}
-            entry = TxImportEntry(tx_hash, tx, TxFlag.STATE_RECEIVED, BlockHeight.LOCAL, None, None)
-            payment_ctx = PaymentCtx()
             try:
-                await state.wallet_proxy.import_transactions_async(payment_ctx, [entry], {},
+                await state.wallet_proxy.import_transactions_async(payment_ctx, [entry], proofs,
                     import_ctxs, rollback_on_spend_conflict=True)
             except TransactionAlreadyExistsError:
                 logger.error("Bitcache consumer exiting. Encountered duplicate transaction %s",
-                    hash_to_hex_str(tx.hash())[:6])
+                    hash_to_hex_str(tx_hash)[:6])
                 bitcache_is_valid = False
                 break
             processed_message_ids.append(message_row.message_id)
@@ -304,7 +329,8 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
             return
 
         stream = io.BytesIO()
-        message = BitcacheMessage(match.tx_data, [])
+        message = BitcacheMessage(match.tx_data, [], match.proof_bytes,
+            0 if match.block_height is None else match.block_height, None)
         for key_row in match.key_data:
             assert key_row.masterkey_id == account.get_masterkey_id()
             derivation_text = encode_derivation_data(key_row.derivation_type,
