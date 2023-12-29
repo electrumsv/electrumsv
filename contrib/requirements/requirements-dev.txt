@@ -18,3 +18,4 @@ types-pkg_resources
 types-python-dateutil
 types-requests
 types-setuptools
+cython==0.29.36

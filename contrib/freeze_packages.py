@@ -39,8 +39,11 @@ subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 compiler_path = None
 if sys.platform == "win32":
     python_path = os.path.dirname(sys.executable)
-    scripts_path = os.path.join(python_path, "scripts")
-    assert os.path.exists(scripts_path)
+    if python_path.lower().endswith(r"\scripts"): # pipenv environment.
+        scripts_path = python_path
+    else: # likely normal looking Python install environment.
+        scripts_path = os.path.join(python_path, "scripts")
+        assert os.path.exists(scripts_path), f"'{scripts_path}' not found"
     compiler_path = os.path.join(scripts_path, "pip-compile.exe")
     assert os.path.exists(compiler_path)
 
