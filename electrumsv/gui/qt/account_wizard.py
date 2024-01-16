@@ -365,7 +365,7 @@ class AddAccountWizardPage(QWizardPage):
     def nextId(self) -> AccountPage:
         items = self._option_list.selectedItems()
         if len(items) > 0:
-            entry = cast(Dict[str, Any], items[0].data(Qt.ItemDataRole.UserRole))
+            entry = cast(Dict[str, AccountPage], items[0].data(Qt.ItemDataRole.UserRole))
             return entry.get("page", AccountPage.NONE)
         return AccountPage.NONE
 

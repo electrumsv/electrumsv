@@ -1,5 +1,14 @@
 {
-    "payment_descriptions": [],
+    "payment_descriptions": [
+        [
+            2,
+            "Invoice created from this wallet - paid by mining wallet"
+        ],
+        [
+            1925777234853888003,
+            "Created from BIP270 Server"
+        ]
+    ],
     "derivation_datas": {
         "1": [
             [
@@ -21,7 +30,7 @@
     "transactions": [
         {
             "transaction_id": "23f46fde26d1676f55ae81aafe844618dd7abe7e7bf081ae99146f28a816b002",
-            "payment_id": 4,
+            "payment_id": 1925777234853888003,
             "flags": "settled",
             "block_hash": null,
             "block_height": 117,
@@ -32,7 +41,7 @@
         },
         {
             "transaction_id": "3b6c64b30c0b3be3a49e4e03daaf946004cc84ca510ae9b191868f9d81eab549",
-            "payment_id": 3,
+            "payment_id": 2,
             "flags": "settled",
             "block_hash": null,
             "block_height": 116,
@@ -43,7 +52,7 @@
         },
         {
             "transaction_id": "47f3f47a256d70950ff5690ea377c24464310489e3f54d01b817dd0088f0a095",
-            "payment_id": 2,
+            "payment_id": 1925764203151360001,
             "flags": "settled",
             "block_hash": null,
             "block_height": 115,
@@ -54,7 +63,7 @@
         },
         {
             "transaction_id": "d53a9ebfac748561132e49254c42dbe518080c2a5956822d5d3914d47324e842",
-            "payment_id": 1,
+            "payment_id": 1925764203151360000,
             "flags": "settled",
             "block_hash": null,
             "block_height": 111,

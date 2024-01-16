@@ -103,7 +103,7 @@ class ErrorDict(TypedDict):
 #     `int | str | NoneType` and it cannot be assigned to `variable: int | str | None` according
 #     to at least the pylance type checker. However this composite union type works correctly.
 RequestIdType = int | str | None
-RequestParametersType = list | dict
+RequestParametersType = list[Any] | dict[str, Any]
 
 class ResponseDict(TypedDict):
     result: Any
@@ -990,11 +990,11 @@ async def jsonrpc_listtransaction_async(request: web.Request, request_id: Reques
 
     count = 10
     if len(parameter_values) > 1 and parameter_values[1] is not None:
-        count = get_integer_parameter(request_id, parameters[1])
+        count = get_integer_parameter(request_id, parameter_values[1])
 
     skip = 0
     if len(parameter_values) > 2 and parameter_values[2] is not None:
-        skip = get_integer_parameter(request_id, parameters[2])
+        skip = get_integer_parameter(request_id, parameter_values[2])
 
     # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
     # "include_watchonly" parameter - it should always be null.

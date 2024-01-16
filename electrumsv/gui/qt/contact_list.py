@@ -45,8 +45,9 @@ from ...logs import logs
 from ...network_support.direct_connection_protocol import create_peer_channel_for_contact_async, \
     encode_invitation
 from ...network_support.exceptions import GeneralAPIError
-from ...wallet_database.types import ContactAddRow, ContactRow, ChannelAccessTokenRow, \
+from ...wallet_database.types import ContactRow, ChannelAccessTokenRow, \
     ServerPeerChannelRow
+from ...wallet_database.util import database_id, timestamp_from_id
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -415,7 +416,7 @@ class ContactCard(QWidget):
             app_state.app.run_coro(self._context.wallet_data.delete_contacts_async([
                 self._contact_row.contact_id ]))
 
-        def _on_contact_edit_done(future: concurrent.futures.Future[list[ContactRow]]) -> None:
+        def _on_contact_edit_done(future: concurrent.futures.Future[None]) -> None:
             future.result()
             self._update()
 
@@ -492,8 +493,7 @@ class ContactCard(QWidget):
 
 
 def edit_contact_dialog(list_context: ListContext, contact_row: ContactRow | None=None,
-        on_done: Callable[[ concurrent.futures.Future[list[ContactRow]] ], None] | None=None) \
-            -> None:
+        on_done: Callable[[concurrent.futures.Future[None]], None]|None=None) -> None:
     editing = contact_row is not None
     if editing:
         title = _("Edit Contact")
@@ -559,6 +559,9 @@ def edit_contact_dialog(list_context: ListContext, contact_row: ContactRow | Non
             app_state.app.run_coro(list_context.wallet_data.update_contacts_async(
                 [ new_contact_row ]), on_done=on_done)
 
-        contact_add_row = ContactAddRow(new_contact_name)
-        app_state.app.run_coro(list_context.wallet_data.create_contacts_async(
-            [ contact_add_row ]), on_done=on_done)
+        contact_id = database_id()
+        date_updated = timestamp_from_id(contact_id)
+        contact_row = ContactRow(contact_id, new_contact_name, None, None, None, None, None,
+            date_updated)
+        app_state.app.run_coro(list_context.wallet_data.create_contacts_async([ contact_row ]),
+            on_done=on_done)

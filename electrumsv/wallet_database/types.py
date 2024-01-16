@@ -73,7 +73,6 @@ class HistoryListRow(NamedTuple):
     contact_id: int
     payment_flags: PaymentFlag
     description: str|None
-    date_relevant: int
     tx_count: int
     tx_is_coinbase: bool
     tx_min_height: int|None
@@ -179,8 +178,7 @@ class MasterKeyRow(NamedTuple):
 
 # WARNING The order of the fields in this data structure are implicitly linked to the query.
 class NetworkServerRow(NamedTuple):
-    # If this is `None` on an INSERT, SQLite will substitute it for a real primary key value.
-    server_id: int|None
+    server_id: int
     server_type: NetworkServerType
     url: str
     account_id: int|None
@@ -193,7 +191,6 @@ class NetworkServerRow(NamedTuple):
     tip_filter_peer_channel_id: int|None
     date_last_try: int
     date_last_good: int
-    date_created: int
     date_updated: int
 
 
@@ -209,10 +206,8 @@ class PushDataRegistrationRow(NamedTuple):
 
 
 class PaymentRequestRow(NamedTuple):
-    # TODO(technical-debt) Database. Check if we can avoid `None` typing the primary key for insert.
-    # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
-    paymentrequest_id: int|None
-    payment_id: int|None
+    paymentrequest_id: int
+    payment_id: int
     request_flags: PaymentRequestFlag
     requested_value: int|None
     date_expires: int|None
@@ -224,7 +219,6 @@ class PaymentRequestRow(NamedTuple):
     # What we put in any outgoing payment terms to describe what the payee is paying for.
     merchant_reference: str|None
     encrypted_key_text: str|None
-    date_created: int
     date_updated: int
 
 
@@ -239,8 +233,7 @@ class PaymentRequestUpdateRow(NamedTuple):
 
 
 class PaymentRequestOutputRow(NamedTuple):
-    # `None` is allowed here for the `INSERT` to make SQLite allocate the primary key value for us.
-    paymentrequest_id: int|None
+    paymentrequest_id: int
     transaction_index: int
     output_index: int
     output_script_type: ScriptType
@@ -249,7 +242,6 @@ class PaymentRequestOutputRow(NamedTuple):
     # @BlindPaymentRequests
     output_value: int|None
     keyinstance_id: int
-    date_created: int
     date_updated: int
 
 
@@ -377,21 +369,14 @@ class AccountUTXOExRow(NamedTuple):
     script_bytes: bytes
 
 
-class ContactAddRow(NamedTuple):
-    contact_name: str
-    remote_peer_channel_url: str|None = None
-    remote_peer_channel_token: str|None = None
-    direct_identity_key_bytes: bytes|None = None
-
 class ContactRow(NamedTuple):
-    contact_id: int|None
+    contact_id: int
     contact_name: str
     direct_declared_name: str|None
     local_peer_channel_id: int|None
     remote_peer_channel_url: str|None
     remote_peer_channel_token: str|None
     direct_identity_key_bytes: bytes|None
-    date_created: int
     date_updated: int
 
 
@@ -582,32 +567,29 @@ class WalletEventRow(NamedTuple):
 
 
 class MAPIBroadcastRow(NamedTuple):
-    broadcast_id: int|None
+    broadcast_id: int
     tx_hash: bytes
     broadcast_server_id: int
     mapi_broadcast_flags: MAPIBroadcastFlag
     peer_channel_id: int|None
-    date_created: int
     date_updated: int
 
 
 class ServerPeerChannelRow(NamedTuple):
-    peer_channel_id: int|None
+    peer_channel_id: int
     server_id: int
     remote_channel_id: str|None
     remote_url: str|None
     peer_channel_flags: ChannelFlag
-    date_created: int
     date_updated: int
 
 
 class ExternalPeerChannelRow(NamedTuple):
-    peer_channel_id: int|None
+    peer_channel_id: int
     remote_url: str
     peer_channel_flags: ChannelFlag
     access_token: str
     token_permissions: TokenPermissions
-    date_created: int
     date_updated: int
 
 
@@ -623,24 +605,12 @@ class ChannelAccessTokenRow(NamedTuple):
 
 # Used for both owned and externally owned peer channel tables
 class ChannelMessageRow(NamedTuple):
-    message_id: int|None
+    message_id: int
     peer_channel_id: int
     message_data: bytes
     message_flags: ChannelMessageFlag
     sequence: int
     date_received: int
-    date_created: int
-    date_updated: int
-
-
-class InvoiceMessageRow(NamedTuple):
-    message_id: int|None
-    peer_channel_id: int
-    message_data: bytes
-    message_flags: ChannelMessageFlag
-    sequence: int
-    date_received: int
-    date_created: int
     date_updated: int
 
 

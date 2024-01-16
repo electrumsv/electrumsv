@@ -63,6 +63,7 @@ from ..types import IndefiniteCredentialId, MissingTransactionMetadata, Outpoint
     tip_filter_unregistration_struct, TipFilterListEntry, ImportTransactionKeyUsage
 from ..wallet_database.types import ChannelAccessTokenRow, ChannelMessageRow, \
     PushDataHashRegistrationRow, PushDataMatchMetadataRow, PushDataMatchRow, ServerPeerChannelRow
+from ..wallet_database.util import database_id, timestamp_from_id
 
 from .constants import ServerProblemKind
 from .disconnection import _on_server_connection_worker_task_done
@@ -767,29 +768,30 @@ async def process_incoming_peer_channel_messages_async(state: ServerStateProtoco
             logger.debug("Received no new messages for peer channel %s[%d]", label, peer_channel_id)
             continue
 
-        date_created = int(time.time())
-        creation_message_rows = list[ChannelMessageRow]()
+        message_rows = list[ChannelMessageRow]()
         message_map = dict[int, GenericPeerChannelMessage]()
         for message in messages:
             message_json_bytes = json.dumps(message).encode()
             received_iso8601_text = message["received"].replace("Z", "+00:00")
             received_datetime = datetime.fromisoformat(received_iso8601_text)
-            creation_message_rows.append(ChannelMessageRow(None,
+            message_id = database_id()
+            date_updated = timestamp_from_id(message_id)
+            message_rows.append(ChannelMessageRow(message_id,
                 peer_channel_id, message_json_bytes,
                 ChannelMessageFlag.UNPROCESSED, message["sequence"],
                 int(received_datetime.timestamp()),
-                date_created, date_created))
+                date_updated))
             message_map[message["sequence"]] = message
 
         # These cached values are passed on to whatever system processes these types of messages.
         if state.is_external:
+            await state.wallet_data.create_external_peer_channel_messages_async(message_rows)
             message_entries = [ (message_row, message_map[message_row.sequence]) for
-                message_row in await state.wallet_data.create_external_peer_channel_messages_async(
-                    creation_message_rows) ]
+                message_row in message_rows ]
         else:
+            await state.wallet_data.create_server_peer_channel_messages_async(message_rows)
             message_entries = [ (message_row, message_map[message_row.sequence]) for
-                message_row in await state.wallet_data.create_server_peer_channel_messages_async(
-                    creation_message_rows) ]
+                message_row in  message_rows]
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:
@@ -1319,13 +1321,11 @@ async def create_peer_channel_locally_and_remotely_async(
     wallet_data = channel_server_state.wallet_data
     channel_server_id = channel_server_state.server.server_id
 
-    date_created = int(time.time())
-    channel_row = ServerPeerChannelRow(None, channel_server_id, None, None,
-        ChannelFlag.ALLOCATING | channel_flag,
-        date_created, date_created)
-    peer_channel_id = await wallet_data.create_server_peer_channel_async(channel_row,
-        indexing_server_id)
-    channel_row = channel_row._replace(peer_channel_id=peer_channel_id)
+    peer_channel_id = database_id()
+    date_updated = timestamp_from_id(peer_channel_id)
+    channel_row = ServerPeerChannelRow(peer_channel_id, channel_server_id, None, None,
+        ChannelFlag.ALLOCATING|channel_flag, date_updated)
+    await wallet_data.create_server_peer_channel_async(channel_row, indexing_server_id)
 
     # Peer channel server: create the remotely hosted peer channel.
     channel_json = await create_peer_channel_async(channel_server_state)

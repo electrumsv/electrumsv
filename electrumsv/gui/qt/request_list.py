@@ -42,6 +42,7 @@ from ...logs import logs
 from ...platform import platform
 from ...util import format_timestamp, get_posix_timestamp
 from ...wallet import AbstractAccount
+from ...wallet_database.util import timestamp_from_id
 from ...web import create_URI
 
 from .constants import pr_icons, pr_tooltips
@@ -185,7 +186,8 @@ class RequestList(MyTreeWidget):
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, date_expires)
 
-            date = format_timestamp(row.date_created, _("Unknown"))
+            date_created = timestamp_from_id(row.paymentrequest_id)
+            date = format_timestamp(date_created, _("Unknown"))
             requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
                 if row.requested_value else ""
             item = QTreeWidgetItem([
@@ -252,7 +254,7 @@ class RequestList(MyTreeWidget):
         address_text = script_template_to_string(script_template)
 
         URI = create_URI(address_text, request_row.requested_value, message)
-        URI += f"&time={request_row.date_created}"
+        URI += f"&time={timestamp_from_id(request_row.paymentrequest_id)}"
         if request_row.date_expires:
             URI += f"&exp={request_row.date_expires}"
         return str(URI)

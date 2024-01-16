@@ -27,12 +27,13 @@ from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
-from electrumsv.wallet_database.types import (AccountRow, AccountPaymentRow, ContactAddRow,
+from electrumsv.wallet_database.types import (AccountRow, AccountPaymentRow,
     ContactRow, InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, ChannelMessageRow, ServerPeerChannelRow,
     TransactionInputAddRow, TransactionOutputAddRow, TransactionProofUpdateRow, TransactionRow,
     WalletBalance, WalletEventInsertRow)
+from electrumsv.wallet_database.util import database_id, database_id_from_parts
 
 from .util import mock_headers, PasswordToken
 
@@ -262,7 +263,7 @@ def test_account_payments(db_context: DatabaseContext) -> None:
         future.result()
 
     future = db_functions.create_payments_UNITTEST(db_context,
-        [ (PAYMENT_ID_1, 1, 1), (PAYMENT_ID_2, 1, 1) ])
+        [ (PAYMENT_ID_1, 1), (PAYMENT_ID_2, 1) ])
     future.result()
 
     ap_entries = [
@@ -774,7 +775,7 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
         AccountFlag.NONE, None, None, None, None, 1, 1)
     db_functions.create_accounts(db_context, [ account_row ]).result()
 
-    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
+    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1) ]).result()
     db_functions.create_account_payments_UNITTEST(db_context, [
         AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
     ]).result(timeout=5)
@@ -925,7 +926,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
         AccountFlag.NONE, None, None, None, None, 1, 1)
     db_functions.create_accounts(db_context, [ account_row ]).result()
 
-    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1, 1) ]).result()
+    db_functions.create_payments_UNITTEST(db_context, [ (PAYMENT_ID_1, 1) ]).result()
     db_functions.create_account_payments_UNITTEST(db_context, [
         AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1),
     ]).result(timeout=5)
@@ -1256,17 +1257,19 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
-    create_request1_row = PaymentRequestRow(1, None, PaymentRequestFlag.STATE_PAID,
+    request_id1, payment_id1 = database_id_from_parts(n=11), database_id_from_parts(n=101)
+    request1_row = PaymentRequestRow(request_id1, payment_id1, PaymentRequestFlag.STATE_PAID,
         None, expiration, TX_DESC1, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-        dummy_encrypted_secure_key, date_created, date_created)
-    create_request1_output_row = PaymentRequestOutputRow(1, 0, 0, ScriptType.P2PKH, b"SCRIPT",
-        b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created, date_created)
-    create_request2_row = PaymentRequestRow(2, None,
+        dummy_encrypted_secure_key, date_created)
+    create_request1_output_row = PaymentRequestOutputRow(request_id1, 0, 0, ScriptType.P2PKH,
+        b"SCRIPT", b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created)
+    request_id2, payment_id2 = database_id_from_parts(n=22), database_id_from_parts(n=202)
+    request2_row = PaymentRequestRow(request_id2, payment_id2,
         PaymentRequestFlag.STATE_UNPAID| PaymentRequestFlag.TYPE_MONITORED,
         100, expiration, TX_DESC2, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-        dummy_encrypted_secure_key, date_created, date_created)
-    create_request2_output_row = PaymentRequestOutputRow(2, 0, 0, ScriptType.P2PKH, b"SCRIPT",
-        b"PUSHDATAHASH", 100, KEYINSTANCE_ID+1, date_created, date_created)
+        dummy_encrypted_secure_key, date_created)
+    create_request2_output_row = PaymentRequestOutputRow(request_id2, 0, 0, ScriptType.P2PKH,
+        b"SCRIPT", b"PUSHDATAHASH", 100, KEYINSTANCE_ID+1, date_created)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
@@ -1275,7 +1278,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
     with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
         future = db_context.post_to_thread(db_functions.create_payment_request_write,
-            ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
+            ACCOUNT_ID, None, request1_row, [ create_request1_output_row ])
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
@@ -1302,32 +1305,32 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     future = db_context.post_to_thread(db_functions.create_payment_request_write,
-        ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
+        ACCOUNT_ID, None, request1_row, [ create_request1_output_row ])
     future.result()
 
     future = db_context.post_to_thread(db_functions.create_payment_request_write,
-        ACCOUNT_ID, None, create_request2_row, [ create_request2_output_row ])
-    request2_row, request2_output_rows = future.result()
+        ACCOUNT_ID, None, request2_row, [ create_request2_output_row ])
+    future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
         future = db_context.post_to_thread(db_functions.create_payment_request_write,
-            ACCOUNT_ID, None, create_request1_row, [ create_request1_output_row ])
+            ACCOUNT_ID, None, request1_row, [ create_request1_output_row ])
         future.result()
 
     # Test state update.
     future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
-        2, PaymentRequestFlag.STATE_PREPARING, PaymentRequestFlag.CLEARED_MASK_STATE)
+        request_id2, PaymentRequestFlag.STATE_PREPARING, PaymentRequestFlag.CLEARED_MASK_STATE)
     future.result()
 
     db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context,
-        request_id=2, payment_id=None, keyinstance_id=None)
+        request_id=request_id2, payment_id=None, keyinstance_id=None)
     assert db_request_row is not None
     assert db_request_row.request_flags == PaymentRequestFlag.STATE_PREPARING | PaymentRequestFlag.TYPE_MONITORED
 
     # Restore to match the creation row for comparison below.
     future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
-        2, PaymentRequestFlag.STATE_UNPAID, PaymentRequestFlag.CLEARED_MASK_STATE)
+        request_id2, PaymentRequestFlag.STATE_UNPAID, PaymentRequestFlag.CLEARED_MASK_STATE)
     future.result()
 
     def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestRow) -> None:
@@ -1338,27 +1341,27 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         assert row1.description == row2.description
         # assert row1.script_type == row2.script_type
         # assert row1.pushdata_hash == row2.pushdata_hash
-        assert -1 != row2.date_created
 
     # Read all rows in the table.
     db_request_rows = sorted(db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID),
         key=lambda lambda_row: lambda_row.paymentrequest_id)
     assert 2 == len(db_request_rows)
-    compare_paymentrequest_rows(create_request1_row, db_request_rows[0])
-    compare_paymentrequest_rows(create_request2_row, db_request_rows[1])
+    compare_paymentrequest_rows(request1_row, db_request_rows[0])
+    compare_paymentrequest_rows(request2_row, db_request_rows[1])
 
     db_request_rows = sorted(db_functions.read_payment_requests(db_context,
         keyinstance_id=KEYINSTANCE_ID), key=lambda lambda_row: lambda_row.paymentrequest_id)
     assert 1 == len(db_request_rows)
-    compare_paymentrequest_rows(create_request1_row, db_request_rows[0])
+    compare_paymentrequest_rows(request1_row, db_request_rows[0])
 
     # Read all PAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
         mask=PaymentRequestFlag.STATE_PAID)
     assert 1 == len(db_request_rows)
-    assert create_request1_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
+    assert request1_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
-    db_request_output_rows = db_functions.UNITTEST_read_payment_request_outputs(db_context, [ 1 ])
+    db_request_output_rows = db_functions.UNITTEST_read_payment_request_outputs(db_context,
+        [ request_id1 ])
     assert len(db_request_output_rows) == 1
     assert db_request_output_rows[0].keyinstance_id == KEYINSTANCE_ID
 
@@ -1366,10 +1369,10 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
         mask=PaymentRequestFlag.STATE_UNPAID)
     assert 1 == len(db_request_rows)
-    assert create_request2_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
+    assert request2_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
     db_request_output_rows = db_functions.UNITTEST_read_payment_request_outputs(db_context,
-        [ create_request2_row.paymentrequest_id ])
+        [ request2_row.paymentrequest_id ])
     assert len(db_request_output_rows) == 1
     assert db_request_output_rows[0].keyinstance_id == KEYINSTANCE_ID+1
 
@@ -1383,15 +1386,15 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         flags=PaymentRequestFlag.NONE, mask=PaymentRequestFlag.ARCHIVED)
     assert 2 == len(db_request_rows)
 
-    request_row, request_output_rows = db_functions.read_payment_request(db_context, request_id=1,
-        payment_id=None, keyinstance_id=None)
+    request_row, request_output_rows = db_functions.read_payment_request(db_context,
+        request_id=request_id1, payment_id=None, keyinstance_id=None)
     assert request_row is not None
-    assert 1 == request_row.paymentrequest_id
+    assert request_id1 == request_row.paymentrequest_id
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context,
         request_id=None, payment_id=None, keyinstance_id=KEYINSTANCE_ID)
     assert request_row is not None
-    assert 1 == request_row.paymentrequest_id
+    assert request_id1 == request_row.paymentrequest_id
 
     request_row, request_output_rows = db_functions.read_payment_request(db_context,
         request_id=100101, payment_id=None, keyinstance_id=None)
@@ -1415,26 +1418,26 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
             [ AccountPaymentRow(ACCOUNT_ID, PAYMENT_ID_1, AccountPaymentFlag.NONE, 1, 1) ])
         future.result()
 
-    assert create_request2_row.paymentrequest_id is not None
+    assert request2_row.paymentrequest_id is not None
     db = db_context.acquire_connection()
     try:
         payment_description_update_rows = db_functions.close_paid_payment_request(
-            create_request2_row.paymentrequest_id, db)
+            request2_row.paymentrequest_id, db)
     finally:
         db_context.release_connection(db)
     assert tuple(payment_description_update_rows) == (request2_row.payment_id, TX_DESC2)
 
     ## Continue.
-    assert create_request2_row.paymentrequest_id is not None
+    assert request2_row.paymentrequest_id is not None
     db_context.post_to_thread(db_functions.update_payment_requests_write, [
         PaymentRequestUpdateRow(PaymentRequestFlag.STATE_PAID, 20, 999, "newdesc", "newmerchantref",
-        dpp_ack_json, create_request2_row.paymentrequest_id) ]).result()
+        dpp_ack_json, request2_row.paymentrequest_id) ]).result()
 
     # Ensure we find both payment requests associated with this account including the new one.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert 2 == len(db_request_rows)
     db_line2 = [ db_line for db_line in db_request_rows
-        if db_line.paymentrequest_id == create_request2_row.paymentrequest_id ][0]
+        if db_line.paymentrequest_id == request2_row.paymentrequest_id ][0]
     assert db_line2.requested_value == 20
     assert db_line2.request_flags == PaymentRequestFlag.STATE_PAID
     assert db_line2.description == "newdesc"
@@ -1445,9 +1448,9 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert 0 == len(db_request_rows)
 
     # Delete the first payment request associated with the account.
-    assert create_request1_row.paymentrequest_id is not None
+    assert request1_row.paymentrequest_id is not None
     future3 = db_context.post_to_thread(db_functions._delete_payment_request_write,
-        create_request1_row.paymentrequest_id, PaymentRequestFlag.DELETED)
+        request1_row.paymentrequest_id, PaymentRequestFlag.DELETED)
     keyinstance_ids_by_account_id = future3.result()
     assert { ACCOUNT_ID: [ KEYINSTANCE_ID ] } == keyinstance_ids_by_account_id
 
@@ -1455,9 +1458,9 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_request_rows = sorted(db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID),
         key=lambda db_request_row: db_request_row.paymentrequest_id)
     assert 2 == len(db_request_rows)
-    assert db_request_rows[0].paymentrequest_id == create_request1_row.paymentrequest_id
+    assert db_request_rows[0].paymentrequest_id == request1_row.paymentrequest_id
     assert db_request_rows[0].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.DELETED
-    assert db_request_rows[1].paymentrequest_id == create_request2_row.paymentrequest_id
+    assert db_request_rows[1].paymentrequest_id == request2_row.paymentrequest_id
     assert db_request_rows[1].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.NONE
 
 
@@ -1539,12 +1542,18 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
 
     # LINE_COUNT = 3
-    row1a1 = InvoiceRow(0, 0, "payment_uri1", "desc", PaymentRequestFlag.STATE_UNPAID, 1,
-        b'{}', None, 11, 111)
-    row2a1 = InvoiceRow(0, 0, "payment_uri2", "desc", PaymentRequestFlag.STATE_PAID, 2,
-        b'{}', 10, 10, 111)
-    row3a2 = InvoiceRow(0, 0, "payment_uri3", "desc", PaymentRequestFlag.STATE_UNPAID, 3,
-        b'{}', None, 11, 111)
+    invoice_id1 = database_id_from_parts(n=11)
+    payment_id1 = database_id_from_parts(n=1)
+    row1a1 = InvoiceRow(invoice_id1, payment_id1, "payment_uri1", "desc",
+        PaymentRequestFlag.STATE_UNPAID, 1, b'{}', None, 11, 111)
+    invoice_id2 = database_id_from_parts(n=12)
+    payment_id2 = database_id_from_parts(n=2)
+    row2a1 = InvoiceRow(invoice_id2, payment_id2, "payment_uri2", "desc",
+        PaymentRequestFlag.STATE_PAID, 2, b'{}', 10, 10, 111)
+    invoice_id3 = database_id_from_parts(n=13)
+    payment_id3 = database_id_from_parts(n=3)
+    row3a2 = InvoiceRow(invoice_id3, payment_id3, "payment_uri3", "desc",
+        PaymentRequestFlag.STATE_UNPAID, 3, b'{}', None, 11, 111)
 
     # No effect: The transactionoutput foreign key constraint will fail as the account
     # does not exist.
@@ -1566,11 +1575,11 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
-    row1a1 = db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
+    db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
         None).result()
-    row2a1 = db_context.post_to_thread(db_functions.create_invoice_write, row2a1, ACCOUNT_ID_1,
+    db_context.post_to_thread(db_functions.create_invoice_write, row2a1, ACCOUNT_ID_1,
         None).result()
-    row3a2 = db_context.post_to_thread(db_functions.create_invoice_write, row3a2, ACCOUNT_ID_2,
+    db_context.post_to_thread(db_functions.create_invoice_write, row3a2, ACCOUNT_ID_2,
         None).result()
 
     txs = []
@@ -1584,8 +1593,8 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     future = db_functions.create_transactions_UNITTEST(db_context, txs)
     future.result(timeout=5)
 
-    # No effect: Only rows with no pre-populated invoice_id can be created.
-    with pytest.raises(AssertionError):
+    # No effect: Will choke on recreating the payment.
+    with pytest.raises(sqlite3.IntegrityError):
         db_context.post_to_thread(db_functions.create_invoice_write, row1a1, ACCOUNT_ID_1,
             None).result()
 
@@ -1615,13 +1624,13 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
     db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         mask=PaymentRequestFlag.STATE_PAID)
     assert 1 == len(db_lines)
-    assert 2 == db_lines[0].invoice_id
+    assert row2a1.invoice_id == db_lines[0].invoice_id
 
     # Read all UNPAID rows in the table for the first account.
     db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
         mask=PaymentRequestFlag.STATE_UNPAID)
     assert 1 == len(db_lines)
-    assert 1 == db_lines[0].invoice_id
+    assert row1a1.invoice_id == db_lines[0].invoice_id
 
     # Require ARCHIVED flag.
     db_lines = db_functions.read_invoices(db_context, ACCOUNT_ID_1,
@@ -1639,14 +1648,14 @@ async def test_table_invoice_CRUD(mock_time, db_context: DatabaseContext) -> Non
 
     row = db_functions.read_invoice(db_context, invoice_id=row1a1.invoice_id)
     assert row is not None
-    assert 1 == row.invoice_id
+    assert row1a1.invoice_id == row.invoice_id
 
     row = db_functions.read_invoice(db_context, invoice_id=100101)
     assert row is None
 
     row = db_functions.read_invoice(db_context, tx_hash=TX_HASH_1)
     assert row is not None
-    assert 2 == row.invoice_id
+    assert row2a1.invoice_id == row.invoice_id
 
     future = db_functions.update_invoice_descriptions(db_context,
         [ ("newdesc3.2", row3a2.invoice_id) ])
@@ -1682,19 +1691,17 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
     date_created = 1
 
     # Ensure that the foreign key requirement for an existing server is met.
-    server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
-        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
+    server_id = database_id_from_parts(n=103)
+    server_row = NetworkServerRow(server_id, NetworkServerType.GENERAL, "url", None,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created)
     future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
     created_server_rows = future.result()
     assert len(created_server_rows) == 1
-    server_id = created_server_rows[0].server_id
-    assert server_id is not None
 
     # Check that the foreign key constraint fails on the insert with a non-existing server id.
-    create_row = ServerPeerChannelRow(None, 23, None, None, ChannelFlag.ALLOCATING,
-        date_created, date_created)
-    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
-        create_row)
+    create_row = ServerPeerChannelRow(database_id_from_parts(n=101), 23, None, None,
+        ChannelFlag.ALLOCATING, date_created)
+    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write, create_row)
     # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
     #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
     #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
@@ -1702,22 +1709,19 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
         future.result()
 
     # Check that a valid insert succeeds.
-    create_row = ServerPeerChannelRow(None, server_id, None, None, ChannelFlag.ALLOCATING,
-        date_created, date_created)
-    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
-        create_row)
-    peer_channel_id = future.result()
-    assert type(peer_channel_id) is int
-    created_row = create_row._replace(peer_channel_id=peer_channel_id)
+    create_row = ServerPeerChannelRow(database_id_from_parts(n=102), server_id, None, None,
+        ChannelFlag.ALLOCATING, date_created)
+    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write, create_row)
+    future.result()
 
     # Check that a read produces the same result as the insert.
     read_rows = db_functions.read_server_peer_channels(db_context, server_id=server_id)
     assert len(read_rows) == 1
     read_row = read_rows[0]
-    assert read_row == created_row
+    assert read_row == create_row
 
     future = db_context.post_to_thread(db_functions.update_server_peer_channel_write,
-        None, "NOT A REAL URL", ChannelFlag.NONE, peer_channel_id, [])
+        None, "NOT A REAL URL", ChannelFlag.NONE, create_row.peer_channel_id, [])
     updated_row = future.result()
     assert updated_row.remote_channel_id is None
     assert updated_row.remote_url == "NOT A REAL URL"
@@ -1734,8 +1738,9 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     date_created = 1
 
     # Ensure that the foreign key requirement for an existing server is met.
-    server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
-        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
+    server_id = database_id_from_parts(n=105)
+    server_row = NetworkServerRow(server_id, NetworkServerType.GENERAL, "url", None,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created)
     future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
     created_server_rows = future.result()
     assert len(created_server_rows) == 1
@@ -1743,70 +1748,62 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     assert server_id is not None
 
     # CHANNEL: Check that a valid insert succeeds.
-    create_channel_row1 = ServerPeerChannelRow(None, server_id, "remote id", None,
-        ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY, date_created,
-        date_created)
+    peer_channel_id1 = database_id_from_parts(n=101)
+    create_channel_row1 = ServerPeerChannelRow(peer_channel_id1, server_id, "remote id", None,
+        ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY, date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row1, server_id)
-    peer_channel_id1 = create_channel_future.result()
-    assert type(peer_channel_id1) is int
+    create_channel_future.result()
 
     # MESSAGE: Create an arbitrary test message.
     sequence = 111
-    create_message_row = ChannelMessageRow(None, peer_channel_id1, b'abc',
-        ChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
-    future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
-        [ create_message_row ])
-    created_message_rows1 = future2.result()
-    assert len(created_message_rows1) == 1
-    assert created_message_rows1[0].message_id is not None
-
-    # MESSAGE: Verify the created result for the arbitrary test message has the expected contents.
-    updated_create_message_row = create_message_row._replace(
-        message_id=created_message_rows1[0].message_id)
-    assert created_message_rows1[0] == updated_create_message_row
+    message_id1 = database_id_from_parts(n=101)
+    message_row1 = ChannelMessageRow(message_id1, peer_channel_id1, b'abc',
+        ChannelMessageFlag.NONE, sequence, date_created, date_created)
+    db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
+        [ message_row1 ]).result()
 
     # CHANNEL: Create a second channel to aid in testing filtering.
-    create_channel_row2 = ServerPeerChannelRow(None, server_id, None, None,
+    peer_channel_id2 = database_id_from_parts(n=102)
+    create_channel_row2 = ServerPeerChannelRow(peer_channel_id2, server_id, None, None,
         ChannelFlag.PURPOSE_TEST_ALTERNATIVE | ChannelFlag.ALLOCATING,
-        date_created, date_created)
+        date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row2)
-    peer_channel_id2 = create_channel_future.result()
+    create_channel_future.result()
 
     # MESSAGE: Create an arbitrary test message.
-    future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write, [
-        ChannelMessageRow(None, peer_channel_id2, b'abc',
-            ChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
-        ChannelMessageRow(None, peer_channel_id2, b'abc',
-            ChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
-                date_created),
-    ])
-    created_message_rows2 = future2.result()
-    assert len(created_message_rows2) == 2
+    message_id2_1 = database_id_from_parts(n=102)
+    message_id2_2 = database_id_from_parts(n=103)
+    message_rows2 = [
+        ChannelMessageRow(message_id2_1, peer_channel_id2, b'abc',
+            ChannelMessageFlag.NONE, sequence+1, date_created, date_created),
+        ChannelMessageRow(message_id2_2, peer_channel_id2, b'abc',
+            ChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created),
+    ]
+    db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
+        message_rows2).result()
 
     # MESSAGES: No filtering.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id, None, None,
         None, None)
     assert len(read_rows) == 3
     assert { message_row.message_id for message_row in read_rows } == \
-        { created_message_rows1[0].message_id, created_message_rows2[0].message_id,
-            created_message_rows2[1].message_id }
+        { message_id1,message_id2_1,message_id2_2 }
 
     # MESSAGES: Filter by server peer channel flag.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
         ChannelMessageFlag.NONE, ChannelMessageFlag.NONE,
         ChannelFlag.PURPOSE_TEST_ALTERNATIVE, ChannelFlag.MASK_PURPOSE)
     assert len(read_rows) == 2
-    assert { message_row.message_id for message_row in read_rows } == \
-        { created_message_rows2[0].message_id, created_message_rows2[1].message_id }
+    assert {message_row.message_id for message_row in read_rows} == {message_id2_1,message_id2_2}
 
     # MESSAGES: Filter by server peer channel flag.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
         ChannelMessageFlag.UNPROCESSED, ChannelMessageFlag.UNPROCESSED,
         ChannelFlag.NONE, ChannelFlag.NONE)
     assert len(read_rows) == 1
-    assert read_rows[0].message_id == [ message_row for message_row in created_message_rows2
+    assert read_rows[0].message_id == [ message_row for message_row in message_rows2
         if message_row.message_flags & ChannelMessageFlag.UNPROCESSED ][0].message_id
 
 
@@ -1845,7 +1842,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result()
 
     future = db_functions.create_payments_UNITTEST(db_context,
-        [ (PAYMENT_ID_1, 1, 1), (PAYMENT_ID_2, 1, 1), (PAYMENT_ID_3, 1, 1) ])
+        [ (PAYMENT_ID_1, 1), (PAYMENT_ID_2, 1), (PAYMENT_ID_3, 1) ])
     future.result(timeout=5)
 
     # Create the transactions.
@@ -1958,11 +1955,11 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     URL = "..."
     server_rows = [
         NetworkServerRow(SERVER_ID+1, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-            None, None, None, None, 0, 0, date_updated, date_updated),
+            None, None, None, None, 0, 0, date_updated),
     ]
     server_account_rows = [
         NetworkServerRow(SERVER_ID+2, SERVER_TYPE, URL*1, ACCOUNT_ID, NetworkServerFlag.NONE,
-            None, None, None, None, 0, 0, date_updated, date_updated)
+            None, None, None, None, 0, 0, date_updated)
     ]
 
     ## Server row creation.
@@ -1984,8 +1981,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     assert len(read_server_account_rows) == 0
 
     # These columns are not read by the query.
-    read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
-        date_updated=date_updated)
+    read_server_rows[0] = read_server_rows[0]._replace(date_updated=date_updated)
     assert server_rows == read_server_rows
 
     # Creating the server again should fail as the given url/server type/account is in use now.
@@ -2039,7 +2035,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     assert len(read_server_account_rows) == 1
     # These columns are not read by the query.
     read_server_account_rows[0] = read_server_account_rows[0]._replace(
-        date_created=date_updated, date_updated=date_updated)
+        date_updated=date_updated)
     assert server_account_rows == read_server_account_rows
 
     # Verify that the important NetworkServerRow columns are updated.
@@ -2060,12 +2056,11 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
         assert len(read_server_account_rows) == 1
         # These columns are not read by the query.
-        read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
-            date_updated=date_updated)
+        read_server_rows[0] = read_server_rows[0]._replace(date_updated=date_updated)
         assert update_server_rows == read_server_rows
         # These columns are not read by the query.
         read_server_account_rows[0] = read_server_account_rows[0]._replace(
-            date_created=date_updated, date_updated=date_updated)
+            date_updated=date_updated)
         assert server_account_rows == read_server_account_rows
 
     # Verify that the important server rows with account columns are updated.
@@ -2085,12 +2080,11 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
         assert len(read_server_account_rows) == 1
         # These columns are not read by the query.
-        read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
-            date_updated=date_updated)
+        read_server_rows[0] = read_server_rows[0]._replace(date_updated=date_updated)
         assert update_server_rows == read_server_rows
         # These columns are not read by the query.
         read_server_account_rows[0] = read_server_account_rows[0]._replace(
-            date_created=date_updated, date_updated=date_updated)
+            date_updated=date_updated)
         assert update_server_account_rows == read_server_account_rows
 
     # Delete the both rows by id.
@@ -2198,7 +2192,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         URL = "..."
         server_rows = [
             NetworkServerRow(SERVER_ID, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-                None, None, None, None, 0, 0, date_updated, date_updated),
+                None, None, None, None, 0, 0, date_updated),
         ]
         update_future = db_functions.update_network_servers_transaction(db_context, server_rows, [],
             [], [])
@@ -2207,18 +2201,20 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
     # Create a peer channel to be the foreign key entry for the broadcast rows.
     if True:
         # Check that a valid insert succeeds.
-        create_row = ServerPeerChannelRow(None, SERVER_ID, None, None,
-            ChannelFlag.ALLOCATING, date_created, date_created)
-        future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
-            create_row)
-        peer_channel_id = future.result()
+        peer_channel_id = database_id()
+        create_row = ServerPeerChannelRow(peer_channel_id, SERVER_ID, None, None,
+            ChannelFlag.ALLOCATING, 111)
+        future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,create_row)
+        future.result()
 
     # These are the rows we will actually create.
+    mb_id1 = database_id_from_parts(n=101)
+    mb_id2 = database_id_from_parts(n=102)
     mapi_broadcast_create_rows = [
-        MAPIBroadcastRow(None, TX_HASH_1, SERVER_ID, MAPI_STATUS_FLAGS1, peer_channel_id,
-            date_created + 1, date_created + 1),
-        MAPIBroadcastRow(None, TX_HASH_2, SERVER_ID, MAPI_STATUS_FLAGS2, None,
-            date_created + 2, date_updated + 2),
+        MAPIBroadcastRow(mb_id1, TX_HASH_1, SERVER_ID, MAPI_STATUS_FLAGS1, peer_channel_id,
+            date_created + 1),
+        MAPIBroadcastRow(mb_id2, TX_HASH_2, SERVER_ID, MAPI_STATUS_FLAGS2, None,
+            date_updated + 2),
     ]
 
     # Verify the constraints are enforced.
@@ -2265,15 +2261,13 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
 
     ## Now actually create some rows.
-    future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write,
-        mapi_broadcast_create_rows)
-    mapi_broadcast_rows = future.result(timeout=5)
-    assert len(mapi_broadcast_rows) == len(mapi_broadcast_create_rows)
+    db_context.post_to_thread(db_functions.create_mapi_broadcasts_write,
+        mapi_broadcast_create_rows).result(timeout=5)
     broadcast_id_by_tx_hash = { mbrow.tx_hash: cast(int, mbrow.broadcast_id)
-        for mbrow in mapi_broadcast_rows }
+        for mbrow in mapi_broadcast_create_rows }
 
     database_assigned_ids = set[int]()
-    for mapi_broadcast_row in mapi_broadcast_rows:
+    for mapi_broadcast_row in mapi_broadcast_create_rows:
         assert mapi_broadcast_row.broadcast_id is not None
         assert mapi_broadcast_row.broadcast_id not in database_assigned_ids
         database_assigned_ids.add(mapi_broadcast_row.broadcast_id)
@@ -2283,11 +2277,9 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         mapi_broadcast_create_rows[i] = create_row._replace(
             broadcast_id=broadcast_id_by_tx_hash[create_row.tx_hash])
 
-    assert mapi_broadcast_rows == mapi_broadcast_create_rows
-
     if True:
         rows_after_insert = db_functions.read_mapi_broadcasts(db_context)
-        assert rows_after_insert == mapi_broadcast_rows
+        assert rows_after_insert == mapi_broadcast_create_rows
 
     if True:
         future = db_functions.delete_mapi_broadcasts(db_context,
@@ -2317,16 +2309,14 @@ def test_table_contacts_CRUD(mock_time, db_context: DatabaseContext) -> None:
     contact_rows = db_functions.read_contacts(db_context)
     assert len(contact_rows) == 0
 
-    contact1 = ContactAddRow("contact1")
-    contact2 = ContactAddRow("contact2", "url2", "token2")
-    contact3 = ContactAddRow("contact3")
+    contact_row1 = ContactRow(database_id_from_parts(n=101),"contact1",None,None,None,None,None,1)
+    contact_row2 = ContactRow(database_id_from_parts(n=102),"contact2",None,None,"url2","token2",
+        None,1)
+    contact_row3 = ContactRow(database_id_from_parts(n=103),"contact3",None,None,None,None,None,1)
 
     db_connection = db_context.acquire_connection()
     try:
-        contact_rows = db_functions.create_contacts_write([ contact1 ], db_connection)
-        assert len(contact_rows) == 1
-        contact_row1 = ContactRow(1, "contact1", None, None, None, None, None, 1, 1)
-        assert contact_rows == [ contact_row1 ]
+        db_functions.create_contacts_write([ contact_row1 ], db_connection)
 
         # Test that we find all the matches and it's our one contact.
         contact_rows = db_functions.read_contacts(db_context)
@@ -2343,13 +2333,7 @@ def test_table_contacts_CRUD(mock_time, db_context: DatabaseContext) -> None:
         assert contact_rows == [ contact_row1 ]
 
         # Create additional rows.
-        current_time = 1001
-        contact_rows = db_functions.create_contacts_write([ contact2, contact3 ], db_connection)
-        assert len(contact_rows) == 2
-        contact_row2 = ContactRow(2, "contact2", None, None, "url2", "token2", None,
-            1001, 1001)
-        contact_row3 = ContactRow(3, "contact3", None, None, None, None, None, 1001, 1001)
-        assert contact_rows == [ contact_row2, contact_row3 ]
+        db_functions.create_contacts_write([ contact_row2, contact_row3 ], db_connection)
 
         # Ensure we get all the new matches.
         contact_rows = db_functions.read_contacts(db_context)
@@ -2364,7 +2348,7 @@ def test_table_contacts_CRUD(mock_time, db_context: DatabaseContext) -> None:
         # RT: Skip hierarchical creation of table rows. Will this be a good idea?
         db_connection.execute("PRAGMA foreign_keys = 0;")
         db_connection.execute("INSERT INTO ServerPeerChannels (peer_channel_id, server_id, "
-            "peer_channel_flags, date_created, date_updated) VALUES (111, 111, 111, 111, 111)")
+            "peer_channel_flags, date_updated) VALUES (111, 111, 111, 111)")
         db_connection.execute("PRAGMA foreign_keys = 1;")
 
         # Set peer channel 33 (does not exist and will error) on contact3.
@@ -2400,14 +2384,9 @@ def test_table_contacts_CRUD(mock_time, db_context: DatabaseContext) -> None:
         assert len(contact_rows) == 1
         assert contact_rows == [ contact_row1 ]
 
-        current_time = 4001
-        new_contact_row2 = ContactRow(contact_row2.contact_id, "contact2b", "zcontact2b",
-            111, "url2b", "token2b", b"key2", 91919191, 19191919)
-        new_contact_rows = db_functions.update_contacts_write([ new_contact_row2 ], db_connection)
-        assert len(new_contact_rows) == 1
-        contact_row2 = new_contact_row2._replace(date_created=contact_row2.date_created,
-            date_updated=4001)
-        assert new_contact_rows == [ contact_row2 ]
+        contact_row2 = ContactRow(contact_row2.contact_id, "contact2b", "zcontact2b",
+            111, "url2b", "token2b", b"key2", 19191919)
+        db_functions.update_contacts_write([ contact_row2 ], db_connection)
 
         contact_rows = db_functions.read_contacts(db_context)
         assert len(contact_rows) == 3

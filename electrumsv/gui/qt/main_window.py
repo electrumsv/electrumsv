@@ -2142,7 +2142,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         hbox = QHBoxLayout()
         b = QPushButton(_("Encrypt"))
         # NOTE(typing) Pylance seems incapable of detecting `account` is not None.
-        b.clicked.connect(lambda: self.do_encrypt(account, key_data, message_e, # type: ignore
+        b.clicked.connect(lambda: self.do_encrypt(account, key_data, message_e,
             pubkey_e, encrypted_e))
         hbox.addWidget(b)
 

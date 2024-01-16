@@ -49,6 +49,7 @@ from ...util import format_timestamp, posix_timestamp_to_datetime, profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.types import HistoryListRow, PaymentDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
+from ...wallet_database.util import timestamp_from_id
 
 from .constants import ViewPaymentMode
 from .table_widgets import TableTopButtonLayout
@@ -271,7 +272,7 @@ class HistoryList(MyTreeWidget):
                     tx_flags.add(TxFlag.STATE_SETTLED)
 
             payment_id = payment_row.payment_id
-            timestamp = payment_row.date_relevant
+            timestamp = timestamp_from_id(payment_id)
             description = payment_row.description or ""
             paymentrequest_id = payment_row.paymentrequest_id
             invoice_id = payment_row.invoice_id

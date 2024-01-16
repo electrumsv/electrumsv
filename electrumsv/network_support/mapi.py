@@ -55,6 +55,7 @@ from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
 from ..transaction import Transaction
 from ..types import ServerAndCredential
 from ..wallet_database.types import MAPIBroadcastRow, ChannelAccessTokenRow
+from ..wallet_database.util import database_id, timestamp_from_id
 
 from .api_server import RequestFeeQuoteResult
 
@@ -198,12 +199,11 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
         Raises `BadServerError` if the response from the server is invalid in some way.
     """
     tx_hash = tx.hash()
-    date_created = int(time.time())
-    mapi_broadcast_rows = await wallet_data.create_mapi_broadcasts_async([
-        MAPIBroadcastRow(None, tx_hash, server_and_credential.server.server_id,
-        MAPIBroadcastFlag.NONE, None, date_created, date_created) ])
-    mapi_broadcast_row = mapi_broadcast_rows[0]
-    assert mapi_broadcast_row.broadcast_id is not None
+    mapi_broadcast_id = database_id()
+    date_updated = timestamp_from_id(mapi_broadcast_id)
+    mapi_broadcast_row = MAPIBroadcastRow(mapi_broadcast_id, tx_hash,
+        server_and_credential.server.server_id, MAPIBroadcastFlag.NONE, None, date_updated)
+    await wallet_data.create_mapi_broadcasts_async([ mapi_broadcast_row ])
 
     try:
         mapi_broadcast_result, json_envelope_bytes = await post_mapi_transaction_broadcast_async(

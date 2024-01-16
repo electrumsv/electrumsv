@@ -14,7 +14,9 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, 
     Old_KeyStore
 from electrumsv.networks import Net, SVMainnet
 from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
+from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.types import AccountRow
+from electrumsv.wallet_database.util import database_id
 
 from .util import MockStorage, setup_async, tear_down_async
 
@@ -56,9 +58,9 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
             AccountFlag.NONE, None, None, None, None, 1, 1)
-        account_row = self.wallet.add_accounts([ account_row ])[0]
+        db_functions.create_accounts(self.wallet._db_context, [account_row]).result()
         account = StandardAccount(self.wallet, account_row)
         return account
 
@@ -67,9 +69,9 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks1)
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text',
-            AccountFlag.NONE, None, None, None, None, 1, 1)
-        account_row = self.wallet.add_accounts([ account_row ])[0]
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id,
+            ScriptType.MULTISIG_P2SH, 'text', AccountFlag.NONE, None, None, None, None, 1, 1)
+        db_functions.create_accounts(self.wallet._db_context, [account_row]).result()
         account = MultisigAccount(self.wallet, account_row)
         self.wallet.register_account(account.get_id(), account)
         return account

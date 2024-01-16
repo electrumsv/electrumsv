@@ -9,11 +9,13 @@ from electrumsv.network_support import api_server
 from electrumsv.standards.mapi import FeeQuote
 from electrumsv.types import IndefiniteCredentialId
 from electrumsv.wallet_database.types import NetworkServerRow
+from electrumsv.wallet_database.util import database_id_from_parts
 
 
 def test_get_authorization_headers_credential_none() -> None:
-    row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
+    server_id = database_id_from_parts(n=101)
+    row = NetworkServerRow(server_id, NetworkServerType.MERCHANT_API, "url", 1,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, 1)
     server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, None)
     headers = server.get_authorization_headers(None)
     assert headers == {}
@@ -34,8 +36,9 @@ def test_get_authorization_headers_credential_default_header(app_state, params) 
     app_state.credentials.get_indefinite_credential.side_effect = lambda v: "kredential"
 
     credential_id = cast(IndefiniteCredentialId, uuid.uuid4())
-    row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
+    server_id = database_id_from_parts(n=102)
+    row = NetworkServerRow(server_id, NetworkServerType.MERCHANT_API, "url", 1,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, 1)
     server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, credential_id)
     mock_row = unittest.mock.Mock()
     mock_row.api_key_template = use_this_value

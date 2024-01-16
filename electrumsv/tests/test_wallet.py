@@ -42,6 +42,8 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
     PaymentRequestRow, WalletBalance
+from electrumsv.wallet_database.util import BASE_TIME, database_id, database_id_from_timestamp,\
+    timestamp_from_id
 from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data, \
     map_txo_key_usage
 
@@ -407,9 +409,9 @@ class TestLegacyWalletCreation:
             wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-        raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
             AccountFlag.NONE, None, None, None, None, 1, 1)
-        account_row = wallet.add_accounts([ raw_account_row ])[0]
+        db_functions.create_accounts(wallet._db_context, [account_row]).result()
         account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
@@ -430,9 +432,9 @@ class TestLegacyWalletCreation:
 
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
             AccountFlag.NONE, None, None, None, None, 1, 1)
-        account_row = wallet.add_accounts([ account_row ])[0]
+        db_functions.create_accounts(wallet._db_context, [account_row]).result()
         account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
@@ -509,9 +511,9 @@ class TestLegacyWalletCreation:
 
         masterkey_row = wallet.create_masterkey_from_keystore(keystore)
 
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text',
-            AccountFlag.NONE, None, None, None, None, 1, 1)
-        account_row = wallet.add_accounts([ account_row ])[0]
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id,
+            ScriptType.MULTISIG_BARE, 'text', AccountFlag.NONE, None, None, None, None, 1, 1)
+        db_functions.create_accounts(wallet._db_context, [account_row]).result()
         account = MultisigAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
@@ -741,15 +743,25 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     else:
         has_password = False
 
-    with unittest.mock.patch(
-        "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
-        as migration29_app_state:
-            migration29_app_state.headers = mock_headers()
-            try:
-                storage.upgrade(has_password, password_token)
-            except IncompatibleWalletError as exc:
-                validate_wallet_migration_failure_message(storage_info, exc.args[0])
-                return
+    random_value0 = 0
+    def mocked_randint(minv, maxv) -> int:
+        nonlocal random_value0
+        v = random_value0
+        random_value0 += 1
+        return v % maxv
+
+    with unittest.mock.patch("electrumsv.wallet_database.util.random") as mock_random:
+        mock_random.randint.side_effect = mocked_randint
+        with unittest.mock.patch("electrumsv.storage.get_posix_timestamp") as upgrade_time:
+            upgrade_time.side_effect = lambda: BASE_TIME//1000 + 1000000
+            with unittest.mock.patch("electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+                as migration29_app_state:
+                    migration29_app_state.headers = mock_headers()
+                    try:
+                        storage.upgrade(has_password, password_token)
+                    except IncompatibleWalletError as exc:
+                        validate_wallet_migration_failure_message(storage_info, exc.args[0])
+                        return
 
     try:
         add_indefinite_credential_mock = unittest.mock.Mock()
@@ -923,7 +935,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
             flag_text = "signed"
         elif transaction_row.flags & TxFlag.STATE_DISPATCHED:
             flag_text = "dispatched"
-
+        payment_ids.append(transaction_row.payment_id)
         # For regtest wallets the migrated state will have holes as it will depend on a custom
         # blockchain. We should support that, but currently do not. i.e. block height but no hash.
         testdata_transactions.append({
@@ -994,7 +1006,8 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         "transactions": sorted(testdata_transactions, key=lambda t3: t3["transaction_id"]),
     }
 
-    existing_testdata_object = read_testdata_for_wallet(storage_info.wallet_filepath, "testdata")
+    existing_testdata_object = read_testdata_for_wallet(storage_info.wallet_filepath, "testdata")#,
+        #testdata_object_for_write=testdata_object)
     assert existing_testdata_object == testdata_object
 
 
@@ -1025,9 +1038,9 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -1099,15 +1112,15 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
     # Ensure that the keys used by the transaction are present to be linked to.
-    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    future_, keyinstance_rows, next_index_ = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
 
     maturity_height = 100000
 
@@ -1117,7 +1130,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        keyinstance_id = 1
+        keyinstance_id = keyinstance_rows[0].keyinstance_id
         txo_key_usage: dict[int, tuple[int, ScriptType]] = {
             0: (keyinstance_id, ScriptType.P2PKH),
         }
@@ -1125,7 +1138,6 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         payment_id1 = await wallet.import_transactions_async(PaymentCtx(), [
             TxImportEntry(tx_hash_1,tx_1,
             TxFlag.STATE_SIGNED,BlockHeight.LOCAL,None,None)], {}, {tx_hash_1:import_context_1})
-        assert payment_id1 == 1 # Assumption: First assigned value.
 
         # Verify the received funds are present.
         tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
@@ -1146,10 +1158,6 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         payment_id2 = await wallet.import_transactions_async(PaymentCtx(),
             [TxImportEntry(tx_hash2,tx2,
             TxFlag.STATE_SIGNED,BlockHeight.LOCAL,None,None)], {}, {tx_hash2:import_context2})
-        assert payment_id2 == 2 # Assumption: Second assigned value.
-
-        db = list(wallet.data._db_context._active_connections)[0]
-        print(db.execute("SELECT * FROM AccountPayments").fetchall())
 
         # Verify both the received funds are present.
         tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash2)
@@ -1169,8 +1177,8 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert len(txof_rows) == 3
         # tx_1.output0 is linked to the first key.
         assert txof_rows[0].tx_hash == tx_hash_1 and txof_rows[0].txo_index == 0 and \
-            txof_rows[0].keyinstance_id == 1 and txof_rows[0].spending_tx_hash == tx_hash2 and \
-            txof_rows[0].spending_txi_index == 0
+            txof_rows[0].keyinstance_id == keyinstance_id and\
+            txof_rows[0].spending_tx_hash == tx_hash2 and txof_rows[0].spending_txi_index == 0
         # tx_1.output1 is to the payer's change and not linked.
         assert txof_rows[1].tx_hash == tx_hash_1 and txof_rows[1].txo_index == 1 and \
             txof_rows[1].keyinstance_id is None
@@ -1197,7 +1205,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         txo_rows = db_functions.read_transaction_outputs(db_context,[ Outpoint(tx_hash_1, 0) ])
         assert len(txo_rows) == 1
         # This value is not cleared. It's not a link to anything that can clash.
-        assert txo_rows[0].keyinstance_id == 1
+        assert txo_rows[0].keyinstance_id == keyinstance_id
 
         # Verify that the account transaction link entries have been deleted.
         rows = db_functions.read_transaction_hashes(db_context, account.get_id())
@@ -1246,9 +1254,9 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
     wallet._blockchain_server_state = MockHeadersClient()
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -1347,9 +1355,9 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -1386,7 +1394,7 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
         Outpoint(transaction_1_hash, 0) ])
     assert len(output_rows) == 1
     assert output_rows[0].value == 1044113
-    assert output_rows[0].keyinstance_id == 1
+    assert output_rows[0].keyinstance_id is not None
     assert output_rows[0].script_type == ScriptType.P2PKH
 
 
@@ -1525,9 +1533,9 @@ async def test_extend_transaction_sequence() -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
     assert masterkey_row.flags == MasterKeyFlag.ELECTRUM_SEED
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -1545,13 +1553,12 @@ async def test_extend_transaction_sequence() -> None:
         keyinstance_row = keyinstance_rows[0]
         assert keyinstance_row.account_id == account_row.account_id
         assert keyinstance_row.masterkey_id == masterkey_row.masterkey_id
-        assert keyinstance_row.keyinstance_id == 1
 
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         block_height = BlockHeight.LOCAL
         txo_key_usage: dict[int, tuple[int, ScriptType]] = {
-            0: (1, ScriptType.P2PKH),
+            0: (keyinstance_row.keyinstance_id, ScriptType.P2PKH),
         }
         import_context = TxImportCtx(output_key_usage=txo_key_usage)
         payment_ctx = PaymentCtx()
@@ -1561,7 +1568,7 @@ async def test_extend_transaction_sequence() -> None:
         tx_1_context = TxContext()
         wallet.extend_transaction(tx_1, tx_1_context)
 
-        assert payment_ctx.payment_id == 1
+        assert payment_ctx.payment_id is not None
         assert payment_ctx.description is None
         assert len(tx_1_context.parent_transactions) == 0
         assert tx_1_context.spent_outpoint_values == {}
@@ -1573,7 +1580,7 @@ async def test_extend_transaction_sequence() -> None:
         assert txo_key_data.derivation_path == (0, 0)
         assert txo_key_data.account_id == account_row.account_id
         assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
-        assert txo_key_data.keyinstance_id == 1
+        assert txo_key_data.keyinstance_id is not None
         assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_LINKED
 
         tx_2 = Transaction.from_hex(SEQUENCE_TX_2_HEX)
@@ -1591,7 +1598,7 @@ async def test_extend_transaction_sequence() -> None:
         assert txi_key_data.derivation_path == (0, 0)
         assert txi_key_data.account_id == account_row.account_id
         assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
-        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.keyinstance_id is not None
         assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
 
         tx_hash_2 = tx_2.hash()
@@ -1630,7 +1637,7 @@ async def test_extend_transaction_sequence() -> None:
         assert txi_key_data.derivation_path == (0, 0)
         assert txi_key_data.account_id == account_row.account_id
         assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
-        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.keyinstance_id is not None
         assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
 
         # Extending no longer finds this since we removed the `KeyInstanceScripts` table and
@@ -1652,10 +1659,16 @@ async def test_extend_transaction_sequence() -> None:
         ## Try again with the transaction in the database.
         # Add the funding transaction to the database and link it to key usage.
         txo_key_usage: dict[int, tuple[int, ScriptType]] = {
-            1: (4, ScriptType.P2PKH), 2: (2, ScriptType.P2PKH), 3: (9, ScriptType.P2PKH),
-            4: (3, ScriptType.P2PKH), 5: (10, ScriptType.P2PKH), 6: (5, ScriptType.P2PKH),
-            7: (7, ScriptType.P2PKH), 8: (8, ScriptType.P2PKH), 9: (6, ScriptType.P2PKH),
-            10: (11, ScriptType.P2PKH)
+            1: (keyinstance_rows[2].keyinstance_id, ScriptType.P2PKH),
+            2: (keyinstance_rows[0].keyinstance_id, ScriptType.P2PKH),
+            3: (keyinstance_rows[7].keyinstance_id, ScriptType.P2PKH),
+            4: (keyinstance_rows[1].keyinstance_id, ScriptType.P2PKH),
+            5: (keyinstance_rows[8].keyinstance_id, ScriptType.P2PKH),
+            6: (keyinstance_rows[3].keyinstance_id, ScriptType.P2PKH),
+            7: (keyinstance_rows[5].keyinstance_id, ScriptType.P2PKH),
+            8: (keyinstance_rows[6].keyinstance_id, ScriptType.P2PKH),
+            9: (keyinstance_rows[4].keyinstance_id, ScriptType.P2PKH),
+            10: (keyinstance_rows[9].keyinstance_id, ScriptType.P2PKH)
         }
         import_context = TxImportCtx(output_key_usage=txo_key_usage)
         await wallet.import_transactions_async(PaymentCtx(), [TxImportEntry(tx_hash_2, tx_2,
@@ -1686,7 +1699,7 @@ async def test_extend_transaction_sequence() -> None:
         assert txi_key_data.derivation_path == (0, 0)
         assert txi_key_data.account_id == account_row.account_id
         assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
-        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.keyinstance_id is not None
         assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_LINKED
 
         assert len(tx_2_context_b.key_datas_by_received_outpoint) == 10
@@ -1849,25 +1862,25 @@ async def test_close_paid_payment_request_async_notifies(app_state: AppStateProx
     await wallet.close_payment_request_async(1, [ (mock_transaction, None) ])
     wallet._event_payment_requests_paid_async.assert_called_once_with([ 1 ])
 
-INITIAL_TIMESTAMP = 1000000000
-INVOICE_PROCESS_ROW = PaymentRequestRow(1, None, PaymentRequestFlag.TYPE_INVOICE, 100000, None,
-    "local reference 1", None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP-1,
-    INITIAL_TIMESTAMP-1)
+REQUEST_ID1 = database_id_from_timestamp(BASE_TIME+10*24*60*59*1000)
+REQUEST_ID2 = database_id_from_timestamp(BASE_TIME+10*24*60*60*1000)
+INITIAL_TIMESTAMP1 = timestamp_from_id(REQUEST_ID1)
+INITIAL_TIMESTAMP2 = timestamp_from_id(REQUEST_ID2)
+INVOICE_PROCESS_ROW = PaymentRequestRow(REQUEST_ID1, None, PaymentRequestFlag.TYPE_INVOICE, 100000,
+    None, "local reference 1", None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP1)
 
 @pytest.mark.parametrize("prepare_requests,invoice_requests,expected_deletion_arguments,"
         "expected_register_invoice_arguments",
     (([
         # Should be matched as it is the edge case of just expired.
-        PaymentRequestRow(1, None, PaymentRequestFlag.STATE_PREPARING, 100000, None, "local reference 1",
-            None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP-1,
-            INITIAL_TIMESTAMP-1),
+        PaymentRequestRow(REQUEST_ID1, None, PaymentRequestFlag.STATE_PREPARING, 100000, None, "local reference 1",
+            None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP1),
         # Should be ignored as it is the edge case of not expired.
-        PaymentRequestRow(2, None, PaymentRequestFlag.STATE_PREPARING, 100000, None, "local reference 2",
-            None, None, None, "merchant reference 2", None, INITIAL_TIMESTAMP,
-            INITIAL_TIMESTAMP),
+        PaymentRequestRow(REQUEST_ID2, None, PaymentRequestFlag.STATE_PREPARING, 100000, None, "local reference 2",
+            None, None, None, "merchant reference 2", None, INITIAL_TIMESTAMP2),
     ],
     [],
-    ([1], PaymentRequestFlag.DELETED), None),
+    ([REQUEST_ID1], PaymentRequestFlag.DELETED), None),
     ([], [ INVOICE_PROCESS_ROW ], None, (INVOICE_PROCESS_ROW, "123456"))
     ))
 @unittest.mock.patch('electrumsv.wallet.time')
@@ -1891,7 +1904,7 @@ async def test_process_payment_requests(app_state: AppStateProxy, time_module,
             return invoice_requests
         assert False, "should never reach here"
 
-    current_timestamp = INITIAL_TIMESTAMP + discard_seconds
+    current_timestamp = INITIAL_TIMESTAMP2 + discard_seconds
 
     time_module.time = lambda: current_timestamp
 

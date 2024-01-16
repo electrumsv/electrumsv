@@ -243,7 +243,6 @@ DerivationDataTypes = KeyInstanceDataBIP32SubPath | KeyInstanceDataHash | \
 class KeyStoreResult(NamedTuple):
     account_creation_type: AccountCreationType
     keystore: KeyStore|None = None
-    account_id: int = -1
 
 
 class TransactionSize(NamedTuple):

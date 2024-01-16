@@ -11,8 +11,10 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text
 from electrumsv.network_support.types import TipFilterRegistrationJob, \
     TipFilterRegistrationJobOutput
 from electrumsv.wallet import StandardAccount, Wallet
+from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
+from electrumsv.wallet_database.util import database_id
 from electrumsv.storage import WalletStorage
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, setup_async, tear_down_async
@@ -46,9 +48,9 @@ async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
@@ -116,9 +118,9 @@ async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
@@ -127,8 +129,7 @@ async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
 
     future = wallet.data.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         RECEIVING_SUBPATH)
-    keyinstance_id, derivation_type, derivation_data2, flags = future.result()
-    assert keyinstance_id == 1
+    keyinstance_id1, derivation_type, derivation_data2, flags = future.result()
     # The flags it thinks were updated as part of this operation.
     assert flags == KeyInstanceFlag.USED
 
@@ -139,16 +140,15 @@ async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
 
     future = wallet.data.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         CHANGE_SUBPATH, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST)
-    keyinstance_id, derivation_type, derivation_data2, flags = future.result()
-    assert keyinstance_id == 2
+    keyinstance_id2, derivation_type, derivation_data2, flags = future.result()
     # The flags it thinks were updated as part of this operation.
     assert flags == (KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USED
         | KeyInstanceFlag.IS_PAYMENT_REQUEST)
 
     keyinstances = wallet.data.read_keyinstances(account_id=account.get_id(),
-        keyinstance_ids=[1, 2])
-    keyinstance1 = [ ki for ki in keyinstances if ki.keyinstance_id == 1 ][0]
-    keyinstance2 = [ ki for ki in keyinstances if ki.keyinstance_id == 2 ][0]
+        keyinstance_ids=[keyinstance_id1, keyinstance_id2])
+    keyinstance1 = [ ki for ki in keyinstances if ki.keyinstance_id == keyinstance_id1 ][0]
+    keyinstance2 = [ ki for ki in keyinstances if ki.keyinstance_id == keyinstance_id2 ][0]
     # That the flags were actually updated in the database.
     assert KeyInstanceFlag(keyinstance1.flags) == KeyInstanceFlag.USED
     assert KeyInstanceFlag(keyinstance2.flags) == (KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USED |
@@ -180,9 +180,9 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
-    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+    account_row = AccountRow(database_id(), masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
         AccountFlag.NONE, None, None, None, None, 1, 1)
-    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    db_functions.create_accounts(wallet._db_context, [account_row]).result()
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
@@ -242,5 +242,4 @@ async def test_create_monitored_blockchain_payment_async(mock_app_state1, mock_a
     assert len(read_request_rows) == 2
     assert read_request_rows[0].paymentrequest_id == paymentrequest_row1.paymentrequest_id
     assert read_request_rows[0].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.NONE
-    assert read_request_rows[1].paymentrequest_id == paymentrequest_row1.paymentrequest_id+1
     assert read_request_rows[1].request_flags & PaymentRequestFlag.MASK_HIDDEN == PaymentRequestFlag.DELETED

@@ -59,8 +59,9 @@ from ..constants import NetworkServerFlag, ChannelAccessTokenFlag, ChannelMessag
 from ..exceptions import ServerConnectionError
 from ..i18n import _
 from ..logs import logs
-from ..wallet_database.types import ContactAddRow, ContactRow, ChannelAccessTokenRow, \
+from ..wallet_database.types import ContactRow, ChannelAccessTokenRow, \
     ChannelMessageRow, ServerPeerChannelRow
+from ..wallet_database.util import database_id, timestamp_from_id
 
 from .exceptions import GeneralAPIError
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -207,16 +208,14 @@ async def create_peer_channel_for_contact_async(wallet: Wallet, contact_id: int)
 async def import_contact_invitation_async(wallet: Wallet, preferred_name: str,
         invite_data: ConnectionInvitationDict) -> tuple[bool, str | None]:
     public_key_bytes = bytes.fromhex(invite_data["key"])
-    contact_add_row = ContactAddRow(preferred_name, invite_data["url"], invite_data["token"],
-        public_key_bytes)
+    contact_id = database_id()
+    date_updated = timestamp_from_id(contact_id)
+    contact_row = ContactRow(contact_id, preferred_name, None, None, invite_data["url"],
+        invite_data["token"], public_key_bytes, date_updated)
     try:
-        contact_rows = await wallet.data.create_contacts_async([ contact_add_row ])
+        await wallet.data.create_contacts_async([ contact_row ])
     except sqlite3.IntegrityError:
         return False, _("This invitation has already been imported.")
-
-    assert len(contact_rows) == 1
-    contact_row = contact_rows[0]
-    assert contact_row.contact_id is not None
 
     # At this point we have an unreciprocated invite recorded and we can retry if we fail.
     try:

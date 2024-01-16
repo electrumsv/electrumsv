@@ -16,6 +16,7 @@ from ..logs import logs
 from ..standards.json_envelope import pack_json_envelope
 from ..types import IndefiniteCredentialId
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
+from ..wallet_database.util import timestamp_from_id
 
 if TYPE_CHECKING:
     from ..transaction import Transaction
@@ -85,7 +86,7 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     payment_terms_data = {
         "network": get_dpp_network_string(),
         "version": "1.0",
-        "creationTimestamp": request_row.date_created,
+        "creationTimestamp": timestamp_from_id(request_row.paymentrequest_id),
         "paymentUrl": payment_url,
         "memo": request_row.merchant_reference,
 

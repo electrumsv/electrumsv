@@ -42,9 +42,9 @@ from typing import Any, Callable, cast, Coroutine, Iterable, Literal, Sequence, 
     TypeVar, TYPE_CHECKING
 import weakref
 
-from bitcoinx import (Address, bip32_decompose_chain_string,
-    BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash, MissingHeader,
-    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script)
+from bitcoinx import (Address, bip32_decompose_chain_string, BIP32PrivateKey, Chain,
+    double_sha256, ElectrumMnemonic, Header, hash_to_hex_str, hex_str_to_hash, MissingHeader,
+    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script, Wordlists)
 from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
@@ -58,9 +58,9 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlag, 
     MasterKeyFlag, MAX_FEE, MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
     NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentRequestFlag,
     ChannelAccessTokenFlag, ChannelMessageFlag, PushDataHashRegistrationFlag,
-    RECEIVING_SUBPATH, SERVER_USES, ServerCapability, ServerConnectionFlag, ChannelFlag,
-    ScriptType, TokenPermissions, TxImportFlag, TXIFlag, TXOFlag, TxFlag,
-    unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
+    RECEIVING_SUBPATH, SEED_PREFIX_ACCOUNT, SERVER_USES, ServerCapability, ServerConnectionFlag,
+    ChannelFlag, ScriptType, TokenPermissions, TxImportFlag, TXIFlag, TXOFlag, TxFlag,
+    unpack_derivation_path, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
     WalletEventFlag, WalletEventType)
 from .crypto import pw_decode, pw_encode
 from .dpp_messages import PaymentACKDict, PaymentACKMessage, PaymentMessage, PaymentTermsMessage
@@ -70,9 +70,9 @@ from .exceptions import (BadServerError, DPPException, DPPRemoteException,
     ServiceUnavailableError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
     UserCancelled, WalletLoadError)
 from .i18n import _
-from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
-    Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
-    SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
+from .keystore import BIP32_KeyStore, bip32_master_key_data_from_seed, Deterministic_KeyStore,\
+    Hardware_KeyStore, Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore,\
+    Old_KeyStore, SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.bitcache_protocol import produce_bitcache_messages_async, \
@@ -121,8 +121,7 @@ from .wallet_database.exceptions import DatabaseUpdateError, KeyInstanceNotFound
     TransactionAlreadyExistsError
 from .wallet_database import functions as db_functions
 from .wallet_database.types import (AccountRow, BitcacheTransactionRow, PaymentDescriptionRow,
-    AccountTransactionOutputSpendableRow, AccountUTXOExRow,
-    ContactAddRow, ContactRow,
+    AccountTransactionOutputSpendableRow, AccountUTXOExRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceRow,
     KeyDataProtocol, KeyData, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow,
     MAPIBroadcastRow, MasterKeyRow, MerkleProofRow, NetworkServerRow, PasswordUpdateResult,
@@ -134,7 +133,7 @@ from .wallet_database.types import (AccountRow, BitcacheTransactionRow, PaymentD
     UTXOProtocol, UTXORow, TransactionProofUpdateRow,
     TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow,
     AccountHistoryOutputRow)
-from .wallet_database.util import create_derivation_data2
+from .wallet_database.util import create_derivation_data2, database_id, timestamp_from_id
 from .wallet_support.keys import get_multi_signer_script_template, \
     get_pushdata_hash_for_derivation, get_pushdata_hash_for_public_keys, \
     get_single_signer_script_template, map_txo_key_usage
@@ -185,7 +184,6 @@ class MissingTransactionEntry:
     match_metadatas: set[ImportTransactionKeyUsage]
     with_proof: bool = False
     account_ids: list[int] = dataclasses.field(default_factory=list)
-    payment_id: int|None = None
 
 
 @dataclasses.dataclass
@@ -283,15 +281,15 @@ class AbstractAccount:
         Key allocations are expected to be created in a safe context that prevents multiple
         allocations of the same key allocation parameters from being assigned to multiple callers.
         """
-        account_id = self.get_id()
         keyinstance_rows: list[KeyInstanceRow] = []
         for ka in key_allocations:
             derivation_data_dict = self._create_derivation_data_dict(ka)
             derivation_data = json.dumps(derivation_data_dict).encode()
             derivation_data2 = create_derivation_data2(ka.derivation_type, derivation_data_dict)
-            keyinstance_rows.append(KeyInstanceRow(-1, account_id, ka.masterkey_id,
+            keyinstance_rows.append(KeyInstanceRow(database_id(), self._id, ka.masterkey_id,
                 ka.derivation_type, derivation_data, derivation_data2, keyinstance_flags, None))
-        return self._wallet.create_keyinstances(self._id, keyinstance_rows)
+        future = self._wallet.create_keyinstances(self._id, keyinstance_rows)
+        return future, keyinstance_rows
 
     def _create_derivation_data_dict(self, key_allocation: KeyAllocation) \
             -> KeyInstanceDataBIP32SubPath:
@@ -980,13 +978,12 @@ class AbstractAccount:
         #   better thing otherwise? At the very least, even if we are treating it as a simple
         #   description we should validate it anyway (content good/length short enough to display).
         timestamp = int(time.time())
-        row = InvoiceRow(0, 0, invoice_terms.payment_url, invoice_terms.memo,
+        invoice_id, payment_id = database_id(), database_id()
+        row = InvoiceRow(invoice_id, payment_id, invoice_terms.payment_url, invoice_terms.memo,
             PaymentRequestFlag.STATE_UNPAID | PaymentRequestFlag.TYPE_INVOICE,
             invoice_terms.get_amount(), invoice_terms.to_json().encode(),
             invoice_terms.expiration_timestamp, timestamp, timestamp)
-        row = await self._wallet.data.create_invoice_async(row, self._id, contact_id=contact_id)
-        assert row.invoice_id != 0
-        assert row.payment_id != 0
+        await self._wallet.data.create_invoice_async(row, self._id, contact_id=contact_id)
         return row
 
     async def create_payment_request_async(self, contact_id: int|None, amount: int | None,
@@ -1026,22 +1023,21 @@ class AbstractAccount:
         else:
             flags |= PaymentRequestFlag.STATE_UNPAID
 
-        date_created = int(time.time())
-        # `PaymentRequests.paymentrequest_id` is assigned on insert.
+        request_id, payment_id = database_id(), database_id()
+        date_updated = timestamp_from_id(request_id)
         # `PaymentRequests.payment_id` will have a row created and the id inserted.
-        request_row = PaymentRequestRow(None, None, flags, amount, date_expires,
+        pr_row = PaymentRequestRow(request_id, payment_id, flags, amount, date_expires,
             internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-            encrypted_key_text, date_created, date_created)
-        request_output_rows: list[PaymentRequestOutputRow] = [
-            PaymentRequestOutputRow(None, 0, 0, script_type, script_template.to_script_bytes(),
-                pushdata_hash, amount, key_data.keyinstance_id, date_created, date_created),
+            encrypted_key_text, date_updated)
+        pro_rows: list[PaymentRequestOutputRow] = [
+            PaymentRequestOutputRow(pr_row.paymentrequest_id, 0, 0, script_type,
+                script_template.to_script_bytes(), pushdata_hash, amount, key_data.keyinstance_id,
+                date_updated),
         ]
-        request_row, request_output_rows = await self._wallet.data.create_payment_request_async(
-            self._id, contact_id, request_row, request_output_rows)
+        await self._wallet.data.create_payment_request_async(self._id, contact_id, pr_row, pro_rows)
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
             [ key_data.keyinstance_id ])
-
-        return request_row, request_output_rows
+        return pr_row, pro_rows
 
     async def create_hosted_invoice_async(self, contact_id: int|None, amount_satoshis: int,
             date_expires: int, description: str | None, merchant_reference: str | None) \
@@ -1257,9 +1253,10 @@ class ImportedAddressAccount(ImportedAccountBase):
         derivation_data_dict: KeyInstanceDataHash = { "hash": address.to_string() }
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(derivation_type, derivation_data_dict)
-        raw_keyinstance = KeyInstanceRow(-1, -1, None, derivation_type, derivation_data,
-            derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
-        self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
+        keyinstance_row = KeyInstanceRow(database_id(), self._id, None, derivation_type,
+            derivation_data, derivation_data2,
+            KeyInstanceFlag.ACTIVE|KeyInstanceFlag.USER_SET_ACTIVE, None)
+        future_ = self._wallet.create_keyinstances(self._id, [ keyinstance_row ])
         return True
 
     def get_public_keys_for_derivation_path(self, derivation_path: DerivationPath) \
@@ -1327,12 +1324,12 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         }
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict)
-        raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
-            derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
-        keyinstance_future, keyinstance_rows = self._wallet.create_keyinstances(self._id,
-            [ raw_keyinstance ])
-        keystore.import_private_key(keyinstance_rows[0].keyinstance_id, public_key,
-            enc_private_key_text)
+        keyinstance_id = database_id()
+        keyinstance_rows = [ KeyInstanceRow(keyinstance_id, self._id, None,
+            DerivationType.PRIVATE_KEY, derivation_data, derivation_data2,
+            KeyInstanceFlag.ACTIVE|KeyInstanceFlag.USER_SET_ACTIVE, None) ]
+        future_ = self._wallet.create_keyinstances(self._id, keyinstance_rows)
+        keystore.import_private_key(keyinstance_id, public_key, enc_private_key_text)
         return private_key_text
 
     def export_private_key(self, keydata: KeyDataProtocol, password: str) -> str:
@@ -1437,8 +1434,7 @@ class DeterministicAccount(AbstractAccount):
 
         This should include the derivation type and the derivation context of each individual key.
         """
-        if count <= 0:
-            return []
+        if count <= 0: return []
 
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         derivation_entries = self._derivation_sub_paths.setdefault(keystore.get_id(), [])
@@ -1810,11 +1806,9 @@ class WalletDataAccess:
 
     # Contacts
 
-    async def create_contacts_async(self, add_rows: list[ContactAddRow]) -> list[ContactRow]:
-        contact_rows = await self._db_context.run_in_thread_async(
-            db_functions.create_contacts_write, add_rows)
-        self.events.trigger_callback(WalletEvent.CONTACTS_CREATED, contact_rows)
-        return contact_rows
+    async def create_contacts_async(self, rows: list[ContactRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_contacts_write, rows)
+        self.events.trigger_callback(WalletEvent.CONTACTS_CREATED, rows)
 
     def read_contacts(self, contact_ids: list[int] | None=None) -> list[ContactRow]:
         return db_functions.read_contacts(self._db_context, contact_ids)
@@ -1822,11 +1816,9 @@ class WalletDataAccess:
     def read_contact_for_peer_channel(self, peer_channel_id: int) -> ContactRow | None:
         return db_functions.read_contact_for_peer_channel(self._db_context, peer_channel_id)
 
-    async def update_contacts_async(self, rows: list[ContactRow]) -> list[ContactRow]:
-        updated_rows = await self._db_context.run_in_thread_async(
-            db_functions.update_contacts_write, rows)
-        self.events.trigger_callback(WalletEvent.CONTACTS_UPDATED, [updated_rows])
-        return updated_rows
+    async def update_contacts_async(self, rows: list[ContactRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.update_contacts_write, rows)
+        self.events.trigger_callback(WalletEvent.CONTACTS_UPDATED, [rows])
 
     async def update_contact_for_invitation_response_async(self, contact_id: int, their_name: str,
             url: str, token: str, identity_key_bytes: bytes) -> None:
@@ -1848,9 +1840,9 @@ class WalletDataAccess:
     # Invoices.
 
     async def create_invoice_async(self, entry: InvoiceRow, account_id: int,
-            contact_id: int|None) -> InvoiceRow:
-        return await self._db_context.run_in_thread_async(db_functions.create_invoice_write,
-            entry, account_id, contact_id)
+            contact_id: int|None) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_invoice_write, entry,
+            account_id, contact_id)
 
     def read_invoice(self, *, invoice_id: int|None=None, payment_id: int|None=None,
             tx_hash: bytes|None=None, payment_uri: str|None=None) -> InvoiceRow|None:
@@ -1940,10 +1932,8 @@ class WalletDataAccess:
 
     # mAPI broadcast callbacks
 
-    async def create_mapi_broadcasts_async(self, rows: list[MAPIBroadcastRow]) \
-            -> list[MAPIBroadcastRow]:
-        return await self._db_context.run_in_thread_async(
-            db_functions.create_mapi_broadcasts_write, rows)
+    async def create_mapi_broadcasts_async(self, rows: list[MAPIBroadcastRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_mapi_broadcasts_write, rows)
 
     def read_mapi_broadcasts(self, tx_hashes: list[bytes]|None=None) \
             -> list[MAPIBroadcastRow]:
@@ -2029,12 +2019,9 @@ class WalletDataAccess:
     # Payment requests.
 
     async def create_payment_request_async(self, account_id: int, contact_id: int|None,
-            request_entry: PaymentRequestRow,
-            request_output_entries: list[PaymentRequestOutputRow]) \
-            -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        return await self._db_context.run_in_thread_async(
-            db_functions.create_payment_request_write, account_id, contact_id, request_entry,
-                request_output_entries)
+            pr_row: PaymentRequestRow, pro_rows: list[PaymentRequestOutputRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_payment_request_write,
+            account_id, contact_id, pr_row, pro_rows)
 
     def read_payment_request(self, *, request_id: int|None=None, payment_id: int|None=None,
             keyinstance_id: int|None=None) \
@@ -2098,8 +2085,8 @@ class WalletDataAccess:
     # Server peer channels.
 
     async def create_server_peer_channel_async(self, row: ServerPeerChannelRow,
-            tip_filter_server_id: int|None=None) -> int:
-        return await self._db_context.run_in_thread_async(
+            tip_filter_server_id: int|None=None) -> None:
+        await self._db_context.run_in_thread_async(
             db_functions.create_server_peer_channel_write, row, tip_filter_server_id)
 
     def read_server_peer_channels(self, *, server_id: int|None=None,
@@ -2136,10 +2123,10 @@ class WalletDataAccess:
 
     # Server peer channel messages.
 
-    async def create_server_peer_channel_messages_async(self, l: list[ChannelMessageRow]) \
-            -> list[ChannelMessageRow]:
-        return await self._db_context.run_in_thread_async(
-            db_functions.create_server_peer_channel_messages_write, l)
+    async def create_server_peer_channel_messages_async(self, rows: list[ChannelMessageRow]) \
+            -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.create_server_peer_channel_messages_write, rows)
 
     def read_server_peer_channel_messages(self, server_id: int,
             message_flags: ChannelMessageFlag|None=None, message_mask: ChannelMessageFlag|None=None,
@@ -2160,11 +2147,12 @@ class WalletDataAccess:
         """
         An external party created a peer channel and gave us read or read/write access.
         """
-        date_created = int(time.time())
-        peer_channel_row = ExternalPeerChannelRow(None, remote_url, flags, access_token,
-            token_permissions, date_created, date_created)
-        peer_channel_id = await self._db_context.run_in_thread_async(
-            db_functions.create_external_peer_channel_write, peer_channel_row)
+        peer_channel_id = database_id()
+        date_updated = timestamp_from_id(peer_channel_id)
+        peer_channel_row = ExternalPeerChannelRow(peer_channel_id,remote_url,flags,access_token,
+            token_permissions,date_updated)
+        await self._db_context.run_in_thread_async(db_functions.create_external_peer_channel_write,
+            peer_channel_row)
         logger.debug("Added external peer channel %d with flags %s", peer_channel_id, flags)
         return peer_channel_row._replace(peer_channel_id=peer_channel_id)
 
@@ -2177,8 +2165,8 @@ class WalletDataAccess:
     # External peer channel messages.
 
     async def create_external_peer_channel_messages_async(self,
-            rows: list[ChannelMessageRow]) -> list[ChannelMessageRow]:
-        return await self._db_context.run_in_thread_async(
+            rows: list[ChannelMessageRow]) -> None:
+        await self._db_context.run_in_thread_async(
             db_functions.create_external_peer_channel_messages_write, rows)
 
     def read_external_peer_channel_messages(self, peer_channel_id: int,
@@ -2875,30 +2863,6 @@ class Wallet:
 
     # Accounts.
 
-    def _preallocate_account_id(self) -> int:
-        """
-        Sometimes we need an account id to refer to before we create the account.
-        `add_accounts` will respect this being pre-provided and not allocate a new one as it does
-        otherwise.
-        """
-        account_id = cast(int, self._storage.get("next_account_id", 1))
-        self._storage.put("next_account_id", account_id + 1)
-        return account_id
-
-    def add_accounts(self, entries: list[AccountRow]) -> list[AccountRow]:
-        account_id = initial_account_id = self._storage.get("next_account_id", 1)
-        rows = entries[:]
-        for i, row in enumerate(rows):
-            if row.account_id < 1:
-                rows[i] = row._replace(account_id=account_id)
-                account_id += 1
-        if account_id != initial_account_id:
-            self._storage.put("next_account_id", account_id)
-
-        future = db_functions.create_accounts(self.get_db_context(), rows)
-        future.result()
-        return rows
-
     # Called by `account_wizard.py:AddAccountWizardPage._create_new_account` to create new
     # standard accounts which are now derived from the wallet seed.
     def derive_child_keystore(self, for_account: bool=False,
@@ -2906,23 +2870,15 @@ class Wallet:
         if for_account:
             assert password is not None, "this code path should always have a password"
             assert self._wallet_master_keystore is not None
-            preallocated_account_id = self._preallocate_account_id()
-            derivation_text = f"{WALLET_ACCOUNT_PATH_TEXT}/{preallocated_account_id}'"
-            derivation_path: DerivationPath = tuple(bip32_decompose_chain_string(derivation_text))
-            private_key = cast(BIP32PrivateKey,
-                self._wallet_master_keystore.get_private_key(derivation_path, password))
-            encrypted_xprv = pw_encode(private_key.to_extended_key_string(), password)
-            derivation_data: MasterKeyDataBIP32 = {
-                "seed": None,
-                "label": None,
-                "passphrase": None,
-                "xpub": private_key.public_key.to_extended_key_string(),
-                "derivation": derivation_text,
-                "xprv": encrypted_xprv,
-            }
-            keystore = BIP32_KeyStore(derivation_data,
-                parent_keystore=self._wallet_master_keystore)
-            return KeyStoreResult(AccountCreationType.NEW, keystore, preallocated_account_id)
+            self._wallet_master_keystore.check_password(password)
+            derivation_text = "m"
+            seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"),
+                prefix=SEED_PREFIX_ACCOUNT)
+            bip32_seed = ElectrumMnemonic.new_to_seed(seed_phrase, "", compatible=True)
+            derivation_data = bip32_master_key_data_from_seed(seed_phrase, "", bip32_seed,
+                derivation_text, password)
+            return KeyStoreResult(AccountCreationType.NEW, BIP32_KeyStore(derivation_data,
+                parent_keystore=self._wallet_master_keystore))
         raise NotImplementedError
 
     def create_account_from_keystore(self, keystore_result: KeyStoreResult) -> AbstractAccount:
@@ -2947,15 +2903,16 @@ class Wallet:
         if keystore_result.account_creation_type == AccountCreationType.NEW:
             creation_flags |= AccountInstantiationFlag.NEW
 
-        basic_row = AccountRow(keystore_result.account_id, masterkey_row.masterkey_id, script_type,
-            account_name, AccountFlag.NONE, None, None, None, None, int(time.time()),
+        account_row = AccountRow(database_id(), masterkey_row.masterkey_id,
+            script_type, account_name, AccountFlag.NONE, None, None, None, None, int(time.time()),
             int(time.time()))
-        rows = self.add_accounts([ basic_row ])
-        return self._create_account_from_data(rows[0], creation_flags)
+        future = db_functions.create_accounts(self.get_db_context(), [ account_row ])
+        future.result()
+        return self._create_account_from_data(account_row, creation_flags)
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType,
             entries: set[str], password: str) -> AbstractAccount:
-        raw_keyinstance_rows: list[KeyInstanceRow] = []
+        keyinstance_rows: list[KeyInstanceRow] = []
 
         account_name: str|None = None
         account_flags: AccountInstantiationFlag
@@ -2968,6 +2925,7 @@ class Wallet:
         else:
             raise WalletLoadError(f"Unhandled text type {text_type}")
 
+        account_id = database_id()
         script_type = ScriptType.P2PKH
         if text_type == KeystoreTextType.ADDRESSES:
             # NOTE(P2SHNotImportable) see the account wizard for why this does not get P2SH ones.
@@ -2976,7 +2934,7 @@ class Wallet:
             for address_string in entries:
                 derivation_data_hash: KeyInstanceDataHash = { "hash": address_string }
                 derivation_data = json.dumps(derivation_data_hash).encode()
-                raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
+                keyinstance_rows.append(KeyInstanceRow(database_id(), account_id,
                     None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
                     create_derivation_data2(DerivationType.PUBLIC_KEY_HASH, derivation_data_hash),
                     KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
@@ -2989,34 +2947,24 @@ class Wallet:
                     "prv": pw_encode(private_key_text, password),
                 }
                 derivation_data = json.dumps(derivation_data_dict).encode()
-                raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
+                keyinstance_rows.append(KeyInstanceRow(database_id(), account_id,
                     None, DerivationType.PRIVATE_KEY, derivation_data,
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
                     KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
 
-        basic_account_row = AccountRow(-1, None, script_type, account_name, AccountFlag.NONE,
-            None, None, None, None, int(time.time()), int(time.time()))
-        account_row = self.add_accounts([ basic_account_row ])[0]
+        account_row = AccountRow(account_id, None, script_type, account_name,
+            AccountFlag.NONE, None, None, None, None, int(time.time()), int(time.time()))
+        db_functions.create_accounts(self.get_db_context(), [ account_row ]).result()
         account = self._create_account_from_data(account_row, account_flags)
-
-        keyinstance_future, keyinstance_rows = self.create_keyinstances(account.get_id(),
-            raw_keyinstance_rows)
-
+        self.create_keyinstances(account_id, keyinstance_rows).result()
         if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
             cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
-
         return account
 
     # Key instances.
 
-    def create_keyinstances(self, account_id: int, entries: list[KeyInstanceRow]) \
-            -> tuple[concurrent.futures.Future[None], list[KeyInstanceRow]]:
-        keyinstance_id = self._storage.get("next_keyinstance_id", 1)
-        rows = entries[:]
-        for i, row in enumerate(rows):
-            rows[i] = row._replace(keyinstance_id=keyinstance_id, account_id=account_id)
-            keyinstance_id += 1
-        self._storage.put("next_keyinstance_id", keyinstance_id)
+    def create_keyinstances(self, account_id: int, rows: list[KeyInstanceRow]) \
+            -> concurrent.futures.Future[None]:
         future = db_functions.create_keyinstances(self.get_db_context(), rows)
         def callback(callback_future: concurrent.futures.Future[None]) -> None:
             if callback_future.cancelled():
@@ -3025,38 +2973,22 @@ class Wallet:
             keyinstance_ids = [ row.keyinstance_id for row in rows ]
             self.events.trigger_callback(WalletEvent.KEYS_CREATE, account_id, keyinstance_ids)
         future.add_done_callback(callback)
-        return future, rows
+        return future
 
     def get_next_derivation_index(self, account_id: int, masterkey_id: int,
             derivation_subpath: DerivationPath) -> int:
         last_index = db_functions.read_keyinstance_derivation_index_last(
             self.get_db_context(), account_id, masterkey_id, derivation_subpath)
-        if last_index is None:
-            return 0
+        if last_index is None: return 0
         return last_index + 1
 
-    # Master keys.
-
-    def add_masterkeys(self, entries: list[MasterKeyRow]) -> list[MasterKeyRow]:
-        masterkey_id = self._storage.get("next_masterkey_id", 1)
-        rows = entries[:]
-        for i, row in enumerate(rows):
-            rows[i] = row._replace(masterkey_id=masterkey_id)
-            self._masterkey_rows[masterkey_id] = row
-            masterkey_id += 1
-
-        self._storage.put("next_masterkey_id", masterkey_id)
-        future = db_functions.create_master_keys(self.get_db_context(), rows)
-        future.result()
-        return rows
-
     def create_masterkey_from_keystore(self, keystore: KeyStore) -> MasterKeyRow:
-        basic_row = keystore.to_masterkey_row()
-        rows = self.add_masterkeys([ basic_row ])
-        keystore.set_row(rows[0])
-        self._keystores[rows[0].masterkey_id] = keystore
-        self._masterkey_rows[rows[0].masterkey_id] = rows[0]
-        return rows[0]
+        row = keystore.to_masterkey_row()
+        db_functions.create_master_keys(self.get_db_context(), [row]).result()
+        keystore.set_row(row)
+        self._keystores[row.masterkey_id] = keystore
+        self._masterkey_rows[row.masterkey_id] = row
+        return row
 
     async def fetch_raw_transaction_async(self, tx_hash: bytes, account: AbstractAccount) -> bytes:
         """Selects a suitable server and requests the raw transaction.
@@ -3969,9 +3901,10 @@ class Wallet:
                 # not allow users to delete servers yet.
                 encrypted_api_key: str|None = None
                 credential_id = None
-                row = NetworkServerRow(None, server_key.server_type, server_key.url, None,
+                server_id = database_id()
+                row = NetworkServerRow(server_id, server_key.server_type, server_key.url, None,
                     server_flags, hardcoded_api_key_template, encrypted_api_key, None, None,
-                    0, 0, date_now_utc, date_now_utc)
+                    0, 0, date_now_utc)
                 future = self.data.update_network_servers_transaction([ row ], [], [], [])
                 created_rows = future.result()
                 assert len(created_rows) == 1
@@ -4099,7 +4032,8 @@ class Wallet:
                 mask=PaymentRequestFlag.MASK_STATE | PaymentRequestFlag.MASK_TYPE |
                     PaymentRequestFlag.MASK_HIDDEN):
             assert paymentrequest_row.paymentrequest_id is not None
-            if paymentrequest_row.date_created + 2 * 24 * 60 * 60 < time.time():
+            date_created = timestamp_from_id(paymentrequest_row.paymentrequest_id)
+            if date_created + 2 * 24 * 60 * 60 < time.time():
                 paymentrequest_ids.append(paymentrequest_row.paymentrequest_id)
         if len(paymentrequest_ids) > 0:
             app_state.async_.spawn(
@@ -5661,7 +5595,7 @@ class Wallet:
                 account_id = entry.account_ids[0]
                 account = self._accounts[account_id]
 
-                payment_ctx = PaymentCtx(payment_id=entry.payment_id)
+                payment_ctx = PaymentCtx()
 
                 # Match the entry to any existing payment.
                 paymentrequest_row: PaymentRequestRow|None = None
@@ -5670,7 +5604,6 @@ class Wallet:
                     pr_rows = self.data.read_payment_requests(keyinstance_id=keyinstance_ids[0])
                     if len(pr_rows) == 1:
                         paymentrequest_row = pr_rows[0]
-                        assert payment_ctx.payment_id is None
                         payment_ctx.payment_id = pr_rows[0].payment_id
 
                 def create_import_context(entry: MissingTransactionEntry, tx: Transaction) \

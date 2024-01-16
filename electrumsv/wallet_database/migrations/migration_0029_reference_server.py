@@ -70,6 +70,7 @@ from ...wallet_support.keys import get_output_script_template_for_public_keys, \
 
 from ..storage_migration import KeyInstanceFlag_27, KeyInstanceRow_27, MasterKeyDataBIP32_27, \
     MasterKeyDataTypes_27, MasterKeyRow_27, TxFlags_22
+from ..util import database_id_from_timestamp, timestamp_from_id
 
 MIGRATION = 29
 logger = logs.get_logger(f"migration-{MIGRATION:04d}")
@@ -91,7 +92,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     _introduce_bitcache(conn)
 
     _migrate_payment_requests(conn)
-    _introduce_payments(conn, date_updated)
+    _introduce_payments(conn)
 
     _migrate_merkle_proofs(conn)
 
@@ -213,7 +214,6 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
             remote_channel_id           TEXT        DEFAULT NULL,
             remote_url                  TEXT        DEFAULT NULL,
             peer_channel_flags          INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY (server_id) REFERENCES Servers (server_id)
         )
@@ -226,7 +226,6 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
             peer_channel_flags          INTEGER     NOT NULL,
             access_token                TEXT        NOT NULL,
             token_permissions           INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL
         )
     """)
@@ -253,7 +252,6 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
             message_flags               INTEGER     NOT NULL,
             sequence                    INTEGER     NOT NULL,
             date_received               INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
         )
@@ -267,7 +265,6 @@ def _introduce_peer_channels(conn: sqlite3.Connection) -> None:
             message_flags               INTEGER     NOT NULL,
             sequence                    INTEGER     NOT NULL,
             date_received               INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
         )
@@ -325,7 +322,6 @@ def _introduce_contacts(conn: sqlite3.Connection) -> None:
         remote_peer_channel_url                 TEXT        DEFAULT NULL,
         remote_peer_channel_token               TEXT        DEFAULT NULL,
         direct_identity_key_bytes               BLOB        DEFAULT NULL,
-        date_created                            INTEGER     NOT NULL,
         date_updated                            INTEGER     NOT NULL,
         FOREIGN KEY (local_peer_channel_id)     REFERENCES ServerPeerChannels (peer_channel_id)
     )""")
@@ -382,7 +378,6 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
             dpp_ack_json           TEXT        NULL,
             merchant_reference          TEXT        NULL,
             encrypted_key_text          TEXT        NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL
         )
     """)
@@ -418,7 +413,7 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
         """).fetchall() ]
 
     logger.debug("Copying the original PaymentRequests table contents to updated table")
-    paymentrequest_output_rows: list[tuple[int, int, int, int, bytes, bytes, int, int, int, int]] \
+    paymentrequest_output_rows: list[tuple[int, int, int, int, bytes, bytes, int, int, int]] \
         = []
     for keyinstance_row, paymentrequest_id, script_type, request_value, date_created, date_updated \
             in paymentrequest_keyinstance_rows:
@@ -481,16 +476,15 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, state, description, date_expires,
                 value, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-                encrypted_key_text, date_created, date_updated)
+                encrypted_key_text, date_updated)
             SELECT PR.paymentrequest_id, PR.state, PR.description,
                 CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
-                PR.value, NULL, NULL, NULL, NULL, NULL, PR.date_created,
-                PR.date_updated
+                PR.value, NULL, NULL, NULL, NULL, NULL, PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
         """, (paymentrequest_id,))
         paymentrequest_output_rows.append((paymentrequest_id, 0, 0, script_type, script_bytes,
-            pushdata_hash, request_value, keyinstance_row.keyinstance_id, date_created,
+            pushdata_hash, request_value, keyinstance_row.keyinstance_id,
             date_updated))
 
     conn.execute("DROP TABLE PaymentRequests")
@@ -508,7 +502,6 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
             pushdata_hash               BLOB        NOT NULL,
             output_value                INTEGER     NULL,
             keyinstance_id              INTEGER     NOT NULL,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             PRIMARY KEY (paymentrequest_id, transaction_index, output_index),
             FOREIGN KEY (keyinstance_id)        REFERENCES KeyInstances (keyinstance_id),
@@ -518,13 +511,13 @@ def _migrate_payment_requests(conn: sqlite3.Connection) -> None:
 
     conn.executemany("INSERT INTO PaymentRequestOutputs (paymentrequest_id, transaction_index, "
         "output_index, output_script_type, output_script, pushdata_hash, output_value, "
-        "keyinstance_id, date_created, date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        "keyinstance_id, date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
         paymentrequest_output_rows)
 
     # Not the greatest idea, goodbye legacy script hash matching!
     conn.execute("DROP TABLE KeyInstanceScripts")
 
-def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
+def _introduce_payments(conn: sqlite3.Connection) -> None:
     """
     A payment is an abstract concept and may be satisfied by more than one transaction.
 
@@ -534,8 +527,8 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     2. Map all payment requests to a Payment.
     """
 
-    pr_txhashes_read_rows = cast(list[tuple[int, int, bytes]], conn.execute("""
-        SELECT DISTINCT PR.paymentrequest_id, PR.date_created, TXO.tx_hash
+    pr_txhashes_read_rows = cast(list[tuple[int, bytes]], conn.execute("""
+        SELECT DISTINCT PR.paymentrequest_id, TXO.tx_hash
         FROM PaymentRequests PR
         INNER JOIN PaymentRequestOutputs PRO ON PR.paymentrequest_id=PRO.paymentrequest_id
         LEFT JOIN TransactionOutputs TXO ON PRO.keyinstance_id=TXO.keyinstance_id
@@ -543,18 +536,17 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
     transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
     date_created_by_paymentrequest_id: dict[int, int] = {}
     paymentrequest_id_by_transaction_hash: dict[bytes, int] = {}
-    for row in pr_txhashes_read_rows:
-        date_created_by_paymentrequest_id[row[0]] = row[1]
-        if row[0] not in transaction_hashes_by_paymentrequest_id:
-            transaction_hashes_by_paymentrequest_id[row[0]] = []
+    for request_id, tx_hash in pr_txhashes_read_rows:
+        date_created_by_paymentrequest_id[request_id] = timestamp_from_id(request_id)
+        if request_id not in transaction_hashes_by_paymentrequest_id:
+            transaction_hashes_by_paymentrequest_id[request_id] = []
         # We will also get the payment requests with no transactions (represented by an empty list).
-        if row[2] is not None:
-            transaction_hashes_by_paymentrequest_id[row[0]].append(row[2])
-            paymentrequest_id_by_transaction_hash[row[2]] = row[0]
+        if tx_hash is not None:
+            transaction_hashes_by_paymentrequest_id[request_id].append(tx_hash)
+            paymentrequest_id_by_transaction_hash[tx_hash] = request_id
 
-    next_payment_id = 1
     payment_id_by_paymentrequest_id: dict[int, int] = {}
-    payment_rows: list[tuple[int, int, int]] = []
+    payment_rows: list[tuple[int, int]] = []
     tx_payment_rows: list[tuple[int, bytes]] = []
     for t in conn.execute("SELECT tx_hash, date_created FROM Transactions WHERE flags&?1=0",
             (TxFlag.REMOVED,)):
@@ -562,11 +554,11 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         tx_date_created = cast(int, t[1])
         paymentrequest_id = paymentrequest_id_by_transaction_hash.get(tx_hash)
         if paymentrequest_id is None:
-            payment_rows.append((next_payment_id, tx_date_created, tx_date_created))
+            new_payment_id = database_id_from_timestamp(tx_date_created)
+            payment_rows.append((new_payment_id, tx_date_created))
             # Re: 1. Map all the existing transactions to Payments.
             # .. Here we add unique Payments for each standalone transaction.
-            tx_payment_rows.append((next_payment_id, tx_hash))
-            next_payment_id += 1
+            tx_payment_rows.append((new_payment_id, tx_hash))
             continue
 
         # Re: 2. Map all payment requests to a Payment.
@@ -574,10 +566,9 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         existing_payment_id = payment_id_by_paymentrequest_id.get(paymentrequest_id)
         if existing_payment_id is None:
             pr_date_created = date_created_by_paymentrequest_id[paymentrequest_id]
-            payment_rows.append((next_payment_id, pr_date_created, pr_date_created))
-            payment_id_by_paymentrequest_id[paymentrequest_id] = next_payment_id
-            existing_payment_id = next_payment_id
-            next_payment_id += 1
+            existing_payment_id = database_id_from_timestamp(pr_date_created)
+            payment_rows.append((existing_payment_id, pr_date_created))
+            payment_id_by_paymentrequest_id[paymentrequest_id] = existing_payment_id
 
         # Re: 1. Map all the existing transactions to Payments.
         # .. Here we add common Payments for each payment request-related transaction.
@@ -590,9 +581,9 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
             continue
         assert paymentrequest_id not in payment_id_by_paymentrequest_id
         pr_date_created = date_created_by_paymentrequest_id[paymentrequest_id]
-        payment_rows.append((next_payment_id, pr_date_created, pr_date_created))
-        payment_id_by_paymentrequest_id[paymentrequest_id] = next_payment_id
-        next_payment_id += 1
+        new_payment_id = database_id_from_timestamp(pr_date_created)
+        payment_rows.append((new_payment_id, pr_date_created))
+        payment_id_by_paymentrequest_id[paymentrequest_id] = new_payment_id
 
     conn.execute("""CREATE TABLE Payments (
         payment_id                              INTEGER     PRIMARY KEY,
@@ -600,12 +591,11 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         flags                                   INTEGER     NOT NULL DEFAULT 0,
         description                             TEXT        DEFAULT NULL,
 
-        date_created                            INTEGER     NOT NULL,
         date_updated                            INTEGER     NOT NULL,
         FOREIGN KEY (contact_id)                REFERENCES Contacts (contact_id)
     )""")
-    conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
-        "VALUES (?1, ?2, ?3)", payment_rows)
+    conn.executemany("INSERT INTO Payments (payment_id, date_updated) VALUES (?1, ?2)",
+        payment_rows)
 
     conn.execute("ALTER TABLE Transactions ADD COLUMN payment_id INTEGER DEFAULT NULL")
     conn.executemany("UPDATE Transactions SET payment_id=?1 WHERE tx_hash=?2", tx_payment_rows)
@@ -723,17 +713,15 @@ def _introduce_payments(conn: sqlite3.Connection, date_updated: int) -> None:
         if tx_hash not in payment_id_by_tx_hash:
             # Make a payment with no transactions (so old invoices that never got paid but were
             # never deleted appear in the list of payments).
-            payment_id = next_payment_id
-            payment_rows.append((payment_id, it_old.date_created, it_old.date_created))
-            next_payment_id += 1
+            payment_id = database_id_from_timestamp(it_old.date_created)
+            payment_rows.append((payment_id, it_old.date_created))
         else:
             payment_id = payment_id_by_tx_hash[tx_hash]
         invoice_rows.append(NewInvoiceRow(it_old.invoice_id, payment_id, it_old.payment_uri,
             it_old.description, it_old.invoice_flags, it_old.value, it_old.invoice_data,
             it_old.date_expires, it_old.date_created, it_old.date_updated))
 
-    conn.executemany("INSERT INTO Payments (payment_id, date_created, date_updated) "
-        "VALUES (?1,?2,?3)", payment_rows)
+    conn.executemany("INSERT INTO Payments (payment_id,date_updated) VALUES (?1,?2)", payment_rows)
     conn.executemany("INSERT INTO Invoices2 (invoice_id, payment_id, payment_uri, description, "
         "invoice_flags, value, invoice_data, date_expires, date_created, date_updated) VALUES "
         "(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", invoice_rows)
@@ -911,7 +899,6 @@ def _introduce_mapi_broadcasts(conn: sqlite3.Connection) -> None:
             mapi_broadcast_flags        INTEGER       NOT NULL,
             peer_channel_id             INTEGER       DEFAULT NULL,
             response_data               BLOB          DEFAULT NULL,
-            date_created                INTEGER       NOT NULL,
             date_updated                INTEGER       NOT NULL,
             FOREIGN KEY (tx_hash)               REFERENCES Transactions (tx_hash),
             FOREIGN KEY (broadcast_server_id)   REFERENCES Servers (server_id),
@@ -937,7 +924,6 @@ def _migrate_server_tables(conn: sqlite3.Connection) -> None:
             tip_filter_peer_channel_id  INTEGER     DEFAULT NULL,
             date_last_connected         INTEGER     DEFAULT 0,
             date_last_tried             INTEGER     DEFAULT 0,
-            date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
             FOREIGN KEY (tip_filter_peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)

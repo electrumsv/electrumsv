@@ -377,7 +377,7 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
             self.setWindowTitle(title)
 
 
-WaitingCompletionCallback = Callable[[concurrent.futures.Future], None]|None
+WaitingCompletionCallback = Callable[[concurrent.futures.Future[Any]], None]|None
 
 
 class WaitingDialog(WindowModalDialog):

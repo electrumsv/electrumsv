@@ -243,7 +243,7 @@ class AccessTokenList(MyTreeWidget):
         menu.exec(self.viewport().mapToGlobal(position))
 
 
-def show_view_token_dialog(parent_dialog: WindowModalDialog, list_widget: AccessTokenList,
+def show_view_token_dialog(parent_dialog: QWidget, list_widget: AccessTokenList,
         token_row: ChannelAccessTokenRow) -> None:
     wallet = list_widget._account._wallet
     wallet_data = wallet.data

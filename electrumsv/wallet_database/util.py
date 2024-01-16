@@ -1,4 +1,4 @@
-from datetime import datetime
+import os, random, threading, time
 
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -63,32 +63,39 @@ def flag_clause(column: str, flags: T|None, mask: T|None) -> tuple[str, list[T]]
     return f"({column} & ?) == ?", [mask, flags]
 
 
-UTC_TIMEZONE_INFO = '+00:00'
-ZULU_TIMEZONE_SUFFIX = 'Z'
+BASE_TIME           = 1199145601000     # Tue Jan 01 2008 00:00:01 GMT+0000
+BITS_TIME           = 42
+BITS_THREAD_ID      = 5
+BITS_PROCESS_ID     = 5
+BITS_INCREMENT      = 12
 
+increment_lock = threading.Lock()
+increment_value = 0
 
-class NoTimezoneInfoException(Exception):
-    pass
+def database_id_from_timestamp(t: int) -> int:
+    global increment_value
+    ts_raw = int(t*1000) - BASE_TIME
+    assert ts_raw >= 0
+    ts = ts_raw & ((1<<42)-1)
+    return (ts<<22) + random.randint(0, (1<<22)-1)
 
+def database_id_from_parts(*, ts: int=0, tid: int=0, pid: int=0, n: int=0) -> int:
+    ts &= (1<<42)-1
+    tid &= (1<<5)-1
+    pid &= (1<<5)-1
+    n &= (1<<12)-1
+    return (ts<<22) + (tid<<17) + (pid<<12) + n
 
-def from_isoformat(iso_timestamp: str) -> datetime:
-    """Timestamps such as: '2022-06-23T04:31:07.5387707Z' will fail conversion because
-    datetime.fromisoformat can only handle exactly 3 or 6 decimal figures precision.
-    It's easiest to just not deal with anything more precise than seconds.
-    Datetime objects also must have tzinfo in order for their internal unix timestamp to be
-    correct."""
-    if "." in iso_timestamp:  # truncate anything more precise than seconds
-        parts = iso_timestamp.split(".")
-        if iso_timestamp.endswith(ZULU_TIMEZONE_SUFFIX):
-            return datetime.fromisoformat(parts[0] + UTC_TIMEZONE_INFO)
-        elif iso_timestamp.endswith(UTC_TIMEZONE_INFO):
-            return datetime.fromisoformat(parts[0])
-        else:
-            raise NoTimezoneInfoException()
-    else:
-        if iso_timestamp.endswith(UTC_TIMEZONE_INFO):
-            return datetime.fromisoformat(iso_timestamp)
-        elif iso_timestamp.endswith(ZULU_TIMEZONE_SUFFIX):
-            return datetime.fromisoformat(iso_timestamp.replace('Z', UTC_TIMEZONE_INFO))
-        else:
-            raise NoTimezoneInfoException()
+def database_id() -> int:
+    global increment_value
+    increment_lock.acquire()
+    n = increment_value & ((1<<12)-1)
+    increment_value += 1
+    increment_lock.release()
+    ts = (int(time.time()*1000) - BASE_TIME) & ((1<<42)-1)
+    tid = threading.get_ident() & ((1<<5)-1)
+    pid = os.getpid() & ((1<<5)-1)
+    return (ts<<22) + (tid<<17) + (pid<<12) + n
+
+def timestamp_from_id(id: int) -> int:
+    return (BASE_TIME + (id>>22))//1000

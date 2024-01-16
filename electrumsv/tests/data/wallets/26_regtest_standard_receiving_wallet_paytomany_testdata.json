@@ -1,5 +1,10 @@
 {
-    "payment_descriptions": [],
+    "payment_descriptions": [
+        [
+            2048319761154048000,
+            "funding tx"
+        ]
+    ],
     "derivation_datas": {
         "1": [
             [
@@ -21,7 +26,7 @@
     "transactions": [
         {
             "transaction_id": "97238fd5c2fc99f5a0b69f39e4aa0897c2171dd09d7307d4ec526fdc3a8d970e",
-            "payment_id": 1,
+            "payment_id": 2048319761154048000,
             "flags": "settled",
             "block_hash": null,
             "block_height": 114,

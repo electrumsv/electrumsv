@@ -56,7 +56,7 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountHistoryOutputRow, AccountPaymentRow, BitcacheTransactionRow,
     PaymentDescriptionRow, AccountTransactionOutputSpendableRow,
-    AccountUTXOExRow, BackupMessageRow, ContactAddRow, ContactRow,
+    AccountUTXOExRow, BackupMessageRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRow, PaymentRequestRow,
@@ -70,7 +70,7 @@ from .types import (AccountRow, AccountHistoryOutputRow, AccountPaymentRow, Bitc
     TransactionValueRow, TXOFullRow, TransactionProoflessRow, UNITTEST_TxProofData,
     TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
     WalletEventInsertRow, WalletEventRow)
-from .util import flag_clause
+from .util import database_id, flag_clause, timestamp_from_id
 
 logger = logs.get_logger("db-functions")
 
@@ -122,29 +122,17 @@ def read_account_id_for_bitcache_peer_channel_id(db: sqlite3.Connection, local_i
     if row is None: return None
     return cast(int, row[0])
 
-def create_contacts_write(add_rows: list[ContactAddRow], db: sqlite3.Connection|None=None) \
-        -> list[ContactRow]:
-    assert db is not None
-
-    timestamp = int(time.time())
-    create_rows = [ (add_row.contact_name, add_row.remote_peer_channel_url,
-        add_row.remote_peer_channel_token, add_row.direct_identity_key_bytes, timestamp, timestamp)
-        for add_row in add_rows ]
-
-    insert_prefix_sql = "INSERT INTO Contacts (contact_name, remote_peer_channel_url, " \
-        "remote_peer_channel_token, direct_identity_key_bytes, date_created, date_updated) VALUES "
-    insert_suffix_sql = "RETURNING contact_id, contact_name, NULL, NULL, " \
-        "remote_peer_channel_url, remote_peer_channel_token, direct_identity_key_bytes, " \
-        "date_created, date_updated"
-    # Remember we cannot just return the `contact_id` and substitute it into the source row
-    # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ContactRow, db, insert_prefix_sql,
-        insert_suffix_sql, create_rows)
-
-
 CONTACT_ROW_COLUMNS = "contact_id, contact_name, direct_declared_name, local_peer_channel_id, " \
     "remote_peer_channel_url, remote_peer_channel_token, direct_identity_key_bytes, " \
-    "date_created, date_updated"
+    "date_updated"
+def create_contacts_write(rows: list[ContactRow], db: sqlite3.Connection|None=None) -> None:
+    assert db is not None
+    sql = f"INSERT INTO Contacts ({CONTACT_ROW_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)"
+    # Remember we cannot just return the `contact_id` and substitute it into the source row
+    # because SQLite cannot guarantee the row order matches the returned assigned id order.
+    db.executemany(sql, rows)
+
+
 CONTACT_READ_SQL = f"SELECT {CONTACT_ROW_COLUMNS} FROM Contacts"
 
 @replace_db_context_with_connection
@@ -164,23 +152,12 @@ def read_contact_for_peer_channel(db: sqlite3.Connection, peer_channel_id: int) 
         return ContactRow(*row)
     return None
 
-def update_contacts_write(update_rows: list[ContactRow], db: sqlite3.Connection|None=None) \
-        -> list[ContactRow]:
+def update_contacts_write(rows: list[ContactRow], db: sqlite3.Connection|None=None) -> None:
     assert db is not None
-
-    timestamp = int(time.time())
-    update_rows = [ update_row._replace(date_updated=timestamp) for update_row in update_rows ]
     sql = "UPDATE Contacts SET contact_name=?2, direct_declared_name=?3, " \
         "local_peer_channel_id=?4, remote_peer_channel_url=?5, remote_peer_channel_token=?6, " \
-        "direct_identity_key_bytes=?7, date_updated=?9 WHERE contact_id=?1 " \
-        "RETURNING "+ CONTACT_ROW_COLUMNS
-
-    updated_rows: list[ContactRow] = []
-    for update_row in update_rows:
-        updated_row = db.execute(sql, update_row).fetchone()
-        assert updated_row is not None
-        updated_rows.append(updated_row)
-    return updated_rows
+        "direct_identity_key_bytes=?7, date_updated=?8 WHERE contact_id=?1"
+    db.executemany(sql, rows)
 
 def update_contact_for_local_peer_channel_write(contact_id: int, peer_channel_id: int,
         db: sqlite3.Connection|None=None) -> ContactRow:
@@ -216,19 +193,12 @@ def update_contact_for_invitation_response_write(contact_id: int, stated_name: s
 
 
 def create_invoice_write(entry: InvoiceRow, account_id: int, contact_id: int|None,
-        db: sqlite3.Connection|None=None) -> InvoiceRow:
+        db: sqlite3.Connection|None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
-    # These must always be an unused placeholder of 0. We get assigned real values by sqlite.
-    assert entry.invoice_id == 0
-    assert entry.payment_id == 0
-
     # The invoice description is a placeholder for the wallet owner to edit/start from.
-    sql = "INSERT INTO Payments (contact_id,description,date_created, date_updated) " \
+    sql = "INSERT INTO Payments (payment_id,contact_id,description,date_updated) " \
         "VALUES (?1,?2,?3,?4)"
-    cursor = db.execute(sql, (contact_id,entry.description,entry.date_created,entry.date_updated))
-    assert cursor.lastrowid is not None
-    payment_id = cursor.lastrowid
-    entry = entry._replace(payment_id=payment_id)
+    cursor = db.execute(sql, (entry.payment_id,contact_id,entry.description,entry.date_updated))
 
     sql = "INSERT INTO AccountPayments (account_id, payment_id, date_created, date_updated) " \
         "VALUES (?1,?2,?3,?4)"
@@ -237,28 +207,23 @@ def create_invoice_write(entry: InvoiceRow, account_id: int, contact_id: int|Non
     # - We won't use the invoice description and should possibly remove it?
     # - Contextual: Maybe in the longer run we do not allow editing in the overview dashboard
     #   unless all accounts have no or the same description for the payment.
-    cursor = db.execute(sql, (account_id, payment_id, entry.date_created, entry.date_updated))
+    cursor = db.execute(sql, (account_id, entry.payment_id, entry.date_created, entry.date_updated))
     assert cursor.rowcount == 1
 
     # The invoice description is cached here for reference and read only display.
-    sql = "INSERT INTO Invoices (payment_id, payment_uri, description, invoice_flags, " \
-        "value, invoice_data, date_expires, date_created, date_updated) " \
-        "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) RETURNING invoice_id"
-    row = db.execute(sql, entry[1:]).fetchone()
-    assert row is not None
-    invoice_id = cast(int, row[0])
-    entry = entry._replace(invoice_id=invoice_id)
-    return entry
+    sql = "INSERT INTO Invoices (invoice_id,payment_id,payment_uri,description,invoice_flags," \
+        "value,invoice_data,date_expires,date_created,date_updated) " \
+        "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
+    db.execute(sql, entry)
 
 
 def create_keyinstances(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow]) \
         -> concurrent.futures.Future[None]:
     timestamp = int(time.time())
     datas = [ (*t, timestamp, timestamp) for t in entries]
-    sql = ("INSERT INTO KeyInstances "
-        "(keyinstance_id, account_id, masterkey_id, derivation_type, derivation_data, "
-        "derivation_data2, flags, description, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    sql = "INSERT INTO KeyInstances (keyinstance_id,account_id,masterkey_id,derivation_type,"\
+        "derivation_data,derivation_data2,flags,description,date_created,date_updated) "\
+        "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, datas)
@@ -267,60 +232,35 @@ def create_keyinstances(db_context: DatabaseContext, entries: Iterable[KeyInstan
 
 def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyRow]) \
         -> concurrent.futures.Future[None]:
-    sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
-        "derivation_data, flags, date_created, date_updated) "
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+    sql = "INSERT INTO MasterKeys (masterkey_id,parent_masterkey_id,derivation_type,"\
+        "derivation_data,flags,date_created,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7)"
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, entries)
     return db_context.post_to_thread(_write)
 
 
-def create_payment_request_write(account_id: int, contact_id: int|None,
-        request_row: PaymentRequestRow,
-        request_output_rows: list[PaymentRequestOutputRow], db: sqlite3.Connection|None=None) \
-            -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
+def create_payment_request_write(account_id: int, contact_id: int|None, pr_row: PaymentRequestRow,
+        pro_rows: list[PaymentRequestOutputRow], db: sqlite3.Connection|None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
+    date_created = timestamp_from_id(pr_row.paymentrequest_id)
+    sql = "INSERT INTO Payments (payment_id,contact_id,description,date_updated) "\
+        "VALUES (?1,?2,?3,?4)"
+    db.execute(sql, (pr_row.payment_id,contact_id,pr_row.description,pr_row.date_updated))
 
-    assert request_row.payment_id is None
-    sql = "INSERT INTO Payments (contact_id, description, date_created, date_updated) " \
-        "VALUES (?1, ?2, ?3, ?4)"
-    cursor = db.execute(sql, (contact_id, request_row.description, request_row.date_created,
-        request_row.date_updated))
-    assert cursor.lastrowid is not None
-    payment_id = cursor.lastrowid
-    request_row = request_row._replace(payment_id=payment_id)
+    sql = "INSERT INTO AccountPayments (account_id,payment_id,date_created,date_updated) "\
+        "VALUES (?1,?2,?3,?4)"
+    db.execute(sql, (account_id,pr_row.payment_id,date_created,pr_row.date_updated))
 
-    sql = "INSERT INTO AccountPayments (account_id, payment_id, date_created, date_updated) " \
-        "VALUES (?1, ?2, ?3, ?4)"
-    cursor = db.execute(sql, (account_id, payment_id, request_row.date_created,
-        request_row.date_updated))
-    assert cursor.rowcount == 1
+    sql = "INSERT INTO PaymentRequests (paymentrequest_id,payment_id,state,value,date_expires,"\
+        "description,server_id,dpp_invoice_id,dpp_ack_json,merchant_reference,encrypted_key_text,"\
+        "date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"
+    db.execute(sql, pr_row)
 
-    paymentrequest_id = request_row.paymentrequest_id
-    sql = """
-    INSERT INTO PaymentRequests (paymentrequest_id, payment_id, state, value, date_expires,
-        description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-        encrypted_key_text, date_created, date_updated)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-    """
-    cursor = db.execute(sql, request_row)
-    if paymentrequest_id is None:
-        assert cursor.lastrowid is not None
-        paymentrequest_id = cast(int, cursor.lastrowid)
-        request_row = request_row._replace(paymentrequest_id=paymentrequest_id)
-
-    for row_index, request_output_row in enumerate(request_output_rows):
-        request_output_rows[row_index] = request_output_row._replace(
-            paymentrequest_id=paymentrequest_id)
-    sql = """
-    INSERT INTO PaymentRequestOutputs (paymentrequest_id, transaction_index, output_index,
-    output_script_type, output_script, pushdata_hash, output_value, keyinstance_id, date_created,
-    date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-    """
-    cursor = db.executemany(sql, request_output_rows)
-    assert cursor.rowcount == len(request_output_rows)
-    return request_row, request_output_rows
+    sql = "INSERT INTO PaymentRequestOutputs (paymentrequest_id,transaction_index,output_index,"\
+        "output_script_type,output_script,pushdata_hash,output_value,keyinstance_id,date_updated) "\
+        "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"
+    db.executemany(sql, pro_rows)
 
 
 def create_dpp_messages(entries: list[DPPMessageRow], db: sqlite3.Connection|None=None) \
@@ -360,12 +300,12 @@ def UNITTEST_create_transaction_outputs(db_context: DatabaseContext,
 
 
 # This is currently only used from unit tests.
-def create_payments_UNITTEST(db_context: DatabaseContext, rows: list[tuple[int,int,int]]) \
+def create_payments_UNITTEST(db_context: DatabaseContext, rows: list[tuple[int,int]]) \
         -> concurrent.futures.Future[None]:
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         logger.debug("add %d payments", len(rows))
-        sql = "INSERT INTO Payments (payment_id, date_created, date_updated) VALUES (?1, ?2, ?3)"
+        sql = "INSERT INTO Payments (payment_id, date_updated) VALUES (?1, ?2)"
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -959,7 +899,7 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         assert account_id is not None
         # Used for the key/address dialog.
         sql = """
-        SELECT P.payment_id, P.contact_id, P.flags, AP.description, TOTAL(TV.value), P.date_created
+        SELECT P.payment_id, P.contact_id, P.flags, AP.description, TOTAL(TV.value)
         FROM Payments P
         INNER JOIN Transactions AS T ON T.payment_id=P.payment_id
         INNER JOIN AccountPayments AP ON AP.payment_id=P.payment_id
@@ -972,7 +912,7 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
 
     # TODO(technical-debt) Payments. Should join on `AccountPayments` using the cached columns.
     sql = """
-    SELECT APCM.payment_id, APCM.account_id, P.contact_id, P.flags, P.description, P.date_created,
+    SELECT APCM.payment_id, APCM.account_id, P.contact_id, P.flags, P.description,
         APCM.tx_count, APCM.tx_coinbase, APCM.tx_min_height, APCM.tx_max_height,
         APCM.tx_signed_count, APCM.tx_dispatched_count, APCM.tx_received_count,
         APCM.tx_cleared_count, APCM.tx_settled_count, APCM.delta_value,
@@ -987,12 +927,12 @@ def read_payment_history(db: sqlite3.Connection, account_id: int|None,
         # Used for the account history view.
         sql += " WHERE APCM.account_id=?1"
         params = (account_id,)
-    sql += " ORDER BY P.date_created DESC, APCM.payment_id DESC"
+    sql += " ORDER BY APCM.payment_id DESC"
     cursor = db.execute(sql, params)
     # NOTE(typing) False alarm? Too many arguments for "HistoryListRow"  [call-arg]
-    return [ HistoryListRow(*t[:17], # type: ignore[call-arg]
-        PaymentRequestFlag(t[17]) if t[17] is not None else None, t[18],
-        PaymentRequestFlag(t[19]) if t[19] is not None else None) for t in cursor.fetchall() ]
+    return [ HistoryListRow(*t[:16], # type: ignore[call-arg]
+        PaymentRequestFlag(t[16]) if t[16] is not None else None, t[17],
+        PaymentRequestFlag(t[18]) if t[18] is not None else None) for t in cursor.fetchall() ]
 
 
 def update_payment_cache(db: sqlite3.Connection|None=None) -> None:
@@ -1465,7 +1405,7 @@ def read_payment_request(db: sqlite3.Connection, request_id: int|None, payment_i
         request_id = cast(int, row[0])
 
     sql = "SELECT paymentrequest_id,payment_id,state,value,date_expires,description,server_id," \
-        "dpp_invoice_id,dpp_ack_json,merchant_reference,encrypted_key_text,date_created," \
+        "dpp_invoice_id,dpp_ack_json,merchant_reference,encrypted_key_text," \
         "date_updated FROM PaymentRequests "
     if request_id is not None:
         sql += "WHERE paymentrequest_id=?1"
@@ -1482,7 +1422,7 @@ def read_payment_request(db: sqlite3.Connection, request_id: int|None, payment_i
     request_row = PaymentRequestRow(*t)._replace(request_flags=PaymentRequestFlag(t[2]))
 
     sql = "SELECT paymentrequest_id,transaction_index,output_index,output_script_type," \
-        "output_script,pushdata_hash,output_value,keyinstance_id,date_created,date_updated " \
+        "output_script,pushdata_hash,output_value,keyinstance_id,date_updated " \
         "FROM PaymentRequestOutputs WHERE paymentrequest_id=?"
     request_output_rows: list[PaymentRequestOutputRow] = []
     for t in db.execute(sql, (request_row.paymentrequest_id,)).fetchall():
@@ -1496,7 +1436,7 @@ def read_payment_requests(db: sqlite3.Connection, *, account_id: int|None=None,
     sql = """SELECT PR.paymentrequest_id, PR.payment_id, PR.state, PR.value, PR.date_expires,
         PR.description,
         PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference,
-        PR.encrypted_key_text, PR.date_created, PR.date_updated
+        PR.encrypted_key_text, PR.date_updated
         FROM PaymentRequests PR"""
     sql_values: list[Any] = []
     used_where = False
@@ -1528,7 +1468,7 @@ def read_payment_requests(db: sqlite3.Connection, *, account_id: int|None=None,
             used_where = True
         sql_values.append(server_id)
     return [ PaymentRequestRow(t[0], t[1], PaymentRequestFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10], t[11], t[12]) for t in db.execute(sql, sql_values).fetchall() ]
+        t[8], t[9], t[10], t[11]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -1536,8 +1476,7 @@ def UNITTEST_read_payment_request_outputs(db: sqlite3.Connection, paymentrequest
         -> list[PaymentRequestOutputRow]:
     sql = """
         SELECT paymentrequest_id, transaction_index, output_index, output_script_type,
-            output_script, pushdata_hash, output_value, keyinstance_id, date_created,
-            date_updated
+            output_script, pushdata_hash, output_value, keyinstance_id, date_updated
         FROM PaymentRequestOutputs
         WHERE paymentrequest_id IN ({})
     """
@@ -1548,9 +1487,9 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
         db: sqlite3.Connection|None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
-    INSERT INTO ServerPushDataMatches (server_id, pushdata_hash, transaction_hash,
-        transaction_index, block_hash, match_flags, date_created)
-    VALUES (?,?,?,?,?,?,?)
+    INSERT INTO ServerPushDataMatches (server_id,pushdata_hash,transaction_hash,transaction_index,
+        block_hash,match_flags,date_created)
+    VALUES (?1,?2,?3,?4,?5,?6,?7)
     """
     for row in rows:
         try:
@@ -1998,7 +1937,7 @@ def read_network_servers(db: sqlite3.Connection,
         server_key: ServerAccountKey|None=None) -> list[NetworkServerRow]:
     read_server_row_sql = "SELECT server_id, server_type, url, account_id, server_flags, " \
         "api_key_template, encrypted_api_key, fee_quote_json, " \
-        "tip_filter_peer_channel_id, date_last_tried, date_last_connected, date_created, " \
+        "tip_filter_peer_channel_id, date_last_tried, date_last_connected, " \
         "date_updated FROM Servers"
     params: Sequence[Any] = ()
     if server_key is not None:
@@ -2010,63 +1949,42 @@ def read_network_servers(db: sqlite3.Connection,
 
 
 def create_server_peer_channel_write(row: ServerPeerChannelRow,
-        tip_filter_server_id: int|None=None,
-        db: sqlite3.Connection|None=None) -> int:
+        tip_filter_server_id: int|None=None, db: sqlite3.Connection|None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     flags = row.peer_channel_flags
-    # Ensure the inserted record gets an automatically allocated primary key.
-    assert row.peer_channel_id is None
     # Ensure the remote id is only non-`None` outside of allocation operations.
     assert row.remote_channel_id is None or flags & ChannelFlag.ALLOCATING == 0
     # Ensure the remote id is only `None` in an allocation operation.
     assert row.remote_channel_id is not None or flags & ChannelFlag.ALLOCATING != 0
 
-    sql = """
-        INSERT INTO ServerPeerChannels (peer_channel_id, server_id, remote_channel_id,
-            remote_url, peer_channel_flags, date_created, date_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        RETURNING peer_channel_id
-    """
-    insert_result_1 = db.execute(sql, row).fetchone()
-    if insert_result_1 is None:
-        raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
+    sql = "INSERT INTO ServerPeerChannels (peer_channel_id,server_id,remote_channel_id,remote_url,"\
+        "peer_channel_flags, date_updated) VALUES (?1,?2,?3,?4,?5,?6)"
+    db.execute(sql, row)
 
     # TODO(1.4.0) Tip filters, issue#904. Can we get delete the `tip_filter_peer_channel_id` field?
     #     We should just be able to do a preread based on the flags and enforce it.
-    peer_channel_id = cast(int, insert_result_1[0])
-    if row.peer_channel_flags & ChannelFlag.MASK_PURPOSE == \
-            ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
+    if row.peer_channel_flags & ChannelFlag.MASK_PURPOSE == ChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
         assert tip_filter_server_id is not None
         sql = """
             UPDATE Servers
             SET tip_filter_peer_channel_id=?
             WHERE server_id=? AND tip_filter_peer_channel_id IS NULL
         """
-        cursor = db.execute(sql, (peer_channel_id, tip_filter_server_id))
+        cursor = db.execute(sql, (row.peer_channel_id, tip_filter_server_id))
         if cursor.rowcount != 1:
             raise DatabaseUpdateError(f"Server {tip_filter_server_id} already has tip filter "
                 "peer channel")
 
-    return peer_channel_id
-
 
 def create_external_peer_channel_write(row: ExternalPeerChannelRow,
-        db: sqlite3.Connection|None=None) -> int:
+        db: sqlite3.Connection|None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     flags = row.peer_channel_flags
-    # Ensure the inserted record gets an automatically allocated primary key.
-    assert row.peer_channel_id is None
     # We are recording peer channels that another party has allocated for us in their app.
     assert flags & ChannelFlag.ALLOCATING == 0
     sql = "INSERT INTO ExternalPeerChannels (peer_channel_id,remote_url,peer_channel_flags," \
-        "access_token,token_permissions,date_created,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7) " \
-        "RETURNING peer_channel_id"
-    insert_result_1 = db.execute(sql, row).fetchone()
-    if insert_result_1 is None:
-        raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
-    peer_channel_id = cast(int, insert_result_1[0])
-    return peer_channel_id
-
+        "access_token,token_permissions,date_created,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7)"
+    db.execute(sql, row)
 
 @replace_db_context_with_connection
 def read_server_peer_channels(db: sqlite3.Connection, server_id: int|None=None,
@@ -2074,7 +1992,7 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int|None=None,
         flags: ChannelFlag|None=None, mask: ChannelFlag|None=None) \
             -> list[ServerPeerChannelRow]:
     sql = "SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags," \
-        "date_created, date_updated FROM ServerPeerChannels"
+        "date_updated FROM ServerPeerChannels"
     sql_values: list[Any] = []
     clause, extra_values = flag_clause("peer_channel_flags", flags, mask)
     if clause:
@@ -2090,8 +2008,8 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int|None=None,
         sql += f"{' AND' if sql_values else ' WHERE'} remote_channel_id=?"
         sql_values.append(remote_channel_id)
     cursor = db.execute(sql, sql_values)
-    return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ChannelFlag(row[4]),
-        row[5], row[6]) for row in cursor.fetchall() ]
+    return [ ServerPeerChannelRow(row[0],row[1],row[2],row[3],ChannelFlag(row[4]),row[5])
+        for row in cursor.fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -2099,7 +2017,7 @@ def read_external_peer_channels(db: sqlite3.Connection, flags: ChannelFlag|None,
         mask: ChannelFlag|None, peer_channel_id: int|None) \
             -> list[ExternalPeerChannelRow]:
     sql = "SELECT peer_channel_id,remote_url,peer_channel_flags,access_token,token_permissions," \
-        "date_created,date_updated FROM ExternalPeerChannels"
+        "date_updated FROM ExternalPeerChannels"
     sql_values: list[Any] = []
     clause, extra_values = flag_clause("peer_channel_flags", flags, mask)
     if clause:
@@ -2110,7 +2028,7 @@ def read_external_peer_channels(db: sqlite3.Connection, flags: ChannelFlag|None,
         sql_values.append(peer_channel_id)
     cursor = db.execute(sql, sql_values)
     return [ ExternalPeerChannelRow(row[0], row[1], ChannelFlag(row[2]), row[3],
-        TokenPermissions(row[4]), row[5], row[6]) for row in cursor.fetchall() ]
+        TokenPermissions(row[4]), row[5]) for row in cursor.fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -2119,8 +2037,8 @@ def read_external_peer_channel_messages(db: sqlite3.Connection, peer_channel_id:
         channel_flags: ChannelFlag|None, channel_mask: ChannelFlag|None) \
             -> list[ChannelMessageRow]:
     sql = """
-        SELECT PCM.message_id, PCM.peer_channel_id, PCM.message_data, PCM.message_flags,
-            PCM.sequence, PCM.date_received, PCM.date_created, PCM.date_updated
+        SELECT PCM.message_id,PCM.peer_channel_id,PCM.message_data,PCM.message_flags,
+            PCM.sequence,PCM.date_received,PCM.date_updated
         FROM ExternalPeerChannelMessages PCM
         INNER JOIN ExternalPeerChannels PC ON PC.peer_channel_id=PCM.peer_channel_id
             AND PC.peer_channel_id=?
@@ -2137,7 +2055,7 @@ def read_external_peer_channel_messages(db: sqlite3.Connection, peer_channel_id:
 
     cursor = db.execute(sql, sql_values)
     return [ ChannelMessageRow(row[0], row[1], row[2], ChannelMessageFlag(row[3]), row[4],
-        row[5], row[6], row[7]) for row in cursor.fetchall() ]
+        row[5], row[6]) for row in cursor.fetchall() ]
 
 @replace_db_context_with_connection
 def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
@@ -2146,7 +2064,7 @@ def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
             -> list[ChannelMessageRow]:
     sql = """
         SELECT SPCM.message_id, SPCM.peer_channel_id, SPCM.message_data, SPCM.message_flags,
-            SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
+            SPCM.sequence, SPCM.date_received, SPCM.date_updated
         FROM ServerPeerChannelMessages AS SPCM
         INNER JOIN ServerPeerChannels AS SPC ON SPC.peer_channel_id=SPCM.peer_channel_id
             AND SPC.server_id=?1
@@ -2169,7 +2087,7 @@ def update_server_peer_channel_write(remote_channel_id: str|None,
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = "UPDATE ServerPeerChannels SET remote_channel_id=?1,remote_url=?2,peer_channel_flags=?3 "\
         "WHERE peer_channel_id=?4 RETURNING peer_channel_id,server_id,remote_channel_id,"\
-        "remote_url,peer_channel_flags,date_created,date_updated"
+        "remote_url,peer_channel_flags,date_updated"
     cursor = db.execute(sql, (remote_channel_id, remote_url, channel_flags, channel_id))
     # NOTE(sqlite): rowcount 3.10.6 and beyond only updates for each fetched row. This means we
     #     need to fetch the returned rows to get a correct knowledge of how many were updated.
@@ -2177,7 +2095,7 @@ def update_server_peer_channel_write(remote_channel_id: str|None,
     assert len(rows) == 1
     row = rows[0]
     result_row = ServerPeerChannelRow(row[0], row[1], row[2], row[3], ChannelFlag(row[4]),
-            row[5], row[6])
+            row[5])
     if len(addable_access_tokens) > 0:
         sql = "INSERT INTO ServerPeerChannelAccessTokens (remote_id,peer_channel_id,token_flags," \
             "permission_flags,access_token,description) VALUES (?1,?2,?3,?4,?5,?6)"
@@ -2246,42 +2164,19 @@ def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
-def create_server_peer_channel_messages_write(create_rows: list[ChannelMessageRow],
-        db: sqlite3.Connection|None=None) -> list[ChannelMessageRow]:
+def create_server_peer_channel_messages_write(rows: list[ChannelMessageRow],
+        db: sqlite3.Connection|None=None) -> None:
     assert db is not None
+    sql = "INSERT INTO ServerPeerChannelMessages (message_id,peer_channel_id,message_data,"\
+        "message_flags,sequence,date_received,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7)"
+    db.executemany(sql, rows)
 
-    insert_prefix_sql = """
-        INSERT INTO ServerPeerChannelMessages (message_id, peer_channel_id, message_data,
-            message_flags, sequence, date_received, date_created, date_updated)
-        VALUES
-    """
-    insert_suffix_sql = """
-        RETURNING message_id, peer_channel_id, message_data, message_flags, sequence,
-            date_received, date_created, date_updated
-    """
-    # Remember we cannot just return the `message_id` and substitute it into the source row
-    # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ChannelMessageRow, db, insert_prefix_sql,
-        insert_suffix_sql, create_rows)
-
-
-def create_external_peer_channel_messages_write(create_rows: list[ChannelMessageRow],
-        db: sqlite3.Connection|None=None) -> list[ChannelMessageRow]:
+def create_external_peer_channel_messages_write(rows: list[ChannelMessageRow],
+        db: sqlite3.Connection|None=None) -> None:
     assert db is not None
-
-    insert_prefix_sql = """
-        INSERT INTO ExternalPeerChannelMessages (message_id, peer_channel_id, message_data,
-            message_flags, sequence, date_received, date_created, date_updated)
-        VALUES
-    """
-    insert_suffix_sql = """
-        RETURNING message_id, peer_channel_id, message_data, message_flags, sequence,
-            date_received, date_created, date_updated
-    """
-    # Remember we cannot just return the `message_id` and substitute it into the source row
-    # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ChannelMessageRow, db, insert_prefix_sql,
-        insert_suffix_sql, create_rows)
+    sql = "INSERT INTO ExternalPeerChannelMessages (message_id,peer_channel_id,message_data,"\
+        "message_flags,sequence,date_received,date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7)"
+    db.executemany(sql, rows)
 
 
 @replace_db_context_with_connection
@@ -3021,12 +2916,12 @@ def update_network_servers_transaction(db_context: DatabaseContext,
     # These columns should be in the same order as the `NetworkServerRow` tuple.
     insert_prefix_sql = "INSERT INTO Servers (server_id, server_type, url, account_id, " \
         "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
-        "tip_filter_peer_channel_id, date_last_connected, date_last_tried, date_created, " \
+        "tip_filter_peer_channel_id, date_last_connected, date_last_tried, " \
         "date_updated) VALUES"
     insert_suffix_sql = "RETURNING server_id, server_type, url, account_id, " \
         "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
         "tip_filter_peer_channel_id, date_last_connected, date_last_tried, " \
-        "date_created, date_updated"
+        "date_updated"
     update_sql = "UPDATE Servers SET date_updated=?, api_key_template=?, encrypted_api_key=?, " \
         "server_flags=? WHERE server_id=?"
     delete_ids_sql = "DELETE FROM Servers WHERE server_id=?"
@@ -3093,15 +2988,12 @@ def update_network_servers(db_context: DatabaseContext, rows: list[NetworkServer
     return db_context.post_to_thread(_write)
 
 
-def create_mapi_broadcasts_write(rows: list[MAPIBroadcastRow],
-        db: sqlite3.Connection|None=None) -> list[MAPIBroadcastRow]:
+def create_mapi_broadcasts_write(rows: list[MAPIBroadcastRow], db: sqlite3.Connection|None=None) \
+        -> None:
     assert db is not None
-    sql_prefix = "INSERT INTO MAPIBroadcasts (broadcast_id, tx_hash, broadcast_server_id, " \
-        "mapi_broadcast_flags, peer_channel_id, date_created, date_updated) VALUES"
-    sql_suffix = "RETURNING broadcast_id, tx_hash, broadcast_server_id, mapi_broadcast_flags, " \
-            "peer_channel_id, date_created, date_updated"
-    # NOTE(database) `executemany` does not support `RETURNING` so we have this bulk insert call.
-    return bulk_insert_returning(MAPIBroadcastRow, db, sql_prefix, sql_suffix, rows)
+    sql = "INSERT INTO MAPIBroadcasts (broadcast_id,tx_hash,broadcast_server_id,"\
+        "mapi_broadcast_flags,peer_channel_id,date_updated) VALUES (?1,?2,?3,?4,?5,?6)"
+    db.executemany(sql, rows)
 
 
 @replace_db_context_with_connection
@@ -3109,7 +3001,7 @@ def read_mapi_broadcasts(db: sqlite3.Connection, tx_hashes: list[bytes] | None=N
         -> list[MAPIBroadcastRow]:
     sql = f"""
     SELECT broadcast_id, tx_hash, broadcast_server_id, mapi_broadcast_flags, peer_channel_id,
-        date_created, date_updated
+        date_updated
     FROM MAPIBroadcasts
     WHERE mapi_broadcast_flags&{MAPIBroadcastFlag.DELETED}=0
     """
@@ -3259,10 +3151,9 @@ def import_transactions(payment_ctx: PaymentCtx, tx_rows: list[TransactionRow],
     assert len(payment_ctx.account_ids) == 0
 
     if payment_ctx.payment_id is None: # Create a payment if there is none.
-        sql = "INSERT INTO Payments (description,date_created,date_updated) VALUES (?1,?2,?2) " \
-            "RETURNING payment_id"
-        payment_ctx.payment_id = cast(tuple[int], db.execute(sql,
-            (payment_ctx.description, payment_ctx.timestamp)).fetchone())[0]
+        payment_ctx.payment_id = database_id()
+        sql = "INSERT INTO Payments (payment_id,description,date_updated) VALUES (?1,?2,?3)"
+        db.execute(sql, (payment_ctx.payment_id,payment_ctx.description,payment_ctx.timestamp))
         for i, tx_row in enumerate(tx_rows):
             tx_rows[i] = tx_row._replace(payment_id=payment_ctx.payment_id)
 

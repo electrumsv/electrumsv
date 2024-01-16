@@ -117,7 +117,7 @@ async def consume_bitcache_messages_async(state: ServerStateProtocol) -> None:
         # This is attached to a per-external peer channel web socket connection.
         e_state = cast(PeerChannelServerState, state)
         message_rows = state.wallet_data.read_external_peer_channel_messages(
-            cast(int, e_state.external_channel_row.peer_channel_id),
+            e_state.external_channel_row.peer_channel_id,
             ChannelMessageFlag.UNPROCESSED, ChannelMessageFlag.UNPROCESSED,
             ChannelFlag.PURPOSE_BITCACHE, ChannelFlag.PURPOSE_BITCACHE)
     else:

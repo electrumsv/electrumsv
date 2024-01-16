@@ -1,5 +1,14 @@
 {
-    "payment_descriptions": [],
+    "payment_descriptions": [
+        [
+            4194304000000003,
+            "Return funding to 'mainnet_cash'"
+        ],
+        [
+            4194304000000005,
+            "return funding"
+        ]
+    ],
     "derivation_datas": {
         "1": [
             [
@@ -25,7 +34,7 @@
     "transactions": [
         {
             "transaction_id": "06dfbe445332eeb619f13536eb0a0aeea49c5dfcaa2bb95804280a61678c4fd9",
-            "payment_id": 1,
+            "payment_id": 4194304000000000,
             "flags": "settled",
             "block_hash": null,
             "block_height": 574424,
@@ -36,7 +45,7 @@
         },
         {
             "transaction_id": "260aea84bce29a4d5dc3c40a49521fe8afce357d133af9b7704d013998a95b7a",
-            "payment_id": 2,
+            "payment_id": 4194304000000001,
             "flags": "cleared",
             "block_hash": null,
             "block_height": 0,
@@ -47,7 +56,7 @@
         },
         {
             "transaction_id": "3c4c7cb854ed4dd36a87c5e6c34431ebcae61a6f293a833f4ffa6f2f7c7141ff",
-            "payment_id": 3,
+            "payment_id": 4194304000000002,
             "flags": "settled",
             "block_hash": null,
             "block_height": 579835,
@@ -58,7 +67,7 @@
         },
         {
             "transaction_id": "44e14e2eef1482bc803d1a32d9348b4914922990dbb730fe70b8a40753aeea03",
-            "payment_id": 4,
+            "payment_id": 4194304000000003,
             "flags": "cleared",
             "block_hash": null,
             "block_height": -1,
@@ -69,7 +78,7 @@
         },
         {
             "transaction_id": "c647772ba6e767ec45b643c16d154b85c43d008bafad84384f16096e13617762",
-            "payment_id": 5,
+            "payment_id": 4194304000000004,
             "flags": "settled",
             "block_hash": null,
             "block_height": 579837,
@@ -80,7 +89,7 @@
         },
         {
             "transaction_id": "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c",
-            "payment_id": 6,
+            "payment_id": 4194304000000005,
             "flags": "settled",
             "block_hash": null,
             "block_height": 574424,

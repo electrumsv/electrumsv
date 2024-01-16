@@ -47,6 +47,7 @@ from .types import IndefiniteCredentialId, MasterKeyDataBIP32, MasterKeyDataElec
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MasterKeyDataTypes, \
     DatabaseKeyDerivationData
 from .wallet_database.types import KeyInstanceRow, MasterKeyRow
+from .wallet_database.util import database_id
 
 
 if TYPE_CHECKING:
@@ -433,8 +434,8 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         derivation_data = json.dumps(self.to_derivation_data()).encode()
         parent_masterkey_id = self._parent_keystore.get_id() if self._parent_keystore is not None \
             else None
-        return MasterKeyRow(-1, parent_masterkey_id, DerivationType.BIP32, derivation_data,
-            self._masterkey_flags, int(time.time()), int(time.time()))
+        return MasterKeyRow(database_id(), parent_masterkey_id, DerivationType.BIP32,
+            derivation_data, self._masterkey_flags, int(time.time()), int(time.time()))
 
     def get_master_public_key(self) -> str | None:
         return Xpub.get_master_public_key(self)
@@ -554,7 +555,7 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump,
+        return MasterKeyRow(database_id(), None, DerivationType.ELECTRUM_OLD, derivation_lump,
             MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def get_seed(self, password: str | None) -> str:
@@ -713,7 +714,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.HARDWARE, derivation_lump,
+        return MasterKeyRow(database_id(), None, DerivationType.HARDWARE, derivation_lump,
             MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def unpaired(self) -> None:
@@ -789,7 +790,7 @@ class Multisig_KeyStore(KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_MULTISIG, derivation_lump,
+        return MasterKeyRow(database_id(), None, DerivationType.ELECTRUM_MULTISIG, derivation_lump,
             MasterKeyFlag.NONE, int(time.time()), int(time.time()))
 
     def is_watching_only(self) -> bool:
