@@ -36,7 +36,10 @@ at first, to yourself, to confirm the network is processing your transactions as
 ElectrumSV
 -----------
 
-# Release 1.3.17
+# Release 1.3.18 (pending)
+  * Relicensed to MIT from the Open BSV license.
+
+# Release 1.3.17 (beta version only)
   * This is released to deal with the broken server issues.
 
 # Release 1.3.16

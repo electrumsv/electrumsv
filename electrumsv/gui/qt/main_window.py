@@ -820,7 +820,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 stable_version = stable_result["version"]
 
         def _on_view_pending_update(checked: bool=False):
-            QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
+            QDesktopServices.openUrl(QUrl("https://github.com/electrumsv/electrumsv/releases"))
 
         menu = QMenu()
         self._update_menu = menu

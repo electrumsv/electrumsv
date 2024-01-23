@@ -47,7 +47,7 @@
                     <div class="col-sm-12 pt-2"></div>
                     {% for file in DOWNLOAD_LATEST.files %}
                     <div class="col-sm-3"><span class="{{ file.class_name }} icon-download-type" title="{{ file.title }}"></span> {{ file.text }}</div>
-                    <div class="col-sm-6"><a href="https://electrumsv-downloads.s3.us-east-2.amazonaws.com/releases/{{ DOWNLOAD_LATEST.version }}/{{ file.file_name }}">{{ file.file_name }}</a></div>
+                    <div class="col-sm-6"><a href="https://github.com/electrumsv/electrumsv/releases/download/sv-{{ DOWNLOAD_LATEST.version }}/{{ file.file_name }}">{{ file.file_name }}</a></div>
                     <div class="col-sm-3 text-right">{{ file.size_text }}</div>
                     {% endfor %}
                     <div class="col-sm-12 pb-2"></div>

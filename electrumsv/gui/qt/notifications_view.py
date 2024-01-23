@@ -364,7 +364,7 @@ class NotificationCard(Card):
                 self._context.wallet_api.prompt_to_show_secured_data(self._row.account_id)
                 return
             elif url_path == "update":
-                QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
+                QDesktopServices.openUrl(QUrl("https://github.com/electrumsv/electrumsv/releases"))
                 return
         elif url_type == "help":
             if url_path == "view-secured-data":
