@@ -7,7 +7,7 @@ labels: ["support", "Needs Triage"]
 body:
 - type: checkboxes
   attributes:
-    - label: I have searched the [existing issues](https://github.com/electrumsv/electrumsv/issues) (type relevant keywords in the `Filters` line on the issues page).
+    label: I have searched the [existing issues](https://github.com/electrumsv/electrumsv/issues) (type relevant keywords in the `Filters` line on the issues page).
     description: Please search to see if an issue already exists for the bug you encountered.
     options:
     - label: I have searched the existing issues
