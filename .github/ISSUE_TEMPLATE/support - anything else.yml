@@ -1,4 +1,4 @@
-name: 🙏 Support - Other topics
+name: 🙏 Other support requests not covered here
 description: Request support/report a problem
 assignees:
   - rt121212121
@@ -7,7 +7,7 @@ labels: ["support", "Needs Triage"]
 body:
 - type: checkboxes
   attributes:
-    label: Is there an existing issue for this?
+    - label: I have searched the [existing issues](https://github.com/electrumsv/electrumsv/issues) (type relevant keywords in the `Filters` line on the issues page).
     description: Please search to see if an issue already exists for the bug you encountered.
     options:
     - label: I have searched the existing issues
