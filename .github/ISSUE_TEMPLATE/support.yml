@@ -15,7 +15,7 @@ body:
 - type: textarea
   attributes:
     label: Current Behavior
-    description: A concise description of what you're experiencing.
+    description: A concise description of what you're experiencing/wanting.
   validations:
     required: false
 - type: textarea
@@ -36,11 +36,12 @@ body:
   validations:
     required: false
 - type: dropdown
-  id: version
+  id: version-esv
   attributes:
-    label: Version
+    label: Version of ElectrumSV
     description: What version of our software are you running?
     options:
+      - I will make you ask and delay how long it takes you to help me.
       - 1.3.16 (current release)
       - 1.3.17b1 (beta version)
       - 1.3.15
@@ -50,19 +51,24 @@ body:
     default: 0
   validations:
     required: true
-- type: textarea
+- type: dropdown
+  id: version-os
   attributes:
-    label: Environment
-    description: |
-      examples:
-        - **Operating system**: Windows 11
-        - **Browser**: Brave
-    value: |
-        - Operating system:
-        - Browser:
-    render: markdown
+    label: Which operating system?
+    description: What operating system are you using?
+    options:
+      - I will make you ask and delay how long it takes you to help me.
+      - macOS 14 (Sonoma)
+      - Windows 11
+      - Linux (specific version mentioned under "Anything else")
+      - macOS 13 (Sonoma)
+      - macOS 12 (Ventura)
+      - macOS 11 (Big Sur)
+      - Windows 10
+      - Mentioned under "Anything else?".
+    default: 0
   validations:
-    required: false
+    required: true
 - type: textarea
   attributes:
     label: Anything else?
