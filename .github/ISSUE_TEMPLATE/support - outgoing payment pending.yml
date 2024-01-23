@@ -1,0 +1,81 @@
+name: 🤔 Support - Coins sent from ElectrumSV have not arrived
+description: If you sent coins from your ElectrumSV wallet somewhere else and they have not arrived
+assignees:
+  - rt121212121
+title: "[SUPPORT/OUTGOING-PAYMENT] <title>"
+labels: ["support", "Needs Triage"]
+body:
+- type: checkboxes
+  attributes:
+    label: Is there an existing issue for this?
+    description: Please search to see if an issue already exists for the bug you encountered.
+    options:
+    - label: I have searched the existing issues
+      required: true
+- type: dropdown
+  id: version-source
+  attributes:
+    label: What version of ElectrumSV were the coins were sent from?
+    description: What version of our software are you running?
+    options:
+      - I will make you ask and delay how long it takes you to help me.
+      - 1.3.16 (current release)
+      - 1.3.17b1 (beta version)
+      - 1.3.15
+      - 1.3.14
+      - 1.3.13
+      - Mentioned under "Anything else?".
+    default: 0
+  validations:
+    required: true
+- type: dropdown
+  id: version-os
+  attributes:
+    label: Which operating system is your ElectrumSV running on?
+    description: What operating system are you using?
+    options:
+      - I will make you ask and delay how long it takes you to help me.
+      - macOS 14 (Sonoma)
+      - Windows 11
+      - Linux (specific version mentioned under "Anything else")
+      - macOS 13 (Sonoma)
+      - macOS 12 (Ventura)
+      - macOS 11 (Big Sur)
+      - Windows 10
+      - Mentioned under "Anything else?".
+    default: 0
+  validations:
+    required: true
+- type: dropdown
+  id: version-destination
+  attributes:
+    label: Which wallet were your coins sent to?
+    description: Were your coins sent to another wallet application or a web site?
+    options:
+      - I will make you ask and delay how long it takes you to help me.
+      - Binance (exchange)
+      - CentBee (wallet)
+      - ElectrumSV (wallet)
+      - Exodus (exchange/wallet)
+      - HandCash (wallet)
+      - RockWallet (exchange/wallet)
+      - Tokenized (wallet)
+      - Mentioned under "Anything else?".
+    default: 0
+  validations:
+    required: true
+- type: textarea
+  attributes:
+    label: Expected Behavior
+    description: A concise description of what you expected to happen.
+  validations:
+    required: false
+- type: textarea
+  attributes:
+    label: Anything else?
+    description: |
+      Links? References? Anything that will give us more context about the topic you are raising!
+
+      Tip: You can attach images or log files by clicking this area to highlight it and then dragging files in.
+  validations:
+    required: false
