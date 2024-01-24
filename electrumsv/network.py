@@ -946,7 +946,6 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._monitor_accounts, group)
                 await group.spawn(self._monitor_wallets, group)
         finally:
-            self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(server for server in
                 SVServer.all_servers.values() if server.host not in BAD_SERVER_HOSTS), True)
 
@@ -1358,6 +1357,8 @@ class Network(TriggeredCallbacks):
 
     async def session_closed(self, session):
         self.sessions.remove(session)
+        if not self.sessions:
+            self.shutdown_complete_event.set()
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
         if session.server is self.main_server:
@@ -1370,10 +1371,12 @@ class Network(TriggeredCallbacks):
 
     async def shutdown_wait(self):
         self.future.cancel()
-        await self.shutdown_complete_event.wait()
-        if len(self.sessions) != 0:
-            logger.debug("Networks shutdown leaked %d sessions", len(self.sessions))
-        logger.debug('stopped')
+        async with ignore_after(1.0):
+            await self.shutdown_complete_event.wait()
+        if self.sessions:
+            logger.warning(f'network force-closing with {len(self.sessions)} sessions remaining')
+        else:
+            logger.warning('stopped')
 
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)
