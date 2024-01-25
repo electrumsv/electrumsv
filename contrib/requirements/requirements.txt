@@ -1,6 +1,5 @@
 aiohttp
-# NOTE(rt) Why do we pin this? Needs documentation.
-aiorpcX>=0.18.0,<0.19
+aiorpcX
 # Pinned due to large amounts of API changes we are not going to support in the
 # 1.3 release line.
 bitcoinX>=0.2.4,<0.2.5
