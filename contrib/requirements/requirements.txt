@@ -1,5 +1,4 @@
-# NOTE(rt) Why do we pin this? Needs documentation.
-aiohttp>=3.6.2,<=3.7.3
+aiohttp
 # NOTE(rt) Why do we pin this? Needs documentation.
 aiorpcX>=0.18.0,<0.19
 # Pinned due to large amounts of API changes we are not going to support in the
