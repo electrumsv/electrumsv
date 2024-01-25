@@ -30,7 +30,7 @@ def setup_module(module):
 # Set this locally to make the test suite run faster.
 # If set, unit tests that would normally test functions with multiple implementations,
 # will only be run once, using the fastest implementation.
-# e.g. libsecp256k1 vs python-ecdsa. pycryptodomex vs pyaes.
+# e.g. pycryptodomex vs pyaes.
 FAST_TESTS = False
 
 

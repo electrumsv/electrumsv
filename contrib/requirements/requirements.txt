@@ -9,7 +9,6 @@ certifi
 dmgbuild
 dnspython<2.0
 electrumsv-secp256k1==0.9.3
-ecdsa>=0.13.3
 jsonrpclib-pelix
 mypy-extensions
 psutil
