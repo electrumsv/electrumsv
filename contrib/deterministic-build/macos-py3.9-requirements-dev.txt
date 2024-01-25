@@ -355,13 +355,10 @@ ecdsa==0.18.0 \
     --hash=sha256:80600258e7ed2f16b9aa1d7c295bd70194109ad5a30fdee0eaeefef1d4c559dd
     # via
     #   electrumsv-btchip-python
-    #   electrumsv-keepkey
+    #   keepkey
     #   trezor
 electrumsv-btchip-python==0.1.32 \
     --hash=sha256:1b1133a2b063e8da65ef242dd69afe0b4acdccf7a93ffbd898f6975cd30d01ca
-    # via -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
-electrumsv-keepkey==6.1.0 \
-    --hash=sha256:cecff448978b7ab98a1f10ce455272c8b67576c742f1e5da4314ed404a7ede11
     # via -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
 electrumsv-secp256k1==18.0.0 \
     --hash=sha256:01699802080ebbb36bed0f1483a3ad6adc76480c70c4ffc5be1aa313d1093ba3 \
@@ -414,9 +411,8 @@ hidapi==0.10.0 \
     --hash=sha256:ac466f5cb72b6e9b7e08960db5e3af92ff6fa472326efa0691b7441312da7b10 \
     --hash=sha256:eb4c85978b5473972d7440809e82587b309640c1797aeaa5f604c24bca67d55d
     # via
-    #   -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
     #   electrumsv-btchip-python
-    #   electrumsv-keepkey
+    #   keepkey
 idna==3.6 \
     --hash=sha256:9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca \
     --hash=sha256:c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f
@@ -435,14 +431,17 @@ jsonrpclib-pelix==0.4.3.2 \
     --hash=sha256:a9c0178317562a179e83deb27f753840fad4afe3b2bd1ee64495592ce3df1b28 \
     --hash=sha256:e9e0b33efa8fa20d817dd78dfd9e4cdb3967c8a5d3cb5a783be1ee81c4a89c7c
     # via -r /Users/neil/src/electrum-sv/contrib/requirements/requirements.txt
+keepkey==6.3.1 \
+    --hash=sha256:88e2b5291c85c8e8567732f675697b88241082884aa1aba32257f35ee722fc09 \
+    --hash=sha256:cef1e862e195ece3e42640a0f57d15a63086fd1dedc8b5ddfcbc9c2657f0bb1e
+    # via -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
 libusb1==2.0.1 \
     --hash=sha256:81381ce1d8852a4d4345b2ee8218971d35865b5f025fef96b43ee082757099cd \
     --hash=sha256:9fda3055c98ab043cfb3beac93ef1de2900ad11d949c694f58bdf414ce2bd03c \
     --hash=sha256:a97bcb90f589d863c5e971b013c8cf7e1915680a951e66c4222a2c5bb64b7153 \
     --hash=sha256:d3ba82ecf7ab6a48d21dac6697e26504670cc3522b8e5941bd28fb56cf3f6c46
     # via
-    #   -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
-    #   electrumsv-keepkey
+    #   keepkey
     #   trezor
 mac-alias==2.2.2 \
     --hash=sha256:504ab8ac546f35bbd75ad014d6ad977c426660aa721f2cd3acf3dc2f664141bd \
@@ -458,7 +457,7 @@ mnemonic==0.20 \
     --hash=sha256:7c6fb5639d779388027a77944680aee4870f0fcd09b1e42a5525ee2ce4c625f6 \
     --hash=sha256:acd2168872d0379e7a10873bb3e12bf6c91b35de758135c4fbd1015ef18fafc5
     # via
-    #   electrumsv-keepkey
+    #   keepkey
     #   trezor
 multidict==6.0.4 \
     --hash=sha256:01a3a55bd90018c9c080fbb0b9f4891db37d148a0a18722b42f94694f8b6d4c9 \
@@ -609,7 +608,7 @@ protobuf==3.18.0 \
     --hash=sha256:f7c8193ec805324ff6024242b00f64a24b94d56b895f62bf28a9d72a228d4fca
     # via
     #   -r /Users/neil/src/electrum-sv/contrib/requirements/requirements-hw.txt
-    #   electrumsv-keepkey
+    #   keepkey
 psutil==5.9.7 \
     --hash=sha256:032f4f2c909818c86cea4fe2cc407f1c0f0cde8e6c6d702b28b8ce0c0d143340 \
     --hash=sha256:0bd41bf2d1463dfa535942b2a8f0e958acf6607ac0be52265ab31f7923bcd5e6 \

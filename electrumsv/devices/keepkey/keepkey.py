@@ -46,7 +46,7 @@ try:
     import keepkeylib
     import keepkeylib.ckd_public
     from keepkeylib.client import types
-    from usb1 import USBContext
+    from keepkeylib.transport_webusb import WebUsbTransport
     KEEPKEYLIB = True
 except Exception:
     logger.exception("Failed to import keepkeylib")
@@ -136,38 +136,17 @@ class KeepKeyPlugin(HW_PluginBase):
             return "BitcoinCash"
         return "BitcoinSV"
 
-    def _libusb_enumerate(self):
-        from keepkeylib.transport_webusb import DEVICE_IDS
-        for dev in self.usb_context.getDeviceIterator(skip_on_error=True):
-            usb_id = (dev.getVendorID(), dev.getProductID())
-            if usb_id in DEVICE_IDS:
-                yield dev
-
-    def _enumerate_hid(self):
-        if KEEPKEYLIB:
-            from keepkeylib.transport_hid import HidTransport
-            return HidTransport.enumerate()
-        return []
-
     def _enumerate_web_usb(self):
         if KEEPKEYLIB:
-            from keepkeylib.transport_webusb import WebUsbTransport
-            return self._libusb_enumerate()
+            return WebUsbTransport.enumerate()
         return []
 
     def _get_transport(self, device):
         logger.debug("Trying to connect over USB...")
 
-        if device.path.startswith('web_usb'):
-            for d in self._enumerate_web_usb():
-                if self._web_usb_path(d) == device.path:
-                    from keepkeylib.transport_webusb import WebUsbTransport
-                    return WebUsbTransport(d)
-        else:
-            for d in self._enumerate_hid():
-                if str(d[0]) == device.path:
-                    from keepkeylib.transport_hid import HidTransport
-                    return HidTransport(d)
+        for d in self._enumerate_web_usb():
+            if self._web_usb_path(d) == device.path:
+                return WebUsbTransport(d)
 
         raise RuntimeError(f'device {device} not found')
 
@@ -189,10 +168,6 @@ class KeepKeyPlugin(HW_PluginBase):
 
         for device in self._enumerate_web_usb():
             devices.append(self._device_for_path(self._web_usb_path(device)))
-
-        for device in self._enumerate_hid():
-            # Cast needed for older firmware
-            devices.append(self._device_for_path(str(device[0])))
 
         return devices
 
