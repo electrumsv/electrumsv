@@ -573,17 +573,14 @@ class TestDefaultEndpoints:
 
     async def test_create_tx_good_response(self, monkeypatch, cli):
         class MockEventLoop:
-
             async def run_in_executor(self, *args):
                 tx = Transaction.from_hex(rawtx)
                 frozen_utxos = None
                 return tx, frozen_utxos
 
-            def get_debug(self):
-                return
-
-            def is_running(self) -> bool:
-                return True
+            def get_debug(self): return
+            def time(self): return 1
+            def is_running(self) -> bool: return True
 
         def _fake_get_event_loop():
             return MockEventLoop()
@@ -616,13 +613,10 @@ class TestDefaultEndpoints:
     async def test_create_tx_insufficient_coins(self, monkeypatch, cli):
         """ensure that exception handling works even if no tx was successfully created"""
         class MockEventLoop:
-
-            def get_debug(self):
-                return
-
+            def get_debug(self): return
+            def time(self): return 1
             def is_running(self) -> bool:
                 return True
-
 
         def _fake_get_event_loop():
             return MockEventLoop()
