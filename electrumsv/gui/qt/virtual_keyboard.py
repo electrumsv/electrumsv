@@ -97,7 +97,7 @@ class VirtualKeyboard(QWidget):
             grid.addWidget(button, n + 1, cols + 1)
         for n, button in enumerate(self.char_buttons):
             grid.addWidget(button, n // cols, n % cols)
-        grid.setColumnMinimumWidth(cols, app_state.app.dpi / 12)
+        grid.setColumnMinimumWidth(cols, int(app_state.app.dpi / 12))
         return grid
 
     def _on_page_button(self, button):

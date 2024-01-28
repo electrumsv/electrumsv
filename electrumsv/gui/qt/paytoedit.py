@@ -252,7 +252,7 @@ class PayToEdit(ScanQRTextEdit):
 
     def update_size(self):
         lineHeight = QFontMetrics(self.document().defaultFont()).height()
-        docHeight = self.document().size().height()
+        docHeight = int(self.document().size().height())
         h = docHeight * lineHeight + 11
         if self.heightMin <= h <= self.heightMax:
             self.setMinimumHeight(h)
