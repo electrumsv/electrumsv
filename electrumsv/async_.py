@@ -25,6 +25,7 @@ from asyncio import Event, Queue, new_event_loop, run_coroutine_threadsafe, Canc
 from concurrent.futures import CancelledError as FCancelledError
 from functools import partial
 import queue
+import sys
 import threading
 
 from aiorpcx import instantiate_coroutine
@@ -48,12 +49,18 @@ class ASync(object):
         self.futures = set()
 
     def event(self):
-        '''Return an asyncio.Event for our event loop.'''
-        return Event()
+        '''Return ean asyncio.Event for our event loop.'''
+        if sys.version_info >= (3, 10):
+            return Event()
+        else:
+            return Event(loop=self.loop)
 
     def queue(self, maxsize=0):
         '''Return an asyncio.Event for our event loop.'''
-        return Queue(maxsize)
+        if sys.version_info >= (3, 10):
+            return Queue(maxsize)
+        else:
+            return Queue(maxsize, loop=self.loop)
 
     def __enter__(self):
         logger.info('starting async thread')
