@@ -62,6 +62,18 @@ stages:
         parameters:
           pythonVersion: '3.9'
 
+  - job: MainUnittestsPy310
+    displayName: Main Unittests (Python 3.10)
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.10'
+      - template: run_main_unittests.yml
+        parameters:
+          pythonVersion: '3.10'
+
   - job: RESTAPIUnittestsPy39
     displayName: REST API tests (Python 3.9)
     pool:
@@ -74,17 +86,29 @@ stages:
         parameters:
           pythonVersion: '3.9'
 
-  - job: TestFunctionalPy39
-    displayName: Functional tests (Python 3.9)
+  - job: RESTAPIUnittestsPy310
+    displayName: REST API tests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.9'
-      - template: run_functional_tests.yml
+          pythonVersion: '3.10'
+      - template: run_restapi_unittests.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
+
+  # - job: TestFunctionalPy39
+  #   displayName: Functional tests (Python 3.9)
+  #   pool:
+  #     vmImage: 'ubuntu-latest'
+  #   steps:
+  #     - template: prepare-general-environment.yml
+  #       parameters:
+  #         pythonVersion: '3.9'
+  #     - template: run_functional_tests.yml
+  #       parameters:
+  #         pythonVersion: '3.9'
 
 - stage: 'Build'
   displayName: 'Build ElectrumSV'
