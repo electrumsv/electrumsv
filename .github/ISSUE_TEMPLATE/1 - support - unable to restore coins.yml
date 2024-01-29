@@ -7,10 +7,10 @@ labels: ["support", "Needs Triage"]
 body:
 - type: checkboxes
   attributes:
-    label: Is there an existing issue for this?
-    description: Please search to see if an issue already exists for the bug you encountered.
+    label: Have you referred to our useful guide on how to restore coins with ElectrumSV?
+    description: This guide shows you the nuances of restoring coins in different wallets.
     options:
-    - label: I have searched the [existing issues](https://github.com/electrumsv/electrumsv/issues) (type relevant keywords in the `Filters` line on the issues page).
+    - label: I have read the [useful guide](https://rogertaylor.substack.com/p/how-do-i-import-my-seed-words) and tried what it describes.
       required: true
 - type: dropdown
   id: version-source
@@ -67,8 +67,8 @@ body:
     required: true
 - type: textarea
   attributes:
-    label: Expected Behavior
-    description: A concise description of what you expected to happen and what you saw instead.
+    label: Observed behavior
+    description: What you tried from the guide linked above, what you expected to happen and what you saw instead. If you do not fill this in, then you will be asked to provide this information before you get help.
   validations:
     required: false
 - type: textarea
