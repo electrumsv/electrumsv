@@ -943,8 +943,8 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._start_network, group)
                 await group.spawn(self._monitor_lagging_sessions)
                 await group.spawn(self._monitor_main_chain)
-                await group.spawn(self._monitor_accounts, group)
-                await group.spawn(self._monitor_wallets, group)
+                await group.spawn(self._monitor_accounts)
+                await group.spawn(self._monitor_wallets)
         finally:
             app_state.config.set_key('servers', list(server for server in
                 SVServer.all_servers.values() if server.host not in BAD_SERVER_HOSTS), True)
@@ -1024,13 +1024,13 @@ class Network(TriggeredCallbacks):
                 await self.sessions_changed_event.wait()
             await self._maybe_switch_main_server(SwitchReason.lagging)
 
-    async def _monitor_wallets(self, group):
+    async def _monitor_wallets(self):
         tasks = {}
         while True:
             job, wallet = await self._wallet_jobs.get()
             if job == 'add':
                 if wallet not in tasks:
-                    tasks[wallet] = await group.spawn(self._maintain_wallet(wallet))
+                    tasks[wallet] = app_state.async_.spawn(self._maintain_wallet(wallet))
             elif job == 'remove':
                 if wallet in tasks:
                     tasks.pop(wallet).cancel()
@@ -1044,13 +1044,13 @@ class Network(TriggeredCallbacks):
             else:
                 logger.error(f'unknown wallet job {job}')
 
-    async def _monitor_accounts(self, group):
+    async def _monitor_accounts(self):
         account_tasks = {}
         while True:
             job, account = await self.account_jobs.get()
             if job == 'add':
                 if account not in account_tasks:
-                    account_tasks[account] = await group.spawn(self._maintain_account(account))
+                    account_tasks[account] = app_state.async_.spawn(self._maintain_account(account))
             elif job == 'remove':
                 if account in account_tasks:
                     account_tasks.pop(account).cancel()

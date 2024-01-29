@@ -5,7 +5,6 @@ aiorpcX
 bitcoinX>=0.2.4,<0.2.5
 certifi
 dmgbuild
-dnspython<2.0
 electrumsv-secp256k1==18.0.0
 jsonrpclib-pelix
 mypy-extensions
