@@ -1,9 +1,10 @@
 from __future__ import annotations
 import asyncio
 import dataclasses
+import io
 import struct
 from types import TracebackType
-from typing import Any, Callable, Literal, NamedTuple, Protocol, Type, TYPE_CHECKING
+from typing import Callable, Literal, NamedTuple, Protocol, Type, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 import uuid
 
@@ -21,9 +22,9 @@ if TYPE_CHECKING:
     from .standards.mapi import MAPIBroadcastResponse
     from .standards.tsc_merkle_proof import TSCMerkleProof
     from .transaction import Transaction
-    from .wallet_database.types import AccountRow, AccountPaymentRow, \
-        AccountTransactionOutputSpendableRow, KeyDataProtocol, MasterKeyRow, \
-        MerkleProofRow, NetworkServerRow, TransactionInputSnapshotRow, TransactionRow
+    from .wallet_database.types import AccountRow, AccountPaymentRow,\
+        KeyDataProtocol, KeyInstanceRow, MasterKeyRow, MerkleProofRow, NetworkServerRow,\
+        PaymentRow, TransactionInputRow, TransactionOutputRow, TransactionRow
 
 
 @dataclasses.dataclass
@@ -363,89 +364,34 @@ class DaemonStatusDict(TypedDict):
     version: str
     wallets: dict[str, WalletStatusDict]
 
-
-class BackupMasterKeyEntry(TypedDict):
-    "Represents the creation of a masterkey in the wallet."
-    type: Literal["masterkey"]
-    masterkey_id: int
-    derivation: str|None
-    subtype: Literal["fingerprint"]
-    pubkey: str
-    date_created: int
-
-class BackupAccountEntry(TypedDict):
-    "Represents the creation of an account in the wallet."
-    type: Literal["account"]
-    account_id: int
-    account_name: NotRequired[str]
-    masterkey_id: int|None
-    date_created: int
-
-class BackupTransactionEntry(TypedDict):
-    "Represents the data for a transaction that is linked into the wallet."
-    type: Literal["transaction"]
-    transaction_id: str
-    transaction_data: str
-
-class BackupAccountPaymentEntry(TypedDict):
-    "Represents the linkage between an account and a payment."
-    type: Literal["account-payment"]
-    account_id: int
-    payment_id: int
-    description: NotRequired[str|None]
-    date_created: int
-
-class BackupPaymentTransactionEntry(TypedDict):
-    "Represents a transaction that makes up part of a payment."
-    type: Literal["payment-transaction"]
-    transaction_id: str
-    transaction_inputs: list[BackupTransactionInputEntry]
-    transaction_outputs: list[BackupTransactionOutputEntry]
-
-class BackupTransactionInputEntry(TypedDict):
-    input_index: int
-    spent_transaction_id: str
-    spent_output_index: int
-    # flags: int
-
-class BackupTransactionOutputEntry(TypedDict):
-    output_index: int
-    script_template: str
-    key_usage: BackupKeyUsageEntry
-
-class BackupKeyUsageEntry(TypedDict):
-    type: Literal["key-usage"]
-    # NOTE(technical-debt) Payments. It is very likely that not every key usage will be linked
-    #     to masterkeys, and this is likely the case for serialised imported private keys. This
-    #     field will likely be `NotRequired` and the subtype will determine which fields need to
-    #     be populated. For now we defer it.
-    masterkey_id: int
-    subtype: Literal["derivation??"]
-    # TODO(1.4.0) Backup. This needs to be fleshed out.
-
-class BackupPaymentEntry(TypedDict):
-    "Represents.."
-    type: Literal["payment"]
-    subtype: Literal["blockchain", "invoice"]
-    transactions: list[BackupPaymentTransactionEntry]
-    date_created: int
-
+class ChunkState(NamedTuple):
+    length_offset: int
 
 class BackupWritingProtocol(Protocol):
-    def translate_masterkey(self, row: MasterKeyRow) -> BackupMasterKeyEntry:
+    @staticmethod
+    def write_chunk_start(stream: io.BytesIO, chunk_id: bytes) -> ChunkState: ...
+    @staticmethod
+    def write_chunk_end(stream: io.BytesIO, state: ChunkState) -> None: ...
+    @staticmethod
+    def write_backup_header_to_stream(stream: io.BytesIO, db_migration: int) -> None: ...
+    @staticmethod
+    def write_masterkey_to_stream(stream: io.BytesIO, row: MasterKeyRow) -> None: ...
+    @staticmethod
+    def write_account_to_stream(stream: io.BytesIO, row: AccountRow) -> None: ...
+    @staticmethod
+    def write_payment_to_stream(stream: io.BytesIO, row: PaymentRow,
+        link_rows: list[AccountPaymentRow]) -> None: ...
+    @staticmethod
+    def write_account_payment_to_stream(stream: io.BytesIO, row: AccountPaymentRow) -> None: ...
+    @staticmethod
+    def write_transaction_to_stream(stream: io.BytesIO, row: TransactionRow,
+            input_rows: list[TransactionInputRow], output_rows: list[TransactionOutputRow],
+            key_rows: list[KeyInstanceRow]) -> None: ...
+    @staticmethod
+    def write_transaction_input_to_stream(stream: io.BytesIO, row: TransactionInputRow) -> None:
         ...
-    def translate_account(self, row: AccountRow) -> BackupAccountEntry:
+    @staticmethod
+    def write_transaction_output_to_stream(stream: io.BytesIO, row: TransactionOutputRow) -> None:
         ...
-    def translate_transaction(self, row: TransactionRow) -> BackupTransactionEntry:
-        ...
-    def translate_account_payment(self, row: AccountPaymentRow) -> BackupAccountPaymentEntry:
-        ...
-    def translate_payment(self, transaction_rows: list[TransactionRow],
-            input_rows: dict[bytes, list[TransactionInputSnapshotRow]],
-            output_rows: dict[bytes, list[AccountTransactionOutputSpendableRow]]) \
-                -> BackupPaymentEntry:
-        ...
-    def convert_script_type_to_template_name(self, script_type: ScriptType) -> str:
-        ...
-    def convert_entries_to_bytes(self, value: Any) -> bytes:
-        ...
+    @staticmethod
+    def write_keyinstances_to_stream(stream: io.BytesIO, rows: list[KeyInstanceRow]) -> None: ...

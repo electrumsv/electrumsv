@@ -20,8 +20,8 @@ class AccountRow(NamedTuple):
     flags: AccountFlag
     blockchain_server_id: int|None
     peer_channel_server_id: int|None
-    bitcache_peer_channel_id: int|None
-    external_bitcache_peer_channel_id: int|None
+    bitcache_channel_id: int|None
+    external_bitcache_channel_id: int|None
     date_created: int
     date_updated: int
 
@@ -147,6 +147,18 @@ class KeyInstanceRow(NamedTuple):
     account_id: int                     # Spendable type field.
     masterkey_id: int|None            # Spendable type field.
     derivation_type: DerivationType     # Spendable type field.
+    # @DerivationDataContents:
+    # DerivationType.BIP32_SUBPATH:     data2=packed derivation path bytes
+    # DerivationType.PRIVATE_KEY:       data2=compressed public key bytes
+    #                                   data={"pub":<public key hex>,"prv":<encrypted private key>}
+    # DerivationType.PUBLIC_KEY_HASH:   data2=public key hash160 bytes
+    #                                   data={"hash":<address string>}
+    # DerivationType.SCRIPT_HASH:       data2=script hash160 bytes
+    # NOTE(rt12) I looked at getting rid of `derivation_data` but it does include things that are
+    #     not in `derivation_data2` (the public key which is not obtainable from the encrypted
+    #     public key, the address coin which we can imply but it's work, the derivation path
+    #     prefix as ESV uses relative derivation paths as well as absolute 'm' ones). Deferred for
+    #     now for a later clean-up.
     derivation_data: bytes
     derivation_data2: bytes|None      # Spendable type field.
     flags: KeyInstanceFlag
@@ -265,7 +277,7 @@ class TransactionExistsRow(NamedTuple):
     account_id: int|None
 
 
-class TransactionInputAddRow(NamedTuple):
+class TransactionInputRow(NamedTuple):
     tx_hash: bytes
     txi_index: int
     spent_tx_hash: bytes
@@ -277,12 +289,6 @@ class TransactionInputAddRow(NamedTuple):
     date_created: int
     date_updated: int
 
-class TransactionInputSnapshotRow(NamedTuple):
-    spending_tx_hash: bytes
-    spending_txi_index: int
-    spent_tx_hash: bytes
-    spent_txo_index: int
-
 
 class TransactionOutputCommonProtocol(Protocol):
     tx_hash: bytes
@@ -293,7 +299,7 @@ class TransactionOutputCommonProtocol(Protocol):
     script_type: ScriptType
 
 
-class TransactionOutputAddRow(NamedTuple):
+class TransactionOutputRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int

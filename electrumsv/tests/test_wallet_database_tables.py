@@ -31,7 +31,7 @@ from electrumsv.wallet_database.types import (AccountRow, AccountPaymentRow,
     ContactRow, InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, ChannelMessageRow, ServerPeerChannelRow,
-    TransactionInputAddRow, TransactionOutputAddRow, TransactionProofUpdateRow, TransactionRow,
+    TransactionInputRow, TransactionOutputRow, TransactionProofUpdateRow, TransactionRow,
     WalletBalance, WalletEventInsertRow)
 from electrumsv.wallet_database.util import database_id, database_id_from_parts
 
@@ -740,9 +740,9 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     BLOCK_HEIGHT=200
     PAYMENT_ID_1 = 1
 
-    funded_tx_1_txi_row_1 = TransactionInputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_1,
+    funded_tx_1_txi_row_1 = TransactionInputRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_1,
         SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 0xFFFFFFFF, TXIN_FLAGS, 0, 0, 20221213, 20221213)
-    other_tx_1_txi_row_1 = TransactionInputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_2,
+    other_tx_1_txi_row_1 = TransactionInputRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_2,
         OTHER_TX_1_HASH, OTHER_TX_1_TXO_INDEX_1, 0xFFFFFFFF, TXIN_FLAGS, 0, 0, 20221213, 20221213)
 
     # No effect: The transactioninput foreign key constraint will fail as the transaction
@@ -791,11 +791,11 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     ]
     db_functions.create_keyinstances(db_context, keyinstance_rows).result(timeout=5)
 
-    row1 = TransactionOutputAddRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
+    row1 = TransactionOutputRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
         KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
-    row2 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
+    row2 = TransactionOutputRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
         KEYINSTANCE_ID_2, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
-    row3 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
+    row3 = TransactionOutputRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
         KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
 
     # Create some UTXOs for the funded transaction.
@@ -889,12 +889,12 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     SCRIPT_OFFSET2 = TX_BYTES.index(OTHER_OUTPUT_DATA1)
     SCRIPT_OFFSET3 = TX_BYTES.index(OTHER_OUTPUT_DATA2)
 
-    row1 = TransactionOutputAddRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
+    row1 = TransactionOutputRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
         ScriptType.P2PKH, TXOUT_FLAGS | TXOFlag.COINBASE,
         SCRIPT_OFFSET1, COINBASE_SCRIPT_LENGTH, 10, 10)
-    row2 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, ScriptType.P2PKH,
+    row2 = TransactionOutputRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, ScriptType.P2PKH,
         TXOUT_FLAGS, SCRIPT_OFFSET2, OTHER_SCRIPT_LENGTH, 10, 10)
-    row3 = TransactionOutputAddRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, ScriptType.P2PKH,
+    row3 = TransactionOutputRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, ScriptType.P2PKH,
         TXOUT_FLAGS, SCRIPT_OFFSET3, OTHER_SCRIPT_LENGTH, 10, 10)
 
     # No effect: The transactionoutput foreign key constraint will fail as the transactionoutput
@@ -1408,7 +1408,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         version=None, locktime=None, date_created=1, date_updated=1) ]
     db_functions.create_transactions_UNITTEST(db_context, tx_rows).result(timeout=5)
 
-    txo_row1 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1,
+    txo_row1 = TransactionOutputRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1,
         ScriptType.P2PKH, TXOUT_FLAGS, 0, 0, 10, 10)
     db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ]).result(timeout=5)
 

@@ -218,7 +218,7 @@ class AccessTokenList(MyTreeWidget):
         if self._account_id is None: return
         assert self._account is not None
         wallet = self._account._wallet
-        channel_id = self._account.get_row().bitcache_peer_channel_id
+        channel_id = self._account.get_row().bitcache_channel_id
         assert channel_id is not None
         self.clear()
         items: list[QTreeWidgetItem] = []
@@ -381,7 +381,7 @@ def show_add_token_dialog(parent_dialog: WindowModalDialog, wallet_data: WalletD
 
 def show_access_dialog(main_window: ElectrumWindow, wallet: Wallet, account_id: int) -> None:
     account = cast(AbstractAccount, wallet.get_account(account_id))
-    channel_id = cast(int, account.get_row().bitcache_peer_channel_id)
+    channel_id = cast(int, account.get_row().bitcache_channel_id)
     wallet_data = wallet.data
     server_state = wallet.get_connection_state_for_usage(NetworkServerFlag.USE_MESSAGE_BOX)
     assert server_state is not None

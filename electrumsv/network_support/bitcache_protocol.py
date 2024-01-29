@@ -301,8 +301,8 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
         key_fingerprint = account.get_fingerprint()
         account_row = account.get_row()
         access_token: str; channel_url: str
-        if account_row.bitcache_peer_channel_id is not None:
-            channel_id = account_row.bitcache_peer_channel_id
+        if account_row.bitcache_channel_id is not None:
+            channel_id = account_row.bitcache_channel_id
             channel_rows1 = wallet_data.read_server_peer_channels(channel_id=channel_id,
                 flags=ChannelFlag.NONE, mask=ChannelFlag.DEACTIVATED)
             if len(channel_rows1) != 1:
@@ -315,8 +315,8 @@ async def produce_bitcache_messages_async(server_state: ServerStateProtocol,
                 return
             access_token = token_rows[0].access_token
             channel_url = cast(str, channel_rows1[0].remote_url)
-        elif account_row.external_bitcache_peer_channel_id is not None:
-            channel_id = account_row.external_bitcache_peer_channel_id
+        elif account_row.external_bitcache_channel_id is not None:
+            channel_id = account_row.external_bitcache_channel_id
             channel_rows2 = wallet_data.read_external_peer_channels(peer_channel_id=channel_id,
                 flags=ChannelFlag.NONE, mask=ChannelFlag.DEACTIVATED)
             if len(channel_rows2) != 1:

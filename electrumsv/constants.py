@@ -697,12 +697,6 @@ class DPPMessageType(str, Enum):
 class BackupMessageFlag(IntFlag):
     NONE                                        = 0
 
-    INCLUDES_MASTERKEYS                         = 1 << 1
-    INCLUDES_ACCOUNTS                           = 1 << 2
-    INCLUDES_ACCOUNT_TRANSACTIONS               = 1 << 3
-    INCLUDES_TRANSACTIONS                       = 1 << 4
-    INCLUDES_PAYMENTS                           = 1 << 5
-
 
 class BitcacheTxFlag(IntFlag):
     NONE            = 0

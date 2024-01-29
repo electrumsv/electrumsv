@@ -128,8 +128,8 @@ from .wallet_database.types import (AccountRow, BitcacheTransactionRow, PaymentD
     PaymentRequestRow, PaymentRequestOutputRow, PaymentRequestUpdateRow, PaymentRow,
     MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
     ServerPeerChannelRow, ChannelAccessTokenRow, ChannelMessageRow, SpentOutputRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
-    TransactionOutputAddRow, STXORow,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputRow,
+    TransactionOutputRow, STXORow,
     UTXOProtocol, UTXORow, TransactionProofUpdateRow,
     TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow,
     AccountHistoryOutputRow)
@@ -365,8 +365,8 @@ class AbstractAccount:
         if channel_row:
             row = await self._wallet.data.update_account_for_bitcache_peer_channel_async(self._id,
                 channel_id=channel_row.peer_channel_id)
-            assert row.bitcache_peer_channel_id == channel_row.peer_channel_id
-            self._row = self._row._replace(bitcache_peer_channel_id=channel_row.peer_channel_id)
+            assert row.bitcache_channel_id == channel_row.peer_channel_id
+            self._row = self._row._replace(bitcache_channel_id=channel_row.peer_channel_id)
             server_state = cast(ServerStateProtocol, self._wallet.get_connection_state_for_usage(
                 NetworkServerFlag.USE_MESSAGE_BOX))
             assert server_state is not None
@@ -378,9 +378,9 @@ class AbstractAccount:
             assert external_channel_row is not None
             row = await self._wallet.data.update_account_for_bitcache_peer_channel_async(self._id,
                 external_channel_id=external_channel_row.peer_channel_id)
-            assert row.external_bitcache_peer_channel_id == external_channel_row.peer_channel_id
+            assert row.external_bitcache_channel_id == external_channel_row.peer_channel_id
             self._row = self._row._replace(
-                external_bitcache_peer_channel_id=external_channel_row.peer_channel_id)
+                external_bitcache_channel_id=external_channel_row.peer_channel_id)
 
     # Used for exception reporting account class instance classification.
     def type(self) -> AccountType:
@@ -2244,8 +2244,8 @@ class WalletDataAccess:
         return db_functions.read_transactions(self._db_context, payment_id=payment_id)
 
     async def import_transactions_async(self, payment_ctx: PaymentCtx,
-            tx_rows: list[TransactionRow], txi_rows: list[TransactionInputAddRow],
-            txo_rows: list[TransactionOutputAddRow], proofs: dict[bytes,MerkleProofRow],
+            tx_rows: list[TransactionRow], txi_rows: list[TransactionInputRow],
+            txo_rows: list[TransactionOutputRow], proofs: dict[bytes,MerkleProofRow],
             contexts: dict[bytes,TxImportCtx], rollback_on_spend_conflict: bool) -> None:
         """
         Wrap the database operations required to import a transaction so the processing is
@@ -2394,7 +2394,7 @@ class WalletDataAccess:
             account_id=account_id, tx_hash=tx_hash, txo_keys=txo_keys,
             derivation_data2s=derivation_data2s, require_keys=require_keys)
 
-    def read_transaction_outputs(self, l: list[Outpoint]) -> list[TransactionOutputAddRow]:
+    def read_transaction_outputs(self, l: list[Outpoint]) -> list[TransactionOutputRow]:
         return db_functions.read_transaction_outputs(self._db_context, l)
 
     def read_history_for_outputs(self, account_id: int, *, tx_hash: bytes|None=None,
@@ -3352,9 +3352,8 @@ class Wallet:
             payment_ctx.timestamp = int(time.time())
 
         tx_rows: list[TransactionRow] = []
-        txi_rows: list[TransactionInputAddRow] = []
-        txo_rows: list[TransactionOutputAddRow] = []
-
+        txi_rows: list[TransactionInputRow] = []
+        txo_rows: list[TransactionOutputRow] = []
         for tx_hash,tx,flags,block_height,block_hash,block_position in entries:
             assert tx.is_complete()
             context = contexts[tx_hash]
@@ -3377,7 +3376,7 @@ class Wallet:
             tx_rows.append(tx_row)
 
             for txi_index, txi in enumerate(tx.inputs):
-                txi_rows.append(TransactionInputAddRow(tx_hash, txi_index,
+                txi_rows.append(TransactionInputRow(tx_hash, txi_index,
                     txi.prev_hash, txi.prev_idx, txi.sequence,
                     TXIFlag.NONE, txi.script_offset, txi.script_length, payment_ctx.timestamp,
                     payment_ctx.timestamp))
@@ -3385,7 +3384,7 @@ class Wallet:
             for txo_idx, txo in enumerate(tx.outputs):
                 keyinstance_id,script_type = context.output_key_usage.get(txo_idx,
                     (None, ScriptType.NONE))
-                txo_rows.append(TransactionOutputAddRow(tx_hash, txo_idx,
+                txo_rows.append(TransactionOutputRow(tx_hash, txo_idx,
                     txo.value, keyinstance_id, script_type, txo_flags, txo.script_offset,
                     txo.script_length, payment_ctx.timestamp, payment_ctx.timestamp))
 
@@ -4269,7 +4268,7 @@ class Wallet:
                 server_state.bitcache_consumer_future = app_state.async_.spawn(
                     consume_bitcache_messages_async(server_state))
                 for account in self.get_accounts():
-                    channel_id = account.get_row().bitcache_peer_channel_id
+                    channel_id = account.get_row().bitcache_channel_id
                     if channel_id is None: continue
                     channel_rows = self.data.read_server_peer_channels(channel_id=channel_id)
                     assert len(channel_rows) == 1

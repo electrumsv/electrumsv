@@ -425,9 +425,9 @@ class WalletNavigationView(QSplitter):
         menu.addAction(_("&Restore account"),
             main_window_proxy.restore_active_account_manual)
 
-        owned_bitcache = account_row.bitcache_peer_channel_id is not None
-        no_bitcache = account_row.bitcache_peer_channel_id is None and \
-            account_row.external_bitcache_peer_channel_id is None
+        owned_bitcache = account_row.bitcache_channel_id is not None
+        no_bitcache = account_row.bitcache_channel_id is None and \
+            account_row.external_bitcache_channel_id is None
 
         bitcache_menu = menu.addMenu(_("&Bitcache"))
         bitcache_menu.addAction(_("&Setup new"),
