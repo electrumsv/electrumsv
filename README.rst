@@ -18,7 +18,7 @@ ElectrumSV - Lightweight Bitcoin SV client
 
 ::
 
-  Licence: Open BSV
+  Licence: MIT
   Maintainers: Roger Taylor, AustEcon
   Project Lead: Roger Taylor
   Language: Python (3.10 only)

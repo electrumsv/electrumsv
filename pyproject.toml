@@ -40,7 +40,7 @@ classifiers = [
   "Intended Audience :: End Users/Desktop",
   "Topic :: Office/Business :: Financial",
 
-  "License :: The Open BSV license",
+  "License :: MIT",
 
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
